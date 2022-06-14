@@ -42,6 +42,9 @@ pub enum Action {
         partition_id: usize,
         path: String,
     },
+    DeletePartition {
+        path: String,
+    },
 }
 
 /// Unique identifier for the output partition of an operator.

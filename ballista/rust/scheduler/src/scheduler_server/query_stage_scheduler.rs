@@ -26,12 +26,15 @@ use log::{debug, error, info};
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::event_loop::{EventAction, EventSender};
 
+use ballista_core::serde::scheduler::PartitionLocation;
 use ballista_core::serde::AsExecutionPlan;
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use tokio::sync::mpsc::Sender;
 
 use crate::scheduler_server::event::{QueryStageSchedulerEvent, SchedulerServerEvent};
 
 use crate::state::executor_manager::ExecutorReservation;
+use crate::state::shuffle_reaper::ShuffleReaper;
 use crate::state::SchedulerState;
 
 pub(crate) struct QueryStageScheduler<
@@ -40,6 +43,7 @@ pub(crate) struct QueryStageScheduler<
 > {
     state: Arc<SchedulerState<T, U>>,
     event_sender: Option<EventSender<SchedulerServerEvent>>,
+    shuffle_reaper: Sender<Vec<PartitionLocation>>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageScheduler<T, U> {
@@ -47,9 +51,25 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
         state: Arc<SchedulerState<T, U>>,
         event_sender: Option<EventSender<SchedulerServerEvent>>,
     ) -> Self {
+        let (sender, receiver) = tokio::sync::mpsc::channel(1000);
+        let reaper = ShuffleReaper::new(receiver);
+        reaper.start();
         Self {
             state,
             event_sender,
+            shuffle_reaper: sender,
+        }
+    }
+
+    pub(crate) fn new_with_reaper(
+        state: Arc<SchedulerState<T, U>>,
+        event_sender: Option<EventSender<SchedulerServerEvent>>,
+        sender: Sender<Vec<PartitionLocation>>,
+    ) -> Self {
+        Self {
+            state,
+            event_sender,
+            shuffle_reaper: sender,
         }
     }
 
@@ -151,8 +171,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     }
                 }
             }
-            QueryStageSchedulerEvent::JobFinished(job_id) => {
+            QueryStageSchedulerEvent::JobFinished(job_id, intermediate_shuffles) => {
                 info!("Job {} complete", job_id);
+                // Job is completed so we can clean up any intermediate shuffle files to clear disk space
+                if let Err(e) = self.shuffle_reaper.send(intermediate_shuffles).await {
+                    error!(
+                        "Error sending intermediate partitions to shuffle reaper: {:?}",
+                        e
+                    );
+                }
+
                 self.state.task_manager.complete_job(&job_id).await?;
             }
             QueryStageSchedulerEvent::JobFailed(job_id, fail_message) => {

@@ -88,6 +88,37 @@ impl BallistaClient {
         self.execute_action(&action).await
     }
 
+    pub async fn delete_partition(&mut self, path: &str) -> Result<()> {
+        let action = Action::DeletePartition {
+            path: path.to_owned(),
+        };
+        let serialized_action: protobuf::Action = action.try_into()?;
+        let mut buf: Vec<u8> = Vec::with_capacity(serialized_action.encoded_len());
+
+        serialized_action
+            .encode(&mut buf)
+            .map_err(|e| BallistaError::General(format!("{:?}", e)))?;
+
+        let request = tonic::Request::new(arrow_flight::Action {
+            r#type: "".to_string(),
+            body: buf,
+        });
+
+        let mut stream = self
+            .flight_client
+            .do_action(request)
+            .await
+            .map_err(|e| BallistaError::General(format!("{:?}", e)))?
+            .into_inner();
+
+        stream
+            .message()
+            .await
+            .map_err(|e| BallistaError::General(format!("{:?}", e)))?;
+
+        Ok(())
+    }
+
     /// Execute an action and retrieve the results
     pub async fn execute_action(
         &mut self,

@@ -33,6 +33,9 @@ impl TryInto<Action> for protobuf::Action {
                 partition_id: fetch.partition_id as usize,
                 path: fetch.path,
             }),
+            Some(ActionType::DeletePartition(delete)) => {
+                Ok(Action::DeletePartition { path: delete.path })
+            }
             _ => Err(BallistaError::General(
                 "scheduler::from_proto(Action) invalid or missing action".to_owned(),
             )),

@@ -36,7 +36,7 @@ use datafusion::arrow::{
     error::ArrowError, ipc::reader::FileReader, ipc::writer::IpcWriteOptions,
     record_batch::RecordBatch,
 };
-use futures::{Stream, StreamExt};
+use futures::{stream, Stream, StreamExt};
 use log::{info, warn};
 use std::io::{Read, Seek};
 use tokio::sync::mpsc::channel;
@@ -113,6 +113,7 @@ impl FlightService for BallistaFlightService {
                     Box::pin(ReceiverStream::new(rx)) as Self::DoGetStream
                 ))
             }
+            _ => Err(Status::invalid_argument("Invalid go_get action")),
         }
     }
 
@@ -163,10 +164,27 @@ impl FlightService for BallistaFlightService {
     ) -> Result<Response<Self::DoActionStream>, Status> {
         let action = request.into_inner();
 
-        let _action =
+        let action =
             decode_protobuf(&action.body.to_vec()).map_err(|e| from_ballista_err(&e))?;
 
-        Err(Status::unimplemented("do_action"))
+        match &action {
+            BallistaAction::FetchPartition { path, .. } => {
+                info!("DeletePartition deleting {}", &path);
+                std::fs::remove_file(&path)
+                    .map_err(|e| {
+                        BallistaError::General(format!(
+                            "Failed to delete partition file at {}: {:?}",
+                            path, e
+                        ))
+                    })
+                    .map_err(|e| from_ballista_err(&e))?;
+
+                Ok(Response::new(
+                    Box::pin(stream::empty()) as Self::DoActionStream
+                ))
+            }
+            _ => Err(Status::invalid_argument("Invalid do_action action")),
+        }
     }
 
     async fn list_actions(

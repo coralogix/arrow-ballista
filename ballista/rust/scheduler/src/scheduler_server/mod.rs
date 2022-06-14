@@ -28,7 +28,9 @@ use datafusion::execution::context::{default_session_builder, SessionState};
 use datafusion::prelude::SessionConfig;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 
+use ballista_core::serde::scheduler::PartitionLocation;
 use log::error;
+use tokio::sync::mpsc::Sender;
 
 use crate::scheduler_server::event::{QueryStageSchedulerEvent, SchedulerServerEvent};
 use crate::scheduler_server::event_loop::SchedulerServerEventAction;
@@ -136,6 +138,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         codec: BallistaCodec<T, U>,
         session_builder: SessionBuilder,
         event_action: Arc<dyn EventAction<SchedulerServerEvent>>,
+        reaper: Sender<Vec<PartitionLocation>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config,
@@ -145,8 +148,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         ));
 
         let event_loop = EventLoop::new("scheduler".to_owned(), 10000, event_action);
-        let query_stage_scheduler =
-            Arc::new(QueryStageScheduler::new(state.clone(), None));
+        let query_stage_scheduler = Arc::new(QueryStageScheduler::new_with_reaper(
+            state.clone(),
+            None,
+            reaper,
+        ));
         let query_stage_event_loop =
             EventLoop::new("query_stage".to_owned(), 10000, query_stage_scheduler);
         Self {
@@ -242,6 +248,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
 #[cfg(all(test, feature = "sled"))]
 mod test {
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -256,7 +263,7 @@ mod test {
         PhysicalPlanNode, ShuffleWritePartition, TaskStatus,
     };
     use ballista_core::serde::scheduler::{
-        ExecutorData, ExecutorMetadata, ExecutorSpecification,
+        ExecutorData, ExecutorMetadata, ExecutorSpecification, PartitionLocation,
     };
     use ballista_core::serde::BallistaCodec;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -265,6 +272,7 @@ mod test {
 
     use datafusion::test_util::scan_empty;
     use datafusion_proto::protobuf::LogicalPlanNode;
+    use tokio::sync::mpsc::Sender;
 
     use crate::scheduler_server::event::{
         QueryStageSchedulerEvent, SchedulerServerEvent,
@@ -405,11 +413,13 @@ mod test {
 
         let (sender, mut event_receiver) =
             tokio::sync::mpsc::channel::<SchedulerServerEvent>(1000);
+        let (reaper, _) = tokio::sync::mpsc::channel(1000);
         let (error_sender, _) = tokio::sync::mpsc::channel::<BallistaError>(1000);
 
         let event_action = SchedulerEventObserver::new(sender, error_sender);
 
-        let scheduler = test_scheduler_with_event_action(Arc::new(event_action)).await?;
+        let scheduler =
+            test_scheduler_with_event_action(Arc::new(event_action), reaper).await?;
 
         let executors = test_executors(task_slots);
         for (executor_metadata, executor_data) in executors {
@@ -537,6 +547,165 @@ mod test {
         Ok(())
     }
 
+    /// This test will verify that we send trigger the cleanup of intermediate shuffle files on job completiong
+    #[tokio::test]
+    async fn test_shuffle_cleanup() -> Result<()> {
+        let plan = test_plan();
+        let task_slots = 4;
+
+        let partitions_reaped = Arc::new(AtomicUsize::default());
+
+        let (sender, mut event_receiver) =
+            tokio::sync::mpsc::channel::<SchedulerServerEvent>(1000);
+        let (reaper, mut reaper_receiver) =
+            tokio::sync::mpsc::channel::<Vec<PartitionLocation>>(1000);
+        let (error_sender, _) = tokio::sync::mpsc::channel::<BallistaError>(1000);
+
+        let event_action = SchedulerEventObserver::new(sender, error_sender);
+
+        let partition_reaped_clone = partitions_reaped.clone();
+        tokio::task::spawn(async move {
+            let partitions_reaped = partition_reaped_clone;
+            while let Some(partitions) = reaper_receiver.recv().await {
+                partitions_reaped.fetch_add(partitions.len(), Ordering::SeqCst);
+            }
+        });
+
+        let scheduler =
+            test_scheduler_with_event_action(Arc::new(event_action), reaper).await?;
+
+        let executors = test_executors(task_slots);
+        for (executor_metadata, executor_data) in executors {
+            scheduler
+                .state
+                .executor_manager
+                .register_executor(executor_metadata, executor_data, false)
+                .await?;
+        }
+
+        let config = test_session(task_slots);
+
+        let ctx = scheduler
+            .state
+            .session_manager
+            .create_session(&config)
+            .await?;
+
+        let job_id = "job";
+        let session_id = ctx.session_id();
+
+        // Send JobQueued event to kick off the event loop
+        scheduler
+            .query_stage_event_loop
+            .get_sender()?
+            .post_event(QueryStageSchedulerEvent::JobQueued {
+                job_id: job_id.to_owned(),
+                session_id,
+                session_ctx: ctx,
+                plan: Box::new(plan),
+            })
+            .await?;
+
+        // Complete tasks that are offered through scheduler events
+        while let Some(SchedulerServerEvent::Offer(reservations)) =
+            event_receiver.recv().await
+        {
+            let free_list = match scheduler
+                .state
+                .task_manager
+                .fill_reservations(&reservations)
+                .await
+            {
+                Ok((assignments, mut unassigned_reservations, _)) => {
+                    // Break when we are no longer assigning tasks
+                    if unassigned_reservations.len() == reservations.len() {
+                        break;
+                    }
+
+                    for (executor_id, task) in assignments.into_iter() {
+                        match scheduler
+                            .state
+                            .executor_manager
+                            .get_executor_metadata(&executor_id)
+                            .await
+                        {
+                            Ok(executor) => {
+                                let mut partitions: Vec<ShuffleWritePartition> = vec![];
+
+                                let num_partitions = task
+                                    .output_partitioning
+                                    .map(|p| p.partition_count())
+                                    .unwrap_or(1);
+
+                                for partition_id in 0..num_partitions {
+                                    partitions.push(ShuffleWritePartition {
+                                        partition_id: partition_id as u64,
+                                        path: "some/path".to_string(),
+                                        num_batches: 1,
+                                        num_rows: 1,
+                                        num_bytes: 1,
+                                    })
+                                }
+
+                                // Complete the task
+                                let task_status = TaskStatus {
+                                    status: Some(task_status::Status::Completed(
+                                        CompletedTask {
+                                            executor_id: executor.id.clone(),
+                                            partitions,
+                                        },
+                                    )),
+                                    task_id: Some(PartitionId {
+                                        job_id: job_id.to_owned(),
+                                        stage_id: task.partition.stage_id as u32,
+                                        partition_id: task.partition.partition_id as u32,
+                                    }),
+                                };
+
+                                scheduler
+                                    .update_task_status(&executor.id, vec![task_status])
+                                    .await?;
+                            }
+                            Err(_e) => {
+                                unassigned_reservations.push(
+                                    ExecutorReservation::new_free(executor_id.clone()),
+                                );
+                            }
+                        }
+                    }
+                    unassigned_reservations
+                }
+                Err(_e) => reservations,
+            };
+
+            // If any reserved slots remain, return them to the pool
+            if !free_list.is_empty() {
+                scheduler
+                    .state
+                    .executor_manager
+                    .cancel_reservations(free_list)
+                    .await?;
+            }
+        }
+
+        let final_graph = scheduler
+            .state
+            .task_manager
+            .get_execution_graph(job_id)
+            .await?;
+
+        assert!(final_graph.complete());
+        assert_eq!(final_graph.output_locations().len(), 4);
+
+        await_condition(Duration::from_millis(50), 5, || async {
+            let partitions_reaped = partitions_reaped.clone();
+            Ok(partitions_reaped.load(Ordering::SeqCst) > 0)
+        })
+        .await?;
+
+        Ok(())
+    }
+
     // Simulate a task failure and ensure the job status is updated correctly
     #[tokio::test]
     async fn test_job_failure() -> Result<()> {
@@ -545,11 +714,13 @@ mod test {
 
         let (sender, mut event_receiver) =
             tokio::sync::mpsc::channel::<SchedulerServerEvent>(1000);
+        let (reaper, _) = tokio::sync::mpsc::channel(1000);
         let (error_sender, _) = tokio::sync::mpsc::channel::<BallistaError>(1000);
 
         let event_action = SchedulerEventObserver::new(sender, error_sender);
 
-        let scheduler = test_scheduler_with_event_action(Arc::new(event_action)).await?;
+        let scheduler =
+            test_scheduler_with_event_action(Arc::new(event_action), reaper).await?;
 
         let executors = test_executors(task_slots);
         for (executor_metadata, executor_data) in executors {
@@ -684,11 +855,14 @@ mod test {
 
         let (sender, _event_receiver) =
             tokio::sync::mpsc::channel::<SchedulerServerEvent>(1000);
+
+        let (reaper, _) = tokio::sync::mpsc::channel(1000);
         let (error_sender, _) = tokio::sync::mpsc::channel::<BallistaError>(1000);
 
         let event_action = SchedulerEventObserver::new(sender, error_sender);
 
-        let scheduler = test_scheduler_with_event_action(Arc::new(event_action)).await?;
+        let scheduler =
+            test_scheduler_with_event_action(Arc::new(event_action), reaper).await?;
 
         let config = test_session(task_slots);
 
@@ -758,6 +932,7 @@ mod test {
 
     async fn test_scheduler_with_event_action(
         event_action: Arc<dyn EventAction<SchedulerServerEvent>>,
+        reaper: Sender<Vec<PartitionLocation>>,
     ) -> Result<SchedulerServer<LogicalPlanNode, PhysicalPlanNode>> {
         let state_storage = Arc::new(StandaloneClient::try_new_temporary()?);
 
@@ -768,6 +943,7 @@ mod test {
                 BallistaCodec::default(),
                 default_session_builder,
                 event_action,
+                reaper,
             );
         scheduler.init().await?;
 

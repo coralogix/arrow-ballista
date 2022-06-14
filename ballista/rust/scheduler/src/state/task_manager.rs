@@ -184,7 +184,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         graph.job_id()
                     );
                     graph.finalize()?;
-                    events.push(QueryStageSchedulerEvent::JobFinished(job_id.clone()));
+                    let intermediate_shuffles = graph.intermediate_shuffle_locations();
+                    events.push(QueryStageSchedulerEvent::JobFinished(
+                        job_id.clone(),
+                        intermediate_shuffles,
+                    ));
                 } else if let Some(job_status::Status::Failed(failure)) =
                     graph.status().status
                 {

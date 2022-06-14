@@ -629,6 +629,19 @@ impl ExecutionGraph {
         Ok(())
     }
 
+    pub fn intermediate_shuffle_locations(&self) -> Vec<PartitionLocation> {
+        let mut locations: Vec<PartitionLocation> = vec![];
+        self.stages.iter().for_each(|(_, stage)| {
+            stage.inputs.iter().for_each(|(_, stage_output)| {
+                stage_output
+                    .partition_locations
+                    .iter()
+                    .for_each(|(_, locs)| locations.extend(locs.clone()));
+            })
+        });
+        locations
+    }
+
     pub fn update_status(&mut self, status: JobStatus) {
         self.status = status;
     }

@@ -19,6 +19,7 @@ use crate::state::executor_manager::ExecutorReservation;
 
 use datafusion::logical_plan::LogicalPlan;
 
+use ballista_core::serde::scheduler::PartitionLocation;
 use datafusion::prelude::SessionContext;
 use std::sync::Arc;
 
@@ -37,6 +38,6 @@ pub enum QueryStageSchedulerEvent {
         plan: Box<LogicalPlan>,
     },
     JobSubmitted(String),
-    JobFinished(String),
+    JobFinished(String, Vec<PartitionLocation>),
     JobFailed(String, String),
 }

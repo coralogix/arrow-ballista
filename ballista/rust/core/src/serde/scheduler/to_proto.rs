@@ -42,6 +42,12 @@ impl TryInto<protobuf::Action> for Action {
                 })),
                 settings: vec![],
             }),
+            Action::DeletePartition { path } => Ok(protobuf::Action {
+                action_type: Some(ActionType::DeletePartition(
+                    protobuf::DeletePartition { path },
+                )),
+                settings: vec![],
+            }),
         }
     }
 }
