@@ -168,7 +168,7 @@ impl FlightService for BallistaFlightService {
             decode_protobuf(&action.body.to_vec()).map_err(|e| from_ballista_err(&e))?;
 
         match &action {
-            BallistaAction::FetchPartition { path, .. } => {
+            BallistaAction::DeletePartition { path } => {
                 info!("DeletePartition deleting {}", &path);
                 std::fs::remove_file(&path)
                     .map_err(|e| {
