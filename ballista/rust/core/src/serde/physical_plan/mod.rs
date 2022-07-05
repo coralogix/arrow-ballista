@@ -361,14 +361,14 @@ impl AsExecutionPlan for PhysicalPlanNode {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let groups: Vec<Vec<bool>> = if !hash_agg.groups.is_empty() {
+                let groups: Vec<Vec<bool>> = if hash_agg.groups.is_empty() {
+                    vec![]
+                } else {
                     hash_agg
                         .groups
                         .chunks(num_expr)
                         .map(|g| g.to_vec())
                         .collect::<Vec<Vec<bool>>>()
-                } else {
-                    vec![]
                 };
 
                 let input_schema = hash_agg

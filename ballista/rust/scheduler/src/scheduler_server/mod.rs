@@ -837,9 +837,9 @@ mod test {
         assert!(
             matches!(
                 status,
-                JobStatus {
+                Some(JobStatus {
                     status: Some(job_status::Status::Failed(_))
-                }
+                })
             ),
             "Expected job status to be failed"
         );
@@ -899,9 +899,9 @@ mod test {
 
             Ok(matches!(
                 status,
-                JobStatus {
+                Some(JobStatus {
                     status: Some(job_status::Status::Failed(_))
-                }
+                })
             ))
         };
 
