@@ -33,9 +33,9 @@ use ballista_core::serde::protobuf::{
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::{ExecutorMetadata, PartitionLocation};
 use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use datafusion::prelude::SessionContext;
-use datafusion_proto::logical_plan::AsLogicalPlan;
 
 use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;

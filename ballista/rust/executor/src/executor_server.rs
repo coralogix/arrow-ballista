@@ -39,9 +39,9 @@ use ballista_core::serde::protobuf::{
 };
 use ballista_core::serde::scheduler::ExecutorState;
 use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::ExecutionPlan;
-use datafusion_proto::logical_plan::AsLogicalPlan;
 
 use crate::as_task_status;
 use crate::cpu_bound_executor::DedicatedExecutor;

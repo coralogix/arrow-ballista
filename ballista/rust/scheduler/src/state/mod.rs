@@ -27,7 +27,7 @@ use ballista_core::error::{BallistaError, Result};
 use crate::scheduler_server::SessionBuilder;
 
 use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
-use datafusion_proto::logical_plan::AsLogicalPlan;
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 
 use crate::state::backend::{Lock, StateBackendClient};
 

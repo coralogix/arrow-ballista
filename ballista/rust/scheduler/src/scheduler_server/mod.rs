@@ -25,8 +25,8 @@ use ballista_core::serde::protobuf::TaskStatus;
 use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
 use datafusion::execution::context::{default_session_builder, SessionState};
 
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion::prelude::SessionConfig;
-use datafusion_proto::logical_plan::AsLogicalPlan;
 
 use log::error;
 
@@ -293,8 +293,8 @@ mod test {
     use datafusion::execution::context::default_session_builder;
     use datafusion::logical_plan::{col, sum, LogicalPlan};
 
+    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion::test_util::scan_empty;
-    use datafusion_proto::protobuf::LogicalPlanNode;
 
     use crate::scheduler_server::event::{
         QueryStageSchedulerEvent, SchedulerServerEvent,
