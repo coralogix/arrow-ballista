@@ -23,6 +23,7 @@ use std::sync::Arc;
 
 use chrono::{TimeZone, Utc};
 use datafusion::arrow::datatypes::Schema;
+use datafusion::datafusion_proto;
 use datafusion::datasource::listing::{FileRange, PartitionedFile};
 use datafusion::datasource::object_store::ObjectStoreUrl;
 use datafusion::execution::context::ExecutionProps;
@@ -311,6 +312,7 @@ impl TryFrom<&protobuf::PartitionedFile> for PartitionedFile {
                 .map(|v| v.try_into())
                 .collect::<Result<Vec<_>, _>>()?,
             range: val.range.as_ref().map(|v| v.try_into()).transpose()?,
+            extensions: None,
         })
     }
 }

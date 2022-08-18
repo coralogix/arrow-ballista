@@ -29,7 +29,7 @@ use ballista_core::config::BallistaConfig;
 use ballista_core::serde::protobuf::scheduler_grpc_client::SchedulerGrpcClient;
 use ballista_core::serde::protobuf::{ExecuteQueryParams, KeyValuePair};
 use ballista_core::utils::create_df_ctx_with_ballista_query_planner;
-use datafusion_proto::protobuf::LogicalPlanNode;
+use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
 
 use datafusion::catalog::TableReference;
 use datafusion::dataframe::DataFrame;

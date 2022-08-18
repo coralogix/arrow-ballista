@@ -44,8 +44,8 @@ use ballista_executor::executor::Executor;
 use ballista_executor::flight_service::BallistaFlightService;
 use ballista_executor::metrics::LoggingMetricsCollector;
 use config::prelude::*;
+use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
-use datafusion_proto::protobuf::LogicalPlanNode;
 
 #[macro_use]
 extern crate configure_me;

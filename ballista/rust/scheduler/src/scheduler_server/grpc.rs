@@ -35,9 +35,9 @@ use ballista_core::serde::AsExecutionPlan;
 
 use object_store::{local::LocalFileSystem, path::Path, ObjectStore};
 
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::file_format::FileFormat;
-use datafusion_proto::logical_plan::AsLogicalPlan;
 use futures::TryStreamExt;
 use log::{debug, error, info, trace, warn};
 
@@ -46,7 +46,7 @@ use std::convert::TryInto;
 use std::ops::Deref;
 use std::sync::Arc;
 
-use datafusion_proto::protobuf::FileType;
+use datafusion::datafusion_proto::protobuf::FileType;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
@@ -564,8 +564,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 mod test {
     use std::sync::Arc;
 
+    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion::execution::context::default_session_builder;
-    use datafusion_proto::protobuf::LogicalPlanNode;
     use tonic::Request;
 
     use ballista_core::error::BallistaError;

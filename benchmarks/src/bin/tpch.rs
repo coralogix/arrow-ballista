@@ -21,6 +21,7 @@ use ballista::context::BallistaContext;
 use ballista::prelude::{
     BallistaConfig, BALLISTA_DEFAULT_BATCH_SIZE, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
 };
+use datafusion::datafusion_proto;
 use datafusion::datasource::file_format::csv::DEFAULT_CSV_EXTENSION;
 use datafusion::datasource::file_format::parquet::DEFAULT_PARQUET_EXTENSION;
 use datafusion::datasource::listing::ListingTableUrl;

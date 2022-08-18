@@ -25,7 +25,7 @@ use ballista_core::error::{BallistaError, Result};
 use ballista_core::event_loop::EventAction;
 
 use ballista_core::serde::AsExecutionPlan;
-use datafusion_proto::logical_plan::AsLogicalPlan;
+use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
 
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::SchedulerState;
@@ -172,12 +172,12 @@ mod test {
     };
     use ballista_core::serde::BallistaCodec;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion::execution::context::default_session_builder;
     use datafusion::logical_expr::{col, sum};
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::prelude::SessionContext;
     use datafusion::test_util::scan_empty;
-    use datafusion_proto::protobuf::LogicalPlanNode;
     use std::sync::Arc;
 
     // We should free any reservations which are not assigned
