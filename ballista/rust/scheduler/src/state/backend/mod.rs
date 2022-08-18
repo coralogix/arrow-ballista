@@ -118,7 +118,7 @@ pub trait Watch: Stream<Item = WatchEvent> + Send + Unpin {
     async fn cancel(&mut self) -> Result<()>;
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WatchEvent {
     /// Contains the inserted or updated key and the new value
     Put(String, Vec<u8>),
