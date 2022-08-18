@@ -294,7 +294,7 @@ mod tests {
             >,
         }
 
-        #[derive(Clone, PartialEq, ::prost::Message)]
+        #[derive(Clone, PartialEq, Eq, ::prost::Message)]
         pub struct TopKExecProto {
             #[prost(uint64, tag = "1")]
             pub k: u64,
