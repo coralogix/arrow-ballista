@@ -10,5 +10,5 @@ force_hash_collisions = ["upstream/force_hash_collisions"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-upstream = { git = "https://github.com/coralogix/arrow-datafusion", branch = "turbo-mode",  package = "datafusion"}
-datafusion-proto = { git = "https://github.com/coralogix/arrow-datafusion", branch = "turbo-mode" }
+upstream = { git = "https://github.com/coralogix/arrow-datafusion", branch = "ludicrous-speed",  package = "datafusion"}
+datafusion-proto = { git = "https://github.com/coralogix/arrow-datafusion", branch = "ludicrous-speed" }
