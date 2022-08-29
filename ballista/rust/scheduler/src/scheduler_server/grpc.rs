@@ -201,19 +201,34 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     .executor_manager
                     .register_executor(metadata, executor_data, true)
                     .await
-                    .unwrap();
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Error processing executor registration: {:?}",
+                            e
+                        ))
+                    })?;
 
                 sender
                     .post_event(SchedulerServerEvent::Offer(reservations))
                     .await
-                    .unwrap();
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Error posting offers for new executor: {:?}",
+                            e
+                        ))
+                    })?;
             } else {
                 // Otherwise just save the executor to state
                 self.state
                     .executor_manager
                     .register_executor(metadata, executor_data, false)
                     .await
-                    .unwrap();
+                    .map_err(|e| {
+                        Status::internal(format!(
+                            "Error processing executor registration: {:?}",
+                            e
+                        ))
+                    })?;
             }
 
             Ok(Response::new(RegisterExecutorResult { success: true }))
@@ -239,6 +254,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 .as_secs(),
             state,
         };
+
         self.state
             .executor_manager
             .save_executor_heartbeat(executor_heartbeat)
