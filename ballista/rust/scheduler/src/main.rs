@@ -18,14 +18,15 @@
 //! Ballista Rust scheduler binary.
 
 use anyhow::{Context, Result};
+#[cfg(feature = "flight-sql")]
+use arrow_flight::flight_service_server::FlightServiceServer;
 use ballista_scheduler::scheduler_server::externalscaler::external_scaler_server::ExternalScalerServer;
 use ballista_scheduler::scheduler_server::metrics::NoopMetricsCollector;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use std::convert::Infallible;
-use std::{net::SocketAddr, sync::Arc};
+use std::{env, io, net::SocketAddr, sync::Arc};
 use tonic::transport::server::Connected;
-use tonic::transport::Server as TonicServer;
 use tower::Service;
 
 use ballista_core::BALLISTA_VERSION;
@@ -60,12 +61,16 @@ mod config {
     ));
 }
 
+use ballista_core::utils::create_grpc_server;
+#[cfg(feature = "flight-sql")]
+use ballista_scheduler::flight_sql::FlightSqlServiceImpl;
 use config::prelude::*;
 use datafusion::execution::context::default_session_builder;
+use tracing_subscriber::EnvFilter;
 
 async fn start_server(
+    scheduler_name: String,
     config_backend: Arc<dyn StateBackendClient>,
-    namespace: String,
     addr: SocketAddr,
     policy: TaskSchedulingPolicy,
 ) -> Result<()> {
@@ -82,16 +87,16 @@ async fn start_server(
     let mut scheduler_server: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
         match policy {
             TaskSchedulingPolicy::PushStaged => SchedulerServer::new_with_policy(
+                scheduler_name,
                 config_backend.clone(),
-                namespace.clone(),
                 policy,
                 BallistaCodec::default(),
                 default_session_builder,
                 metrics_collector,
             ),
             _ => SchedulerServer::new(
+                scheduler_name,
                 config_backend.clone(),
-                namespace.clone(),
                 BallistaCodec::default(),
                 metrics_collector,
             ),
@@ -106,10 +111,17 @@ async fn start_server(
 
             let keda_scaler = ExternalScalerServer::new(scheduler_server.clone());
 
-            let mut tonic = TonicServer::builder()
+            let tonic_builder = create_grpc_server()
                 .add_service(scheduler_grpc_server)
-                .add_service(keda_scaler)
-                .into_service();
+                .add_service(keda_scaler);
+
+            #[cfg(feature = "flight-sql")]
+            let tonic_builder = tonic_builder.add_service(FlightServiceServer::new(
+                FlightSqlServiceImpl::new(scheduler_server.clone()),
+            ));
+
+            let mut tonic = tonic_builder.into_service();
+
             let mut warp = warp::service(get_routes(scheduler_server.clone()));
 
             let connect_info = request.connect_info();
@@ -143,8 +155,6 @@ async fn start_server(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
-
     // parse options
     let (opt, _remaining_args) =
         Config::including_optional_config_files(&["/etc/ballista/scheduler.toml"])
@@ -155,9 +165,37 @@ async fn main() -> Result<()> {
         std::process::exit(0);
     }
 
+    let special_mod_log_level = opt.log_level_setting;
     let namespace = opt.namespace;
+    let external_host = opt.external_host;
     let bind_host = opt.bind_host;
     let port = opt.bind_port;
+    let log_dir = opt.log_dir;
+    let print_thread_info = opt.print_thread_info;
+    let scheduler_name = format!("scheduler_{}_{}_{}", namespace, external_host, port);
+
+    // File layer
+    if let Some(log_dir) = log_dir {
+        let log_file = tracing_appender::rolling::daily(log_dir, &scheduler_name);
+        tracing_subscriber::fmt()
+            .with_ansi(true)
+            .with_thread_names(print_thread_info)
+            .with_thread_ids(print_thread_info)
+            .with_writer(log_file)
+            .with_env_filter(special_mod_log_level)
+            .init();
+    } else {
+        //Console layer
+        let rust_log = env::var(EnvFilter::DEFAULT_ENV);
+        let std_filter = EnvFilter::new(rust_log.unwrap_or_else(|_| "INFO".to_string()));
+        tracing_subscriber::fmt()
+            .with_ansi(true)
+            .with_thread_names(print_thread_info)
+            .with_thread_ids(print_thread_info)
+            .with_writer(io::stdout)
+            .with_env_filter(std_filter)
+            .init();
+    }
 
     let addr = format!("{}:{}", bind_host, port);
     let addr = addr.parse()?;
@@ -204,6 +242,6 @@ async fn main() -> Result<()> {
     };
 
     let policy: TaskSchedulingPolicy = opt.scheduler_policy;
-    start_server(client, namespace, addr, policy).await?;
+    start_server(scheduler_name, client, addr, policy).await?;
     Ok(())
 }

@@ -53,8 +53,8 @@ impl TryInto<protobuf::PhysicalExprNode> for Arc<dyn AggregateExpr> {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<protobuf::PhysicalExprNode, Self::Error> {
+        use datafusion::datafusion_proto::protobuf::AggregateFunction;
         use datafusion::physical_plan::expressions;
-        use datafusion_proto::protobuf::AggregateFunction;
         let aggr_function = if self.as_any().downcast_ref::<Avg>().is_some() {
             Ok(AggregateFunction::Avg.into())
         } else if self.as_any().downcast_ref::<Sum>().is_some() {

@@ -33,9 +33,9 @@ codegen-units = 1
 inherits = "release"
 lto = true
 
-[patch.crates-io]
-arrow = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
-arrow-flight = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
-parquet = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
+# [patch.crates-io]
+# arrow = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
+# arrow-flight = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
+# parquet = { git = "https://github.com/coralogix/arrow-rs", branch = "turbo-mode" }
 
 

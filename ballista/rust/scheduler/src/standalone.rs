@@ -17,6 +17,7 @@
 
 use ballista_core::serde::protobuf::PhysicalPlanNode;
 use ballista_core::serde::BallistaCodec;
+use ballista_core::utils::create_grpc_server;
 use ballista_core::{
     error::Result, serde::protobuf::scheduler_grpc_server::SchedulerGrpcServer,
     BALLISTA_VERSION,
@@ -25,7 +26,6 @@ use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
 use log::info;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
-use tonic::transport::Server;
 
 use crate::scheduler_server::metrics::NoopMetricsCollector;
 use crate::{
@@ -37,8 +37,8 @@ pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
 
     let mut scheduler_server: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
         SchedulerServer::new(
+            "localhost:50050".to_owned(),
             Arc::new(client),
-            "ballista".to_string(),
             BallistaCodec::default(),
             Arc::new(NoopMetricsCollector::default()),
         );
@@ -52,9 +52,11 @@ pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
         BALLISTA_VERSION, addr
     );
     tokio::spawn(
-        Server::builder().add_service(server).serve_with_incoming(
-            tokio_stream::wrappers::TcpListenerStream::new(listener),
-        ),
+        create_grpc_server()
+            .add_service(server)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(
+                listener,
+            )),
     );
 
     Ok(addr)

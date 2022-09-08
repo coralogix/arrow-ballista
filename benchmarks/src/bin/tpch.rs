@@ -21,7 +21,6 @@ use ballista::context::BallistaContext;
 use ballista::prelude::{
     BallistaConfig, BALLISTA_DEFAULT_BATCH_SIZE, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
 };
-use datafusion::datafusion_proto;
 use datafusion::datasource::file_format::csv::DEFAULT_CSV_EXTENSION;
 use datafusion::datasource::file_format::parquet::DEFAULT_PARQUET_EXTENSION;
 use datafusion::datasource::listing::ListingTableUrl;
@@ -1462,9 +1461,10 @@ mod tests {
     mod ballista_round_trip {
         use super::*;
         use ballista_core::serde::{protobuf, AsExecutionPlan, BallistaCodec};
+        use datafusion::datafusion_proto;
+        use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
         use datafusion::datasource::listing::ListingTableUrl;
         use datafusion::physical_plan::ExecutionPlan;
-        use datafusion_proto::logical_plan::AsLogicalPlan;
         use std::ops::Deref;
 
         async fn round_trip_query(n: usize) -> Result<()> {

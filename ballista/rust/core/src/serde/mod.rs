@@ -273,7 +273,6 @@ mod tests {
     use prost::Message;
     use std::any::Any;
 
-    use datafusion::datafusion_proto;
     use datafusion::datafusion_proto::from_proto::parse_expr;
     use std::convert::TryInto;
     use std::fmt;
@@ -294,7 +293,7 @@ mod tests {
             >,
         }
 
-        #[derive(Clone, PartialEq, Eq, ::prost::Message)]
+        #[derive(Clone, Eq, PartialEq, ::prost::Message)]
         pub struct TopKExecProto {
             #[prost(uint64, tag = "1")]
             pub k: u64,
@@ -306,7 +305,7 @@ mod tests {
     use crate::serde::{
         AsExecutionPlan, AsLogicalPlan, LogicalExtensionCodec, PhysicalExtensionCodec,
     };
-    use datafusion_proto::protobuf::LogicalPlanNode;
+    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
     use proto::{TopKExecProto, TopKPlanProto};
 
     struct TopKPlanNode {

@@ -16,20 +16,20 @@
 // under the License.
 
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use datafusion::logical_plan::LogicalPlan;
-use datafusion::prelude::SessionContext;
 use log::{debug, error, info};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::event_loop::{EventAction, EventSender};
 
+use ballista_core::config::TaskSchedulingPolicy;
 use ballista_core::serde::AsExecutionPlan;
 use datafusion::datafusion_proto::logical_plan::AsLogicalPlan;
+use tokio::sync::mpsc;
 
-use crate::scheduler_server::event::{QueryStageSchedulerEvent, SchedulerServerEvent};
+use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::metrics::SchedulerMetricsCollector;
 
 use crate::state::executor_manager::ExecutorReservation;
@@ -40,48 +40,21 @@ pub(crate) struct QueryStageScheduler<
     U: 'static + AsExecutionPlan,
 > {
     state: Arc<SchedulerState<T, U>>,
-    event_sender: Option<EventSender<SchedulerServerEvent>>,
+    policy: TaskSchedulingPolicy,
     metrics_collector: Arc<dyn SchedulerMetricsCollector>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageScheduler<T, U> {
     pub(crate) fn new(
         state: Arc<SchedulerState<T, U>>,
-        event_sender: Option<EventSender<SchedulerServerEvent>>,
+        policy: TaskSchedulingPolicy,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         Self {
             state,
-            event_sender,
+            policy,
             metrics_collector,
         }
-    }
-
-    async fn submit_job(
-        &self,
-        job_id: String,
-        session_id: String,
-        session_ctx: Arc<SessionContext>,
-        plan: &LogicalPlan,
-        queued_at: u64,
-    ) -> Result<()> {
-        let start = Instant::now();
-        let optimized_plan = session_ctx.optimize(plan)?;
-
-        debug!("Calculated optimized plan: {:?}", optimized_plan);
-
-        let plan = session_ctx.create_physical_plan(&optimized_plan).await?;
-
-        self.state
-            .task_manager
-            .submit_job(&job_id, &session_id, plan.clone(), queued_at)
-            .await?;
-
-        let elapsed = start.elapsed();
-
-        info!("Planned job {} in {:?}", job_id, elapsed);
-
-        Ok(())
     }
 }
 
@@ -100,41 +73,51 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     async fn on_receive(
         &self,
         event: QueryStageSchedulerEvent,
-    ) -> Result<Option<QueryStageSchedulerEvent>> {
+        tx_event: &mpsc::Sender<QueryStageSchedulerEvent>,
+        _rx_event: &mpsc::Receiver<QueryStageSchedulerEvent>,
+    ) -> Result<()> {
+        let tx_event = EventSender::new(tx_event.clone());
         match event {
             QueryStageSchedulerEvent::JobQueued {
                 job_id,
-                session_id,
                 session_ctx,
                 plan,
                 queued_at,
             } => {
                 info!("Job {} queued", job_id);
-                return if let Err(e) = self
-                    .submit_job(job_id.clone(), session_id, session_ctx, &plan, queued_at)
-                    .await
-                {
-                    let msg = format!("Error planning job {}: {:?}", job_id, e);
-                    error!("{}", msg);
-                    Ok(Some(QueryStageSchedulerEvent::JobFailed {
-                        job_id,
-                        fail_message: msg,
-                        queued_at,
-                        failed_at: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .expect("Time went backwards")
-                            .as_secs(),
-                    }))
-                } else {
-                    Ok(Some(QueryStageSchedulerEvent::JobSubmitted {
-                        job_id,
-                        queued_at,
-                        submitted_at: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .expect("Time went backwards")
-                            .as_secs(),
-                    }))
-                };
+                let state = self.state.clone();
+                tokio::spawn(async move {
+                    let event = if let Err(e) = state
+                        .submit_job(&job_id, session_ctx, &plan, queued_at)
+                        .await
+                    {
+                        let msg = format!("Error planning job {}: {:?}", job_id, e);
+                        error!("{}", &msg);
+                        QueryStageSchedulerEvent::JobPlanningFailed {
+                            job_id,
+                            fail_message: msg,
+                            queued_at,
+                            failed_at: SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_secs(),
+                        }
+                    } else {
+                        QueryStageSchedulerEvent::JobSubmitted {
+                            job_id,
+                            queued_at,
+                            submitted_at: SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .expect("Time went backwards")
+                                .as_secs(),
+                        }
+                    };
+                    tx_event
+                        .post_event(event)
+                        .await
+                        .map_err(|e| error!("Fail to send event due to {}", e))
+                        .unwrap();
+                });
             }
             QueryStageSchedulerEvent::JobSubmitted {
                 job_id,
@@ -144,7 +127,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 info!("Job {} submitted", job_id);
                 self.metrics_collector
                     .record_submitted(&job_id, queued_at, submitted_at);
-                if let Some(sender) = &self.event_sender {
+                if matches!(self.policy, TaskSchedulingPolicy::PushStaged) {
                     let available_tasks = self
                         .state
                         .task_manager
@@ -166,29 +149,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         job_id
                     );
 
-                    if let Err(e) = sender
-                        .post_event(SchedulerServerEvent::Offer(reservations.clone()))
-                        .await
-                    {
-                        error!("Error posting offer: {:?}", e);
-                        self.state
-                            .executor_manager
-                            .cancel_reservations(reservations)
-                            .await?;
-                    }
+                    tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                            reservations,
+                        ))
+                        .await?;
                 }
             }
-            QueryStageSchedulerEvent::JobFinished {
-                job_id,
-                queued_at,
-                completed_at,
-            } => {
-                info!("Job {} complete", job_id);
-                self.metrics_collector
-                    .record_completed(&job_id, queued_at, completed_at);
-                self.state.task_manager.complete_job(&job_id).await?;
-            }
-            QueryStageSchedulerEvent::JobFailed {
+            QueryStageSchedulerEvent::JobPlanningFailed {
                 job_id,
                 fail_message,
                 queued_at,
@@ -202,9 +170,72 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .fail_job(&job_id, fail_message)
                     .await?;
             }
+            QueryStageSchedulerEvent::JobFinished {
+                job_id,
+                queued_at,
+                completed_at,
+            } => {
+                info!("Job {} complete", job_id);
+                self.metrics_collector
+                    .record_completed(&job_id, queued_at, completed_at);
+                self.state.task_manager.complete_job(&job_id).await?;
+            }
+            QueryStageSchedulerEvent::JobRunningFailed {
+                job_id,
+                queued_at,
+                failed_at,
+            } => {
+                error!("Job {} running failed", job_id);
+                self.metrics_collector
+                    .record_failed(&job_id, queued_at, failed_at);
+                self.state.task_manager.fail_running_job(&job_id).await?;
+            }
+            QueryStageSchedulerEvent::JobUpdated(job_id) => {
+                error!("Job {} Updated", job_id);
+                self.state.task_manager.update_job(&job_id).await?;
+            }
+            QueryStageSchedulerEvent::TaskUpdating(executor_id, tasks_status) => {
+                let num_status = tasks_status.len();
+                match self
+                    .state
+                    .update_task_statuses(&executor_id, tasks_status)
+                    .await
+                {
+                    Ok((stage_events, offers)) => {
+                        if matches!(self.policy, TaskSchedulingPolicy::PushStaged) {
+                            tx_event
+                                .post_event(
+                                    QueryStageSchedulerEvent::ReservationOffering(offers),
+                                )
+                                .await?;
+                        }
+
+                        for stage_event in stage_events {
+                            tx_event.post_event(stage_event).await?;
+                        }
+                    }
+                    Err(e) => {
+                        error!(
+                            "Failed to update {} task statuses for executor {}: {:?}",
+                            num_status, executor_id, e
+                        );
+                        // TODO error handling
+                    }
+                }
+            }
+            QueryStageSchedulerEvent::ReservationOffering(reservations) => {
+                let reservations = self.state.offer_reservation(reservations).await?;
+                if !reservations.is_empty() {
+                    tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                            reservations,
+                        ))
+                        .await?;
+                }
+            }
         }
 
-        Ok(None)
+        Ok(())
     }
 
     fn on_error(&self, error: BallistaError) {

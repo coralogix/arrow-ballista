@@ -19,6 +19,7 @@ use crate::state::executor_manager::ExecutorReservation;
 
 use datafusion::logical_plan::LogicalPlan;
 
+use ballista_core::serde::protobuf::TaskStatus;
 use datafusion::prelude::SessionContext;
 use std::sync::Arc;
 
@@ -32,7 +33,6 @@ pub enum SchedulerServerEvent {
 pub enum QueryStageSchedulerEvent {
     JobQueued {
         job_id: String,
-        session_id: String,
         session_ctx: Arc<SessionContext>,
         plan: Box<LogicalPlan>,
         queued_at: u64,
@@ -42,15 +42,25 @@ pub enum QueryStageSchedulerEvent {
         queued_at: u64,
         submitted_at: u64,
     },
-    JobFinished {
-        job_id: String,
-        queued_at: u64,
-        completed_at: u64,
-    },
-    JobFailed {
+    // For a job which failed during planning
+    JobPlanningFailed {
         job_id: String,
         fail_message: String,
         queued_at: u64,
         failed_at: u64,
     },
+    JobFinished {
+        job_id: String,
+        queued_at: u64,
+        completed_at: u64,
+    },
+    // For a job fails with its execution graph setting failed
+    JobRunningFailed {
+        job_id: String,
+        queued_at: u64,
+        failed_at: u64,
+    },
+    JobUpdated(String),
+    TaskUpdating(String, Vec<TaskStatus>),
+    ReservationOffering(Vec<ExecutorReservation>),
 }
