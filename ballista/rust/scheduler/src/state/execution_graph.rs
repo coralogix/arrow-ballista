@@ -1387,7 +1387,6 @@ mod test {
     fn drain_tasks(graph: &mut ExecutionGraph) -> Result<()> {
         let executor = mock_executor("executor-id1".to_string());
 
-        let job_id = graph.job_id().to_owned();
         loop {
             let mut next_tasks = vec![];
 

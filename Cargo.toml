@@ -23,8 +23,10 @@ members = [
     "ballista/rust/executor",
     "ballista/rust/scheduler",
     "examples",
+    "ballista-cli",
+    "datafusion",
 ]
-exclude = ["ballista-cli", "python"]
+exclude = ["python"]
 
 # cargo build --profile release-lto
 [profile.release-lto]
@@ -36,4 +38,3 @@ lto = true
 arrow = { git = "https://github.com/mpurins-coralogix/arrow-rs", rev = "82ad24a5742909938e947f0589482a1b63cec2a0" }
 arrow-flight = { git = "https://github.com/mpurins-coralogix/arrow-rs", rev = "82ad24a5742909938e947f0589482a1b63cec2a0" }
 parquet = { git = "https://github.com/mpurins-coralogix/arrow-rs", rev = "82ad24a5742909938e947f0589482a1b63cec2a0" }
-object_store = { git = "https://github.com/mpurins-coralogix/arrow-rs", rev = "82ad24a5742909938e947f0589482a1b63cec2a0" }

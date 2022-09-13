@@ -23,6 +23,8 @@ use prost::Message;
 
 use datafusion::arrow::compute::SortOptions;
 use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::datafusion_proto;
+use datafusion::datafusion_proto::from_proto::parse_expr;
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::object_store::ObjectStoreUrl;
 use datafusion::execution::runtime_env::RuntimeEnv;
@@ -51,8 +53,6 @@ use datafusion::physical_plan::windows::{create_window_expr, WindowAggExec};
 use datafusion::physical_plan::{
     AggregateExpr, ExecutionPlan, Partitioning, PhysicalExpr, WindowExpr,
 };
-use datafusion_proto;
-use datafusion_proto::from_proto::parse_expr;
 
 use crate::error::BallistaError;
 use crate::execution_plans::{
@@ -696,7 +696,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
             Ok(protobuf::PhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::Explain(
                     protobuf::ExplainExecNode {
-                        schema: Some(exec.schema().as_ref().into()),
+                        schema: Some(exec.schema().as_ref().try_into()?),
                         stringified_plans: exec
                             .stringified_plans()
                             .iter()
@@ -808,7 +808,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                             }
                         })
                         .collect();
-                    let schema = f.schema().into();
+                    let schema = f.schema().try_into()?;
                     Ok(protobuf::JoinFilter {
                         expression: Some(expression),
                         column_indices,
@@ -921,14 +921,14 @@ impl AsExecutionPlan for PhysicalPlanNode {
                         aggr_expr_name: agg_names,
                         mode: agg_mode as i32,
                         input: Some(Box::new(input)),
-                        input_schema: Some(input_schema.as_ref().into()),
+                        input_schema: Some(input_schema.as_ref().try_into()?),
                         null_expr,
                         groups,
                     },
                 ))),
             })
         } else if let Some(empty) = plan.downcast_ref::<EmptyExec>() {
-            let schema = empty.schema().as_ref().into();
+            let schema = empty.schema().as_ref().try_into()?;
             Ok(protobuf::PhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::Empty(
                     protobuf::EmptyExecNode {
@@ -997,7 +997,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::ShuffleReader(
                     protobuf::ShuffleReaderExecNode {
                         partition,
-                        schema: Some(exec.schema().as_ref().into()),
+                        schema: Some(exec.schema().as_ref().try_into()?),
                     },
                 )),
             })
@@ -1118,7 +1118,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::Unresolved(
                     protobuf::UnresolvedShuffleExecNode {
                         stage_id: exec.stage_id as u32,
-                        schema: Some(exec.schema().as_ref().into()),
+                        schema: Some(exec.schema().as_ref().try_into()?),
                         input_partition_count: exec.input_partition_count as u32,
                         output_partition_count: exec.output_partition_count as u32,
                     },
@@ -1213,10 +1213,12 @@ mod roundtrip_tests {
     use std::sync::Arc;
 
     use datafusion::arrow::array::ArrayRef;
+    use datafusion::arrow::datatypes::IntervalUnit;
     use datafusion::datasource::object_store::ObjectStoreUrl;
     use datafusion::execution::context::ExecutionProps;
     use datafusion::logical_expr::{BuiltinScalarFunction, Volatility};
     use datafusion::logical_plan::create_udf;
+    use datafusion::physical_expr::expressions::DateTimeIntervalExpr;
     use datafusion::physical_expr::ScalarFunctionExpr;
     use datafusion::physical_plan::aggregates::PhysicalGroupBy;
     use datafusion::physical_plan::functions;
@@ -1249,7 +1251,7 @@ mod roundtrip_tests {
     use crate::serde::physical_plan::DEFAULT_METADATA_SIZE_HINT;
     use crate::serde::protobuf::PhysicalPlanNode;
     use crate::serde::{AsExecutionPlan, BallistaCodec};
-    use datafusion_proto::protobuf::LogicalPlanNode;
+    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
 
     use super::super::super::error::Result;
     use super::super::protobuf;
@@ -1309,6 +1311,32 @@ mod roundtrip_tests {
     #[test]
     fn roundtrip_empty() -> Result<()> {
         roundtrip_test(Arc::new(EmptyExec::new(false, Arc::new(Schema::empty()))))
+    }
+
+    #[test]
+    fn roundtrip_date_time_interval() -> Result<()> {
+        let schema = Schema::new(vec![
+            Field::new("some_date", DataType::Date32, false),
+            Field::new(
+                "some_interval",
+                DataType::Interval(IntervalUnit::DayTime),
+                false,
+            ),
+        ]);
+        let input = Arc::new(EmptyExec::new(false, Arc::new(schema.clone())));
+        let date_expr = col("some_date", &schema)?;
+        let literal_expr = col("some_interval", &schema)?;
+        let date_time_interval_expr = Arc::new(DateTimeIntervalExpr::try_new(
+            date_expr,
+            Operator::Plus,
+            literal_expr,
+            &schema,
+        )?);
+        let plan = Arc::new(ProjectionExec::try_new(
+            vec![(date_time_interval_expr, "result".to_string())],
+            input,
+        )?);
+        roundtrip_test(plan)
     }
 
     #[test]
