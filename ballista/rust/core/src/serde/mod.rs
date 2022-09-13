@@ -19,13 +19,13 @@
 //! as convenience code for interacting with the generated code.
 
 use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
-use datafusion::datafusion_proto::logical_plan::{
-    AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec,
-};
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::logical_plan::{FunctionRegistry, Operator};
 use datafusion::physical_plan::join_utils::JoinSide;
 use datafusion::physical_plan::ExecutionPlan;
+use datafusion_proto::logical_plan::{
+    AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec,
+};
 use prost::bytes::BufMut;
 use prost::Message;
 use std::fmt::Debug;
@@ -273,7 +273,7 @@ mod tests {
     use prost::Message;
     use std::any::Any;
 
-    use datafusion::datafusion_proto::from_proto::parse_expr;
+    use datafusion_proto::from_proto::parse_expr;
     use std::convert::TryInto;
     use std::fmt;
     use std::fmt::{Debug, Formatter};
@@ -289,7 +289,7 @@ mod tests {
 
             #[prost(message, optional, tag = "2")]
             pub expr: ::core::option::Option<
-                datafusion::datafusion_proto::protobuf::LogicalExprNode,
+                datafusion_proto::protobuf::LogicalExprNode,
             >,
         }
 
@@ -305,7 +305,7 @@ mod tests {
     use crate::serde::{
         AsExecutionPlan, AsLogicalPlan, LogicalExtensionCodec, PhysicalExtensionCodec,
     };
-    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
+    use datafusion_proto::protobuf::LogicalPlanNode;
     use proto::{TopKExecProto, TopKPlanProto};
 
     struct TopKPlanNode {

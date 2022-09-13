@@ -26,7 +26,6 @@ use std::{
     sync::Arc,
 };
 
-use datafusion::datafusion_proto;
 use datafusion::physical_plan::expressions::{CastExpr, TryCastExpr};
 use datafusion::physical_plan::ColumnStatistics;
 use datafusion::physical_plan::{
@@ -35,6 +34,7 @@ use datafusion::physical_plan::{
     },
     Statistics,
 };
+use datafusion_proto;
 
 use datafusion::datasource::listing::{FileRange, PartitionedFile};
 use datafusion::physical_plan::file_format::FileScanConfig;
@@ -53,7 +53,7 @@ impl TryInto<protobuf::PhysicalExprNode> for Arc<dyn AggregateExpr> {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<protobuf::PhysicalExprNode, Self::Error> {
-        use datafusion::datafusion_proto::protobuf::AggregateFunction;
+        use datafusion_proto::protobuf::AggregateFunction;
         use datafusion::physical_plan::expressions;
         let aggr_function = if self.as_any().downcast_ref::<Avg>().is_some() {
             Ok(AggregateFunction::Avg.into())

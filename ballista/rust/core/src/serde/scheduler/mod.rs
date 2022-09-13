@@ -98,13 +98,6 @@ pub struct ExecutorDataChange {
     pub task_slots: i32,
 }
 
-/// The internal state of an executor, like cpu usage, memory usage, etc
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct ExecutorState {
-    // in bytes
-    pub available_memory_size: u64,
-}
-
 /// Summary of executed partition
 #[derive(Debug, Copy, Clone, Default)]
 pub struct PartitionStats {
@@ -155,21 +148,21 @@ impl PartitionStats {
     pub fn to_arrow_arrayref(self) -> Result<Arc<StructArray>, BallistaError> {
         let mut field_builders = Vec::new();
 
-        let mut num_rows_builder = UInt64Builder::new(1);
+        let mut num_rows_builder = UInt64Builder::with_capacity(1);
         match self.num_rows {
             Some(n) => num_rows_builder.append_value(n),
             None => num_rows_builder.append_null(),
         }
         field_builders.push(Box::new(num_rows_builder) as Box<dyn ArrayBuilder>);
 
-        let mut num_batches_builder = UInt64Builder::new(1);
+        let mut num_batches_builder = UInt64Builder::with_capacity(1);
         match self.num_batches {
             Some(n) => num_batches_builder.append_value(n),
             None => num_batches_builder.append_null(),
         }
         field_builders.push(Box::new(num_batches_builder) as Box<dyn ArrayBuilder>);
 
-        let mut num_bytes_builder = UInt64Builder::new(1);
+        let mut num_bytes_builder = UInt64Builder::with_capacity(1);
         match self.num_bytes {
             Some(n) => num_bytes_builder.append_value(n),
             None => num_bytes_builder.append_null(),

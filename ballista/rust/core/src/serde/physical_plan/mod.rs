@@ -23,8 +23,6 @@ use prost::Message;
 
 use datafusion::arrow::compute::SortOptions;
 use datafusion::arrow::datatypes::SchemaRef;
-use datafusion::datafusion_proto;
-use datafusion::datafusion_proto::from_proto::parse_expr;
 use datafusion::datasource::listing::PartitionedFile;
 use datafusion::datasource::object_store::ObjectStoreUrl;
 use datafusion::execution::runtime_env::RuntimeEnv;
@@ -53,6 +51,8 @@ use datafusion::physical_plan::windows::{create_window_expr, WindowAggExec};
 use datafusion::physical_plan::{
     AggregateExpr, ExecutionPlan, Partitioning, PhysicalExpr, WindowExpr,
 };
+use datafusion_proto;
+use datafusion_proto::from_proto::parse_expr;
 
 use crate::error::BallistaError;
 use crate::execution_plans::{
@@ -244,17 +244,16 @@ impl AsExecutionPlan for PhysicalPlanNode {
             PhysicalPlanType::GlobalLimit(limit) => {
                 let input: Arc<dyn ExecutionPlan> =
                     into_physical_plan!(limit.input, registry, runtime, extension_codec)?;
-                let skip = if limit.skip > 0 {
-                    Some(limit.skip as usize)
-                } else {
-                    None
-                };
                 let fetch = if limit.fetch > 0 {
                     Some(limit.fetch as usize)
                 } else {
                     None
                 };
-                Ok(Arc::new(GlobalLimitExec::new(input, skip, fetch)))
+                Ok(Arc::new(GlobalLimitExec::new(
+                    input,
+                    limit.skip as usize,
+                    fetch,
+                )))
             }
             PhysicalPlanType::LocalLimit(limit) => {
                 let input: Arc<dyn ExecutionPlan> =
@@ -750,7 +749,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                 physical_plan_type: Some(PhysicalPlanType::GlobalLimit(Box::new(
                     protobuf::GlobalLimitExecNode {
                         input: Some(Box::new(input)),
-                        skip: *limit.skip().unwrap_or(&0) as u32,
+                        skip: limit.skip() as u32,
                         fetch: *limit.fetch().unwrap_or(&0) as u32,
                     },
                 ))),
@@ -1250,7 +1249,7 @@ mod roundtrip_tests {
     use crate::serde::physical_plan::DEFAULT_METADATA_SIZE_HINT;
     use crate::serde::protobuf::PhysicalPlanNode;
     use crate::serde::{AsExecutionPlan, BallistaCodec};
-    use datafusion::datafusion_proto::protobuf::LogicalPlanNode;
+    use datafusion_proto::protobuf::LogicalPlanNode;
 
     use super::super::super::error::Result;
     use super::super::protobuf;
@@ -1324,7 +1323,7 @@ mod roundtrip_tests {
     fn roundtrip_global_limit() -> Result<()> {
         roundtrip_test(Arc::new(GlobalLimitExec::new(
             Arc::new(EmptyExec::new(false, Arc::new(Schema::empty()))),
-            None,
+            0,
             Some(25),
         )))
     }

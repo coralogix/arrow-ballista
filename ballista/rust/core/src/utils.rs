@@ -24,7 +24,7 @@ use crate::serde::scheduler::PartitionStats;
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::{ipc::writer::FileWriter, record_batch::RecordBatch};
-use datafusion::datafusion_proto::logical_plan::{
+use datafusion_proto::logical_plan::{
     AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec,
 };
 use datafusion::error::DataFusionError;
