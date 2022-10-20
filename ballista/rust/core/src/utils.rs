@@ -62,6 +62,7 @@ pub async fn write_stream_to_disk(
     path: &str,
     disk_write_metric: &metrics::Time,
     max_bytes: Option<usize>,
+    limit: Option<(usize, Arc<AtomicUsize>)>,
 ) -> Result<PartitionStats> {
     let file = File::create(&path).map_err(|e| {
         BallistaError::General(format!(
@@ -95,6 +96,13 @@ pub async fn write_stream_to_disk(
         let timer = disk_write_metric.timer();
         writer.write(&batch)?;
         timer.done();
+
+        if let Some((limit, accum)) = limit.as_ref() {
+            let total_rows = accum.fetch_add(num_rows, Ordering::SeqCst);
+            if total_rows > *limit {
+                break;
+            }
+        }
     }
     let timer = disk_write_metric.timer();
     writer.finish()?;
