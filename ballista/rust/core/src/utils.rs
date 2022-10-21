@@ -46,6 +46,7 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::{metrics, ExecutionPlan, RecordBatchStream};
 use futures::StreamExt;
+use log::info;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -100,6 +101,7 @@ pub async fn write_stream_to_disk(
         if let Some((limit, accum)) = limit.as_ref() {
             let total_rows = accum.fetch_add(num_rows, Ordering::SeqCst);
             if total_rows > *limit {
+                info!("stopping shuffle write early (path: {})", path);
                 break;
             }
         }
