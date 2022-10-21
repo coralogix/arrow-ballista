@@ -429,13 +429,14 @@ impl ExecutionPlan for ShuffleWriterExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(ShuffleWriterExec::try_new(
+        Ok(Arc::new(ShuffleWriterExec::try_new_with_limit(
             self.job_id.clone(),
             self.stage_id,
             children[0].clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
             self.max_shuffle_bytes,
+            self.limit,
         )?))
     }
 
