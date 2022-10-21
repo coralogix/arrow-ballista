@@ -590,13 +590,16 @@ impl AsExecutionPlan for PhysicalPlanNode {
                     Some(shuffle_writer.max_shuffle_bytes as usize)
                 };
 
-                Ok(Arc::new(ShuffleWriterExec::try_new(
+                let limit = shuffle_writer.limit;
+
+                Ok(Arc::new(ShuffleWriterExec::try_new_with_limit(
                     shuffle_writer.job_id.clone(),
                     shuffle_writer.stage_id as usize,
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     output_partitioning,
                     max_shuffle_bytes,
+                    limit.map(|limit| limit as usize),
                 )?))
             }
             PhysicalPlanType::ShuffleReader(shuffle_reader) => {
@@ -1117,6 +1120,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                             .max_shuffle_bytes()
                             .map(|max| max as u64)
                             .unwrap_or(0),
+                        limit: exec.limit().map(|limit| limit as u64),
                     },
                 ))),
             })

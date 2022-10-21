@@ -162,7 +162,7 @@ impl ShuffleWriterExec {
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
         max_shuffle_bytes: Option<usize>,
-        limit: usize,
+        limit: Option<usize>,
     ) -> Result<Self> {
         Ok(Self {
             job_id,
@@ -172,7 +172,7 @@ impl ShuffleWriterExec {
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
             max_shuffle_bytes,
-            limit: Some(limit),
+            limit,
         })
     }
 
@@ -194,6 +194,10 @@ impl ShuffleWriterExec {
     /// Get the max shuffle bytes
     pub fn max_shuffle_bytes(&self) -> Option<usize> {
         self.max_shuffle_bytes
+    }
+
+    pub fn limit(&self) -> Option<usize> {
+        self.limit
     }
 
     pub fn execute_shuffle_write(

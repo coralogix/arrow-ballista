@@ -299,7 +299,7 @@ fn create_shuffle_writer(
             "".to_owned(), // executor will decide on the work_dir path
             partitioning,
             max_shuffle_bytes,
-            local_limit_exec.fetch(),
+            Some(local_limit_exec.fetch()),
         )?))
     } else {
         Ok(Arc::new(ShuffleWriterExec::try_new(
