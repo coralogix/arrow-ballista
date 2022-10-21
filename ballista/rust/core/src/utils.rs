@@ -80,6 +80,14 @@ pub async fn write_stream_to_disk(
     while let Some(result) = stream.next().await {
         let batch = result?;
 
+        if let Some((limit, accum)) = limit.as_ref() {
+            let total_rows = accum.load(Ordering::SeqCst);
+            if total_rows >= *limit {
+                info!("stopping shuffle write early (path: {})", path);
+                break;
+            }
+        }
+
         let batch_size_bytes: usize = batch_byte_size(&batch);
         num_batches += 1;
         num_rows += batch.num_rows();
@@ -99,8 +107,8 @@ pub async fn write_stream_to_disk(
         timer.done();
 
         if let Some((limit, accum)) = limit.as_ref() {
-            let total_rows = accum.fetch_add(num_rows, Ordering::SeqCst);
-            if total_rows > *limit {
+            let total_rows = accum.fetch_add(batch.num_rows(), Ordering::SeqCst);
+            if total_rows >= *limit {
                 info!("stopping shuffle write early (path: {})", path);
                 break;
             }
