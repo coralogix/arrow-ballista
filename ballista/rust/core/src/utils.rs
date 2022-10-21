@@ -77,16 +77,19 @@ pub async fn write_stream_to_disk(
     let mut num_bytes = 0;
     let mut writer = FileWriter::try_new(file, stream.schema().as_ref())?;
 
-    while let Some(result) = stream.next().await {
-        let batch = result?;
-
-        if let Some((limit, accum)) = limit.as_ref() {
+    while let Some(result) = {
+        let poll_more = limit.as_ref().map_or(true, |(limit, accum)| {
             let total_rows = accum.load(Ordering::SeqCst);
-            if total_rows >= *limit {
-                info!("stopping shuffle write early (path: {})", path);
-                break;
-            }
+            total_rows < *limit
+        });
+
+        if poll_more {
+            stream.next().await
+        } else {
+            None
         }
+    } {
+        let batch = result?;
 
         let batch_size_bytes: usize = batch_byte_size(&batch);
         num_batches += 1;

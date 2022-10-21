@@ -65,7 +65,7 @@ use std::num::NonZeroUsize;
 
 lazy_static! {
     static ref LIMIT_ACCUMULATORS: Mutex<LruCache<(String, usize), Arc<AtomicUsize>>> =
-        Mutex::new(LruCache::new(NonZeroUsize::new(10).unwrap()));
+        Mutex::new(LruCache::new(NonZeroUsize::new(40).unwrap()));
 }
 
 fn get_limit_accumulator(job_id: &str, stage: usize) -> Arc<AtomicUsize> {
@@ -291,12 +291,26 @@ impl ShuffleWriterExec {
 
                     let total_bytes_count: AtomicUsize = AtomicUsize::new(0);
 
-                    while let Some(result) = stream.next().await {
+                    while let Some(result) = {
+                        let poll_more = limit_and_accumulator.as_ref().map_or(
+                            true,
+                            |(limit, accum)| {
+                                let total_rows = accum.load(Ordering::SeqCst);
+                                total_rows < *limit
+                            },
+                        );
+
+                        if poll_more {
+                            stream.next().await
+                        } else {
+                            None
+                        }
+                    } {
                         let input_batch = result?;
 
                         let num_rows = input_batch.num_rows();
 
-                        write_metrics.input_rows.add(input_batch.num_rows());
+                        write_metrics.input_rows.add(num_rows);
 
                         partitioner.partition(
                             input_batch,
