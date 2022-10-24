@@ -195,7 +195,6 @@ impl ExecutionGraph {
                 );
             }
         }
-        info!("{} new tasks were found during revive", converted_tasks);
         converted_tasks
     }
 
@@ -476,6 +475,7 @@ impl ExecutionGraph {
         if next_task.is_none() {
             let number_of_converted_tasks_during_revive = self.revive();
             if number_of_converted_tasks_during_revive > 0 {
+                // we can ignore number of converted tasks from this call, as we revived everything in a previus revive call
                 let (task, _) = self.pop_next_task(executor_id)?;
                 number_of_converted_tasks_during_task_search =
                     number_of_converted_tasks_during_revive;

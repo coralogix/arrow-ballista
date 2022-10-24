@@ -220,10 +220,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     // if during task retrieval we convert few tasks from scheduled to running stage,
                     // we need increase pending queue counter
                     if number_of_converted_tasks_during_task_search > 0 {
-                        info!(
-                            "{} new tasks were found during task search",
-                            number_of_converted_tasks_during_task_search
-                        );
                         self.increase_pending_queue_size(
                             number_of_converted_tasks_during_task_search,
                         )?;
@@ -391,7 +387,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let available_tasks = graph.available_tasks();
             let value = self.encode_execution_graph(graph)?;
 
-            info!("Moving job {} from Active to Failed", job_id);
+            debug!("Moving job {} from Active to Failed", job_id);
             let lock = self.state.lock(Keyspace::ActiveJobs, "").await?;
             with_lock(lock, self.state.delete(Keyspace::ActiveJobs, job_id)).await?;
             self.state
@@ -406,7 +402,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub async fn update_job(&self, job_id: &str) -> Result<()> {
-        info!("Update job {} in Active", job_id);
+        debug!("Update job {} in Active", job_id);
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let mut graph = graph.write().await;
 
@@ -607,14 +603,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
-        info!("Increasing pending queue size by: {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |s| Some(s + num),
         ) {
             Ok(_) => {
-                info!("Pending queue size was incremented by: {}", num);
+                debug!("Pending queue size was increased by: {}", num);
                 Ok(())
             }
             Err(_) => Err(BallistaError::Internal(
@@ -624,14 +619,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
-        info!("Decreasing pending queue size by: {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |s| Some(s - num),
         ) {
             Ok(_) => {
-                info!("Pending queue size was decreased by: {}", num);
+                debug!("Pending queue size was decreased by: {}", num);
                 Ok(())
             }
             Err(_) => Err(BallistaError::Internal(
