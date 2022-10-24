@@ -183,11 +183,11 @@ impl ExecutionGraph {
             })
             .collect::<Vec<_>>();
 
-        let mut converted_tasks = 0usize;
+        let mut converted_tasks_number = 0usize;
 
         if !running_stages.is_empty() {
             for running_stage in running_stages {
-                converted_tasks += running_stage.available_tasks();
+                converted_tasks_number += running_stage.available_tasks();
 
                 self.stages.insert(
                     running_stage.stage_id,
@@ -195,7 +195,7 @@ impl ExecutionGraph {
                 );
             }
         }
-        converted_tasks
+        converted_tasks_number
     }
 
     /// Update task statuses and task metrics in the graph.
@@ -425,7 +425,7 @@ impl ExecutionGraph {
     /// available to the scheduler.
     /// If the task is not launched the status must be reset to allow the task to
     /// be scheduled elsewhere.
-    /// As a second element in the tuple we will return the number of converted stages during the task search
+    /// As a second element in the tuple we will return the number of converted tasks during the task search
     pub fn pop_next_task(&mut self, executor_id: &str) -> Result<(Option<Task>, usize)> {
         let job_id = self.job_id.clone();
         let session_id = self.session_id.clone();
