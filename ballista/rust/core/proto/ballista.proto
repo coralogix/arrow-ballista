@@ -348,7 +348,9 @@ message ShuffleWriterExecNode {
   PhysicalPlanNode input = 3;
   PhysicalHashRepartition output_partitioning = 4;
   uint64 max_shuffle_bytes = 5;
-  optional uint64 limit = 6;
+  oneof optional_limit {
+    uint64 limit = 6;
+  }
 }
 
 message ShuffleReaderExecNode {
