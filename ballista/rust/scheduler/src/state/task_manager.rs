@@ -217,6 +217,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     // if during task retrieval we convert few tasks from scheduled to running stage,
                     // we need increase pending queue counter
                     if number_of_converted_tasks_during_task_search > 0 {
+                        info!(
+                            "{} new tasks were found during task search",
+                            number_of_converted_tasks_during_task_search
+                        );
                         self.increase_pending_queue_size(
                             number_of_converted_tasks_during_task_search,
                         )?;

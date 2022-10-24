@@ -195,6 +195,7 @@ impl ExecutionGraph {
                 );
             }
         }
+        info!("{} new tasks were found during revive", converted_tasks);
         converted_tasks
     }
 
