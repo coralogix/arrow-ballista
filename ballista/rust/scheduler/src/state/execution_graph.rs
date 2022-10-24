@@ -323,7 +323,7 @@ impl ExecutionGraph {
         }
 
         match self.processing_stage_events(events)? {
-            Some(events) => Ok(Some((events, self.available_tasks()))),
+            Some(events) => Ok(Some((events, number_of_converted_tasks_during_revive))),
             _ => Ok(None),
         }
     }
