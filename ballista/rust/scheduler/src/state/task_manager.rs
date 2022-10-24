@@ -583,6 +583,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
+        info!("Increasing pending queue size by: {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
@@ -593,23 +594,24 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 Ok(())
             }
             Err(_) => Err(BallistaError::Internal(
-                "Unable to update pending task counter".to_owned(),
+                "Unable to increase pending queue size".to_owned(),
             )),
         }
     }
 
     pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
+        info!("Decreasing pending queue size by: {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
             |s| Some(s - num),
         ) {
             Ok(_) => {
-                info!("Pending queue size was decremented by: {}", num);
+                info!("Pending queue size was decreased by: {}", num);
                 Ok(())
             }
             Err(_) => Err(BallistaError::Internal(
-                "Unable to update pending task counter".to_owned(),
+                "Unable to decrease pending queue size".to_owned(),
             )),
         }
     }
