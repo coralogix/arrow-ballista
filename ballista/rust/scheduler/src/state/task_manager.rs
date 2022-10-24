@@ -208,9 +208,19 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         for (_job_id, graph) in job_cache.iter() {
             let mut graph = graph.write().await;
             for reservation in free_reservations.iter().skip(assign_tasks) {
-                if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
+                if let (Some(task), number_of_converted_tasks_during_task_search) =
+                    graph.pop_next_task(&reservation.executor_id)?
+                {
                     assignments.push((reservation.executor_id.clone(), task));
                     assign_tasks += 1;
+
+                    // if during task retrieval we convert few tasks from scheduled to running stage,
+                    // we need increase pending queue counter
+                    if number_of_converted_tasks_during_task_search > 0 {
+                        self.increase_pending_queue_size(
+                            number_of_converted_tasks_during_task_search,
+                        )?;
+                    }
                 } else {
                     break;
                 }
