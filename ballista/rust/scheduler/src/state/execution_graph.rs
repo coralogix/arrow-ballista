@@ -184,17 +184,15 @@ impl ExecutionGraph {
             .collect::<Vec<_>>();
         let running_stages_count = running_stages.len();
 
-        if running_stages.is_empty() {
-            0usize
-        } else {
+        if running_stages_count > 0 {
             for running_stage in running_stages {
                 self.stages.insert(
                     running_stage.stage_id,
                     ExecutionStage::Running(running_stage),
                 );
             }
-            running_stages_count
         }
+        running_stages_count
     }
 
     /// Update task statuses and task metrics in the graph.
