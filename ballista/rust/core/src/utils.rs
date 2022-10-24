@@ -46,6 +46,7 @@ use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::sorts::sort::SortExec;
 use datafusion::physical_plan::{metrics, ExecutionPlan, RecordBatchStream};
 use futures::StreamExt;
+use log::info;
 use std::io::{BufWriter, Write};
 use std::marker::PhantomData;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -62,6 +63,7 @@ pub async fn write_stream_to_disk(
     path: &str,
     disk_write_metric: &metrics::Time,
     max_bytes: Option<usize>,
+    limit: Option<(usize, Arc<AtomicUsize>)>,
 ) -> Result<PartitionStats> {
     let file = File::create(&path).map_err(|e| {
         BallistaError::General(format!(
@@ -75,7 +77,18 @@ pub async fn write_stream_to_disk(
     let mut num_bytes = 0;
     let mut writer = FileWriter::try_new(file, stream.schema().as_ref())?;
 
-    while let Some(result) = stream.next().await {
+    while let Some(result) = {
+        let poll_more = limit.as_ref().map_or(true, |(limit, accum)| {
+            let total_rows = accum.load(Ordering::SeqCst);
+            total_rows < *limit
+        });
+
+        if poll_more {
+            stream.next().await
+        } else {
+            None
+        }
+    } {
         let batch = result?;
 
         let batch_size_bytes: usize = batch_byte_size(&batch);
@@ -95,6 +108,14 @@ pub async fn write_stream_to_disk(
         let timer = disk_write_metric.timer();
         writer.write(&batch)?;
         timer.done();
+
+        if let Some((limit, accum)) = limit.as_ref() {
+            let total_rows = accum.fetch_add(batch.num_rows(), Ordering::SeqCst);
+            if total_rows >= *limit {
+                info!("stopping shuffle write early (path: {})", path);
+                break;
+            }
+        }
     }
     let timer = disk_write_metric.timer();
     writer.finish()?;
