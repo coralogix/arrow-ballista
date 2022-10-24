@@ -167,9 +167,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 None
             };
 
-            if let Some((event, n)) = job_event {
+            if let Some((event, number_of_converted_tasks)) = job_event {
                 events.push(event);
-                self.increase_pending_queue_size(n)?;
+
+                if number_of_converted_tasks > 0 {
+                    self.increase_pending_queue_size(number_of_converted_tasks)?;
+                }
             }
         }
 

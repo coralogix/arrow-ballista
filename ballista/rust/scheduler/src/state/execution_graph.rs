@@ -474,10 +474,11 @@ impl ExecutionGraph {
         // If no available tasks found in the running stage,
         // try to find a resolved stage and convert it to the running stage
         if next_task.is_none() {
-            if self.revive() > 0 {
-                let (task, number_of_converted_tasks) =
-                    self.pop_next_task(executor_id)?;
-                number_of_converted_tasks_during_task_search = number_of_converted_tasks;
+            let number_of_converted_tasks_during_revive = self.revive();
+            if number_of_converted_tasks_during_revive > 0 {
+                let (task, _) = self.pop_next_task(executor_id)?;
+                number_of_converted_tasks_during_task_search =
+                    number_of_converted_tasks_during_revive;
                 next_task = task;
             } else {
                 next_task = None;
