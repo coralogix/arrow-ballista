@@ -103,6 +103,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             .await?;
 
         if graph.revive() {
+            info!("Available stages: {}", graph.stage_count());
             self.increase_pending_queue_size(graph.available_tasks())?;
         }
 
