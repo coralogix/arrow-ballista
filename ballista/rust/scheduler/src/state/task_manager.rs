@@ -220,7 +220,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             }
         }
 
-        self.decrease_pending_queue_size(assign_tasks)?;
+        if assign_tasks > 0 {
+            self.decrease_pending_queue_size(assign_tasks)?;
+        }
+
         let mut unassigned = vec![];
         for reservation in free_reservations.iter().skip(assign_tasks) {
             unassigned.push(reservation.clone());
