@@ -169,7 +169,7 @@ impl ExecutionGraph {
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
-    /// If any stages are converted, return amount of newly converted states.
+    /// If any stages are converted, return amount of newly converted stages.
     pub fn revive(&mut self) -> usize {
         let running_stages = self
             .stages
