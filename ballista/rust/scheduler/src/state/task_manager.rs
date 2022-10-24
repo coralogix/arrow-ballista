@@ -209,7 +209,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
                     assignments.push((reservation.executor_id.clone(), task));
                     assign_tasks += 1;
-                    self.decrease_pending_queue_size(1)?;
                 } else {
                     break;
                 }
@@ -221,6 +220,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             }
         }
 
+        self.decrease_pending_queue_size(assign_tasks)?;
         let mut unassigned = vec![];
         for reservation in free_reservations.iter().skip(assign_tasks) {
             unassigned.push(reservation.clone());
