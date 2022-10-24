@@ -169,8 +169,8 @@ impl ExecutionGraph {
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
-    /// If any stages are converted, return true; else false.
-    pub fn revive(&mut self) -> bool {
+    /// If any stages are converted, return amount of newly converted states.
+    pub fn revive(&mut self) -> usize {
         let running_stages = self
             .stages
             .values()
@@ -182,9 +182,10 @@ impl ExecutionGraph {
                 }
             })
             .collect::<Vec<_>>();
+        let running_stages_count = running_stages.len();
 
         if running_stages.is_empty() {
-            false
+            0usize
         } else {
             for running_stage in running_stages {
                 self.stages.insert(
@@ -192,7 +193,7 @@ impl ExecutionGraph {
                     ExecutionStage::Running(running_stage),
                 );
             }
-            true
+            running_stages_count
         }
     }
 
@@ -202,7 +203,7 @@ impl ExecutionGraph {
         &mut self,
         executor: &ExecutorMetadata,
         task_statuses: Vec<TaskStatus>,
-    ) -> Result<Option<QueryStageSchedulerEvent>> {
+    ) -> Result<Option<(QueryStageSchedulerEvent, usize)>> {
         let job_id = self.job_id().to_owned();
         // First of all, classify the statuses by stages
         let mut job_task_statuses: HashMap<usize, Vec<TaskStatus>> = HashMap::new();
@@ -225,7 +226,7 @@ impl ExecutionGraph {
 
         // Revive before updating due to some updates not saved
         // It will be refined later
-        self.revive();
+        let amount_of_newlt_converted_tasks = self.revive();
 
         let mut events = vec![];
         for (stage_id, stage_task_statuses) in job_task_statuses {
@@ -319,7 +320,10 @@ impl ExecutionGraph {
             }
         }
 
-        self.processing_stage_events(events)
+        match self.processing_stage_events(events)? {
+            Some(events) => Ok(Some((events, amount_of_newlt_converted_tasks))),
+            _ => Ok(None),
+        }
     }
 
     fn update_stage_output_links(
@@ -465,7 +469,7 @@ impl ExecutionGraph {
         // If no available tasks found in the running stage,
         // try to find a resolved stage and convert it to the running stage
         if next_task.is_none() {
-            if self.revive() {
+            if self.revive() > 0 {
                 next_task = self.pop_next_task(executor_id)?;
             } else {
                 next_task = None;

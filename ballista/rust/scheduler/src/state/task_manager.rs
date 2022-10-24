@@ -102,8 +102,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             )
             .await?;
 
-        if graph.revive() {
-            info!("Available stages: {}", graph.stage_count());
+        if graph.revive() > 0 {
             self.increase_pending_queue_size(graph.available_tasks())?;
         }
 
@@ -168,8 +167,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 None
             };
 
-            if let Some(event) = job_event {
+            if let Some((event, n)) = job_event {
                 events.push(event);
+                self.increase_pending_queue_size(n)?;
             }
         }
 
@@ -393,7 +393,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let mut graph = graph.write().await;
 
-            if graph.revive() {
+            if graph.revive() > 0 {
                 self.increase_pending_queue_size(graph.available_tasks())?;
             }
 
