@@ -473,6 +473,7 @@ impl ExecutionGraph {
         if next_task.is_none() {
             let number_of_converted_tasks = self.revive();
             if number_of_converted_tasks > 0 {
+                // we can ignore num_of_conv tasks here, as we resolve them in previus step
                 let (task, _) = self.pop_next_task(executor_id)?;
                 next_task = task;
                 number_of_converted_tasks_during_search = number_of_converted_tasks;
