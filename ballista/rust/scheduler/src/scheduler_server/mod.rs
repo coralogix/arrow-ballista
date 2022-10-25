@@ -363,7 +363,7 @@ mod test {
         {
             let task = {
                 let mut graph = graph.write().await;
-                graph.pop_next_task("executor-1")?
+                graph.pop_next_task("executor-1")?.0
             };
             if let Some(task) = task {
                 let mut partitions: Vec<ShuffleWritePartition> = vec![];

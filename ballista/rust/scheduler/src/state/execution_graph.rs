@@ -169,8 +169,8 @@ impl ExecutionGraph {
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
-    /// If any stages are converted, return true; else false.
-    pub fn revive(&mut self) -> bool {
+    /// return number of newly converted tasks.
+    pub fn revive(&mut self) -> usize {
         let running_stages = self
             .stages
             .values()
@@ -183,17 +183,18 @@ impl ExecutionGraph {
             })
             .collect::<Vec<_>>();
 
-        if running_stages.is_empty() {
-            false
-        } else {
+        let mut number_of_converted_tasks = 0usize;
+
+        if !running_stages.is_empty() {
             for running_stage in running_stages {
+                number_of_converted_tasks += running_stage.available_tasks();
                 self.stages.insert(
                     running_stage.stage_id,
                     ExecutionStage::Running(running_stage),
                 );
             }
-            true
         }
+        number_of_converted_tasks
     }
 
     /// Update task statuses and task metrics in the graph.
@@ -202,7 +203,7 @@ impl ExecutionGraph {
         &mut self,
         executor: &ExecutorMetadata,
         task_statuses: Vec<TaskStatus>,
-    ) -> Result<Option<QueryStageSchedulerEvent>> {
+    ) -> Result<Option<(QueryStageSchedulerEvent, usize)>> {
         let job_id = self.job_id().to_owned();
         // First of all, classify the statuses by stages
         let mut job_task_statuses: HashMap<usize, Vec<TaskStatus>> = HashMap::new();
@@ -225,7 +226,7 @@ impl ExecutionGraph {
 
         // Revive before updating due to some updates not saved
         // It will be refined later
-        self.revive();
+        let number_of_converted_tasks_during_revive = self.revive();
 
         let mut events = vec![];
         for (stage_id, stage_task_statuses) in job_task_statuses {
@@ -319,7 +320,10 @@ impl ExecutionGraph {
             }
         }
 
-        self.processing_stage_events(events)
+        match self.processing_stage_events(events)? {
+            Some(events) => Ok(Some((events, number_of_converted_tasks_during_revive))),
+            _ => Ok(None),
+        }
     }
 
     fn update_stage_output_links(
@@ -420,7 +424,7 @@ impl ExecutionGraph {
     /// available to the scheduler.
     /// If the task is not launched the status must be reset to allow the task to
     /// be scheduled elsewhere.
-    pub fn pop_next_task(&mut self, executor_id: &str) -> Result<Option<Task>> {
+    pub fn pop_next_task(&mut self, executor_id: &str) -> Result<(Option<Task>, usize)> {
         let job_id = self.job_id.clone();
         let session_id = self.session_id.clone();
         let mut next_task = self.stages.iter_mut().find(|(_stage_id, stage)| {
@@ -462,17 +466,22 @@ impl ExecutionGraph {
             }
         }).transpose()?;
 
+        let mut number_of_converted_tasks_during_search = 0;
+
         // If no available tasks found in the running stage,
         // try to find a resolved stage and convert it to the running stage
         if next_task.is_none() {
-            if self.revive() {
-                next_task = self.pop_next_task(executor_id)?;
+            let number_of_converted_tasks = self.revive();
+            if number_of_converted_tasks > 0 {
+                let (task, _) = self.pop_next_task(executor_id)?;
+                next_task = task;
+                number_of_converted_tasks_during_search = number_of_converted_tasks;
             } else {
                 next_task = None;
             }
         }
 
-        Ok(next_task)
+        Ok((next_task, number_of_converted_tasks_during_search))
     }
 
     pub fn update_status(&mut self, status: JobStatus) {
@@ -1265,13 +1274,13 @@ mod test {
         assert_eq!(join_graph.available_tasks(), 2);
 
         // Complete the first stage
-        if let Some(task) = join_graph.pop_next_task(&executor1.id)? {
+        if let Some(task) = join_graph.pop_next_task(&executor1.id)?.0 {
             let task_status = mock_completed_task(task, &executor1.id);
             join_graph.update_task_status(&executor1, vec![task_status])?;
         }
 
         // Complete the second stage
-        if let Some(task) = join_graph.pop_next_task(&executor2.id)? {
+        if let Some(task) = join_graph.pop_next_task(&executor2.id)?.0 {
             let task_status = mock_completed_task(task, &executor2.id);
             join_graph.update_task_status(&executor2, vec![task_status])?;
         }
@@ -1281,7 +1290,7 @@ mod test {
         assert_eq!(join_graph.available_tasks(), 4);
 
         // Complete 1 task
-        if let Some(task) = join_graph.pop_next_task(&executor1.id)? {
+        if let Some(task) = join_graph.pop_next_task(&executor1.id)?.0 {
             let task_status = mock_completed_task(task, &executor1.id);
             join_graph.update_task_status(&executor1, vec![task_status])?;
         }
@@ -1316,13 +1325,13 @@ mod test {
         assert_eq!(join_graph.available_tasks(), 2);
 
         // Complete the first stage
-        if let Some(task) = join_graph.pop_next_task(&executor1.id)? {
+        if let Some(task) = join_graph.pop_next_task(&executor1.id)?.0 {
             let task_status = mock_completed_task(task, &executor1.id);
             join_graph.update_task_status(&executor1, vec![task_status])?;
         }
 
         // Complete the second stage
-        if let Some(task) = join_graph.pop_next_task(&executor2.id)? {
+        if let Some(task) = join_graph.pop_next_task(&executor2.id)?.0 {
             let task_status = mock_completed_task(task, &executor2.id);
             join_graph.update_task_status(&executor2, vec![task_status])?;
         }
@@ -1358,25 +1367,25 @@ mod test {
         assert_eq!(agg_graph.available_tasks(), 1);
 
         // Complete the first stage
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id)? {
+        if let Some(task) = agg_graph.pop_next_task(&executor1.id)?.0 {
             let task_status = mock_completed_task(task, &executor1.id);
             agg_graph.update_task_status(&executor1, vec![task_status])?;
         }
 
         // 1st task in the second stage
-        if let Some(task) = agg_graph.pop_next_task(&executor2.id)? {
+        if let Some(task) = agg_graph.pop_next_task(&executor2.id)?.0 {
             let task_status = mock_completed_task(task, &executor2.id);
             agg_graph.update_task_status(&executor2, vec![task_status])?;
         }
 
         // 2rd task in the second stage
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id)? {
+        if let Some(task) = agg_graph.pop_next_task(&executor1.id)?.0 {
             let task_status = mock_completed_task(task, &executor1.id);
             agg_graph.update_task_status(&executor1, vec![task_status])?;
         }
 
         // 3rd task in the second stage, scheduled but not completed
-        let task = agg_graph.pop_next_task(&executor1.id)?;
+        let task = agg_graph.pop_next_task(&executor1.id)?.0;
 
         // There is 1 task pending schedule now
         assert_eq!(agg_graph.available_tasks(), 1);
@@ -1407,7 +1416,7 @@ mod test {
 
         loop {
             let mut next_tasks = vec![];
-            while let Some(task) = graph.pop_next_task(&executor.id)? {
+            while let Some(task) = graph.pop_next_task(&executor.id)?.0 {
                 next_tasks.push(task);
             }
 

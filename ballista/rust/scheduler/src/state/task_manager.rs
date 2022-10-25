@@ -165,8 +165,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 None
             };
 
-            if let Some(event) = job_event {
+            if let Some((event, number_of_converted_tasks)) = job_event {
                 events.push(event);
+
+                if number_of_converted_tasks > 0 {
+                    self.increase_pending_queue_size(number_of_converted_tasks)?;
+                }
             }
         }
 
@@ -204,9 +208,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         for (_job_id, graph) in job_cache.iter() {
             let mut graph = graph.write().await;
             for reservation in free_reservations.iter().skip(assign_tasks) {
-                if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
+                if let (Some(task), num_of_converted_tasks) =
+                    graph.pop_next_task(&reservation.executor_id)?
+                {
                     assignments.push((reservation.executor_id.clone(), task));
                     assign_tasks += 1;
+
+                    // if during task look up we discovered newly converted tasks, we need to update our conter
+                    if num_of_converted_tasks > 0 {
+                        self.increase_pending_queue_size(num_of_converted_tasks)?;
+                    }
                 } else {
                     break;
                 }
@@ -215,6 +226,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 pending_tasks = graph.available_tasks();
                 break;
             }
+        }
+
+        if assign_tasks > 0 {
+            self.decrease_pending_queue_size(assign_tasks)?;
         }
 
         let mut unassigned = vec![];
@@ -385,7 +400,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         debug!("Update job {} in Active", job_id);
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let mut graph = graph.write().await;
-            graph.revive();
+            if graph.revive() > 0 {
+                // we may have old running stages + newly created running stages
+                self.increase_pending_queue_size(graph.available_tasks())?;
+            }
             let graph = graph.clone();
             let value = self.encode_execution_graph(graph)?;
             self.state
@@ -583,7 +601,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Ordering::Relaxed,
             |s| Some(s + num),
         ) {
-            Ok(_) => Ok(()),
             Ok(_) => {
                 debug!("Pending queue size was increased by: {}", num);
                 Ok(())
@@ -599,7 +616,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Ordering::Relaxed,
             |s| Some(s - num),
         ) {
-            Ok(_) => Ok(()),
             Ok(_) => {
                 debug!("Pending queue size was decreased by: {}", num);
                 Ok(())
