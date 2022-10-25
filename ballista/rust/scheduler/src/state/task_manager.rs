@@ -102,7 +102,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             )
             .await?;
 
-        graph.revive();
+        let num_of_converted_tasks = graph.revive();
+
+        if num_of_converted_tasks > 0 {
+            self.increase_pending_queue_size(num_of_converted_tasks)?;
+        }
 
         let mut active_graph_cache = self.active_job_cache.write().await;
         active_graph_cache.insert(job_id.to_owned(), Arc::new(RwLock::new(graph)));
@@ -594,6 +598,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
+        info!("Increasing pending queue size by {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
@@ -609,6 +614,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
     }
     pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
+        info!("Decreasing pending queue size by {}", num);
         match self.pending_task_queue_size.fetch_update(
             Ordering::Relaxed,
             Ordering::Relaxed,
