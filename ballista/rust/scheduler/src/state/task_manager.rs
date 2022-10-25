@@ -22,7 +22,6 @@ use crate::state::execution_graph::{ExecutionGraph, Task};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::{decode_protobuf, encode_protobuf, with_lock};
 use ballista_core::config::BallistaConfig;
-#[cfg(not(test))]
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use ballista_core::serde::protobuf::executor_grpc_client::ExecutorGrpcClient;
@@ -42,6 +41,7 @@ use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use std::default::Default;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -60,6 +60,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     scheduler_id: String,
     // Cache for active execution graphs curated by this scheduler
     active_job_cache: ExecutionGraphCache,
+    pending_task_queue_size: Arc<AtomicUsize>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U> {
@@ -76,6 +77,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             codec,
             scheduler_id,
             active_job_cache: Arc::new(RwLock::new(HashMap::new())),
+            pending_task_queue_size: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -573,5 +575,41 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             .map(char::from)
             .take(7)
             .collect()
+    }
+
+    pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
+        match self.pending_task_queue_size.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |s| Some(s + num),
+        ) {
+            Ok(_) => Ok(()),
+            Ok(_) => {
+                debug!("Pending queue size was increased by: {}", num);
+                Ok(())
+            }
+            Err(_) => Err(BallistaError::Internal(
+                "Unable to increase pending queue size".to_owned(),
+            )),
+        }
+    }
+    pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
+        match self.pending_task_queue_size.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |s| Some(s - num),
+        ) {
+            Ok(_) => Ok(()),
+            Ok(_) => {
+                debug!("Pending queue size was decreased by: {}", num);
+                Ok(())
+            }
+            Err(_) => Err(BallistaError::Internal(
+                "Unable to decrease pending queue size".to_owned(),
+            )),
+        }
+    }
+    pub fn get_pending_task_queue_size(&self) -> usize {
+        self.pending_task_queue_size.load(Ordering::SeqCst)
     }
 }
