@@ -269,58 +269,54 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
         let lock = self.state.lock(Keyspace::ActiveJobs, "").await?;
-
-        let running_tasks = self
-            .get_execution_graph(job_id)
-            .await
-            .map(|graph| graph.running_tasks())
-            .unwrap_or_else(|_| vec![]);
-
-        info!(
-            "Cancelling {} running tasks for job {}",
-            running_tasks.len(),
-            job_id
-        );
-
         let failed_at = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards")
             .as_secs();
-
         self.fail_job_inner(lock, job_id, "Cancelled".to_owned(), failed_at)
             .await?;
 
-        let mut tasks: HashMap<&str, Vec<protobuf::PartitionId>> = Default::default();
+        if let Ok(graph) = self.get_execution_graph(job_id).await {
+            let running_tasks = graph.running_tasks();
 
-        for (partition, executor_id) in &running_tasks {
-            if let Some(parts) = tasks.get_mut(executor_id.as_str()) {
-                parts.push(protobuf::PartitionId {
-                    job_id: job_id.to_owned(),
-                    stage_id: partition.stage_id as u32,
-                    partition_id: partition.partition_id as u32,
-                })
-            } else {
-                tasks.insert(
-                    executor_id.as_str(),
-                    vec![protobuf::PartitionId {
+            info!(
+                "Cancelling {} running tasks for job {}",
+                running_tasks.len(),
+                job_id
+            );
+
+            let mut tasks: HashMap<&str, Vec<protobuf::PartitionId>> = Default::default();
+            for (partition, executor_id) in &running_tasks {
+                if let Some(parts) = tasks.get_mut(executor_id.as_str()) {
+                    parts.push(protobuf::PartitionId {
                         job_id: job_id.to_owned(),
                         stage_id: partition.stage_id as u32,
                         partition_id: partition.partition_id as u32,
-                    }],
-                );
-            }
-        }
-
-        for (executor_id, partitions) in tasks {
-            if let Ok(mut client) = executor_manager.get_client(executor_id).await {
-                client
-                    .cancel_tasks(CancelTasksParams {
-                        partition_id: partitions,
                     })
-                    .await?;
-            } else {
-                error!("Failed to get client for executor ID {}", executor_id)
+                } else {
+                    tasks.insert(
+                        executor_id.as_str(),
+                        vec![protobuf::PartitionId {
+                            job_id: job_id.to_owned(),
+                            stage_id: partition.stage_id as u32,
+                            partition_id: partition.partition_id as u32,
+                        }],
+                    );
+                }
             }
+
+            for (executor_id, partitions) in tasks {
+                if let Ok(mut client) = executor_manager.get_client(executor_id).await {
+                    client
+                        .cancel_tasks(CancelTasksParams {
+                            partition_id: partitions,
+                        })
+                        .await?;
+                } else {
+                    error!("Failed to get client for executor ID {}", executor_id)
+                }
+            }
+            self.decrease_pending_queue_size(graph.available_tasks())?;
         }
 
         Ok(())
