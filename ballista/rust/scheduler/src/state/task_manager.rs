@@ -381,6 +381,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     pub async fn fail_running_job(&self, job_id: &str) -> Result<()> {
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let graph = graph.read().await.clone();
+            let available_tasks = graph.available_tasks();
             let value = self.encode_execution_graph(graph)?;
 
             debug!("Moving job {} from Active to Failed", job_id);
@@ -389,6 +390,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.state
                 .put(Keyspace::FailedJobs, job_id.to_owned(), value)
                 .await?;
+            self.decrease_pending_queue_size(available_tasks)?
         } else {
             warn!("Fail to find job {} in the cache", job_id);
         }
