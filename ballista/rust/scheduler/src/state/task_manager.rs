@@ -157,6 +157,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
 
         let mut events: Vec<QueryStageSchedulerEvent> = vec![];
+        let mut number_of_converted_tasks = 0usize;
         for (job_id, statuses) in job_updates {
             let num_tasks = statuses.len();
             info!("Updating {} tasks in job {}", num_tasks, job_id);
@@ -171,13 +172,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 None
             };
 
-            if let Some((event, number_of_converted_tasks)) = job_event {
+            if let Some((event, num_of_conv_tasks)) = job_event {
                 events.push(event);
-
-                if number_of_converted_tasks > 0 {
-                    self.increase_pending_queue_size(number_of_converted_tasks);
-                }
+                number_of_converted_tasks += num_of_conv_tasks;
             }
+        }
+
+        if number_of_converted_tasks > 0 {
+            self.increase_pending_queue_size(number_of_converted_tasks);
         }
 
         Ok(events)
