@@ -599,19 +599,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
         info!("Increasing pending queue size by {}", num);
-        match self.pending_task_queue_size.fetch_update(
-            Ordering::Relaxed,
-            Ordering::Relaxed,
-            |s| Some(s + num),
-        ) {
-            Ok(_) => {
-                debug!("Pending queue size was increased by: {}", num);
-                Ok(())
-            }
-            Err(_) => Err(BallistaError::Internal(
-                "Unable to increase pending queue size".to_owned(),
-            )),
-        }
+        let result = self.pending_task_queue_size.fetch_add(num, Ordering::Relaxed);
+
+        debug!("Pending queue size increased by {} to {}", num, result);
+
+        Ok(())
     }
     pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
         info!("Decreasing pending queue size by {}", num);
