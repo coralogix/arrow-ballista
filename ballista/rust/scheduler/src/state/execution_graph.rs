@@ -320,10 +320,9 @@ impl ExecutionGraph {
             }
         }
 
-        match self.processing_stage_events(events)? {
-            Some(events) => Ok(Some((events, number_of_converted_tasks_during_revive))),
-            _ => Ok(None),
-        }
+        self.processing_stage_events(events).map(|maybe_evts| {
+            maybe_evts.map(|evts| (evts, number_of_converted_tasks_during_revive))
+        })
     }
 
     fn update_stage_output_links(
