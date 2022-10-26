@@ -22,6 +22,7 @@ use crate::state::execution_graph::{ExecutionGraph, Task};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::{decode_protobuf, encode_protobuf, with_lock};
 use ballista_core::config::BallistaConfig;
+#[cfg(not(test))]
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use ballista_core::serde::protobuf::executor_grpc_client::ExecutorGrpcClient;
@@ -39,9 +40,10 @@ use datafusion::prelude::SessionContext;
 use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::default::Default;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering as AOrdering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -105,7 +107,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let num_of_converted_tasks = graph.revive();
 
         if num_of_converted_tasks > 0 {
-            self.increase_pending_queue_size(num_of_converted_tasks)?;
+            self.increase_pending_queue_size(num_of_converted_tasks);
         }
 
         let mut active_graph_cache = self.active_job_cache.write().await;
@@ -173,7 +175,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 events.push(event);
 
                 if number_of_converted_tasks > 0 {
-                    self.increase_pending_queue_size(number_of_converted_tasks)?;
+                    self.increase_pending_queue_size(number_of_converted_tasks);
                 }
             }
         }
@@ -208,6 +210,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assignments: Vec<(String, Task)> = vec![];
         let mut pending_tasks = 0usize;
         let mut assign_tasks = 0usize;
+        let mut converted_tasks = 0usize;
         let job_cache = self.active_job_cache.read().await;
         for (_job_id, graph) in job_cache.iter() {
             let mut graph = graph.write().await;
@@ -217,11 +220,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 {
                     assignments.push((reservation.executor_id.clone(), task));
                     assign_tasks += 1;
-
-                    // if during task look up we discovered newly converted tasks, we need to update our conter
-                    if num_of_converted_tasks > 0 {
-                        self.increase_pending_queue_size(num_of_converted_tasks)?;
-                    }
+                    converted_tasks += num_of_converted_tasks;
                 } else {
                     break;
                 }
@@ -232,8 +231,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             }
         }
 
-        if assign_tasks > 0 {
-            self.decrease_pending_queue_size(assign_tasks)?;
+        match assign_tasks.cmp(&converted_tasks) {
+            Ordering::Greater => {
+                self.decrease_pending_queue_size(assign_tasks - converted_tasks)
+            }
+            Ordering::Less => {
+                self.increase_pending_queue_size(converted_tasks - assign_tasks)
+            }
+            _ => (),
         }
 
         let mut unassigned = vec![];
@@ -320,7 +325,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     error!("Failed to get client for executor ID {}", executor_id)
                 }
             }
-            self.decrease_pending_queue_size(graph.available_tasks())?;
+            self.decrease_pending_queue_size(graph.available_tasks());
         }
 
         Ok(())
@@ -390,7 +395,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.state
                 .put(Keyspace::FailedJobs, job_id.to_owned(), value)
                 .await?;
-            self.decrease_pending_queue_size(available_tasks)?
+            self.decrease_pending_queue_size(available_tasks)
         } else {
             warn!("Fail to find job {} in the cache", job_id);
         }
@@ -404,7 +409,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let mut graph = graph.write().await;
             if graph.revive() > 0 {
                 // we may have old running stages + newly created running stages
-                self.increase_pending_queue_size(graph.available_tasks())?;
+                self.increase_pending_queue_size(graph.available_tasks());
             }
             let graph = graph.clone();
             let value = self.encode_execution_graph(graph)?;
@@ -597,23 +602,23 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             .collect()
     }
 
-    pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
-        info!("Increasing pending queue size by {}", num);
-        let result = self.pending_task_queue_size.fetch_add(num, Ordering::Relaxed);
+    pub fn increase_pending_queue_size(&self, num: usize) {
+        let result = self
+            .pending_task_queue_size
+            .fetch_add(num, AOrdering::Relaxed);
 
         debug!("Pending queue size increased by {} to {}", num, result);
-
-        Ok(())
     }
-    pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
-        info!("Decreasing pending queue size by {}", num);
-       let result = self.pending_task_queue_size.fetch_sub(num, Ordering::Relaxed);
+
+    pub fn decrease_pending_queue_size(&self, num: usize) {
+        let result = self
+            .pending_task_queue_size
+            .fetch_sub(num, AOrdering::Relaxed);
 
         debug!("Pending queue size decreased by {} to {}", num, result);
-
-        Ok(())
     }
+
     pub fn get_pending_task_queue_size(&self) -> usize {
-        self.pending_task_queue_size.load(Ordering::SeqCst)
+        self.pending_task_queue_size.load(AOrdering::SeqCst)
     }
 }
