@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::scheduler_server::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::SessionBuilder;
 use crate::state::backend::{Lock, StateBackendClient};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
@@ -92,12 +93,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         config_client: Arc<dyn StateBackendClient>,
         session_builder: SessionBuilder,
         codec: BallistaCodec<T, U>,
+        metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         SchedulerState::new(
             config_client,
             session_builder,
             codec,
             "localhost:50050".to_owned(),
+            metrics_collector,
         )
     }
 
@@ -106,6 +109,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         session_builder: SessionBuilder,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
+        metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(config_client.clone()),
@@ -114,6 +118,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 session_builder,
                 codec.clone(),
                 scheduler_name,
+                metrics_collector,
             ),
             session_manager: SessionManager::new(config_client, session_builder),
             codec,
@@ -280,6 +285,7 @@ pub async fn with_lock<Out, F: Future<Output = Out>>(lock: Box<dyn Lock>, op: F)
 
 #[cfg(test)]
 mod test {
+    use crate::scheduler_server::metrics::NoopMetricsCollector;
     use crate::state::backend::standalone::StandaloneClient;
     use crate::state::SchedulerState;
     use ballista_core::config::{BallistaConfig, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS};
@@ -310,6 +316,7 @@ mod test {
                 state_storage,
                 default_session_builder,
                 BallistaCodec::default(),
+                Arc::new(NoopMetricsCollector::default()),
             ));
 
         let executors = test_executors(1, 4);
@@ -345,6 +352,7 @@ mod test {
                 state_storage,
                 default_session_builder,
                 BallistaCodec::default(),
+                Arc::new(NoopMetricsCollector::default()),
             ));
 
         let session_ctx = state.session_manager.create_session(&config).await?;
@@ -402,6 +410,7 @@ mod test {
                 state_storage,
                 default_session_builder,
                 BallistaCodec::default(),
+                Arc::new(NoopMetricsCollector::default()),
             ));
 
         let session_ctx = state.session_manager.create_session(&config).await?;

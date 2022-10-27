@@ -16,6 +16,7 @@
 // under the License.
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::scheduler_server::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::SessionBuilder;
 use crate::state::backend::{Keyspace, Lock, StateBackendClient};
 use crate::state::execution_graph::{ExecutionGraph, Task};
@@ -63,6 +64,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     // Cache for active execution graphs curated by this scheduler
     active_job_cache: ExecutionGraphCache,
     pending_task_queue_size: Arc<AtomicUsize>,
+    metrics_collector: Arc<dyn SchedulerMetricsCollector>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U> {
@@ -71,6 +73,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         session_builder: SessionBuilder,
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
+        metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         Self {
             state,
@@ -80,6 +83,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             scheduler_id,
             active_job_cache: Arc::new(RwLock::new(HashMap::new())),
             pending_task_queue_size: Arc::new(AtomicUsize::new(0)),
+            metrics_collector,
         }
     }
 
@@ -608,6 +612,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let result = self
             .pending_task_queue_size
             .fetch_add(num, AOrdering::Relaxed);
+        self.metrics_collector
+            .set_pending_tasks_queue_size(result as f64);
 
         debug!("Pending queue size increased by {} to {}", num, result);
     }
@@ -616,6 +622,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let result = self
             .pending_task_queue_size
             .fetch_sub(num, AOrdering::Relaxed);
+        self.metrics_collector
+            .set_pending_tasks_queue_size(result as f64);
 
         debug!("Pending queue size decreased by {} to {}", num, result);
     }
