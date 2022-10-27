@@ -669,7 +669,7 @@ mod test {
                 state_storage.clone(),
                 default_session_builder,
                 BallistaCodec::default(),
-                Arc::new(NoopMetricsCollector::default())
+                Arc::new(NoopMetricsCollector::default()),
             );
         state.init().await?;
 
