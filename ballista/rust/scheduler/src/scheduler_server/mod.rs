@@ -63,10 +63,6 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T, U> {
-    pub fn get_pending_task_queue_size(&self) -> usize {
-        self.state.task_manager.get_pending_task_queue_size()
-    }
-
     pub fn new(
         scheduler_name: String,
         config: Arc<dyn StateBackendClient>,
