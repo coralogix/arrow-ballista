@@ -109,6 +109,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             session_builder,
             codec,
             scheduler_name.clone(),
+            metrics_collector.clone(),
         ));
 
         SchedulerServer::new_with_state(scheduler_name, policy, state, metrics_collector)
@@ -773,6 +774,7 @@ mod test {
             state_storage,
             default_session_builder,
             BallistaCodec::default(),
+            Arc::new(NoopMetricsCollector::default()),
         ));
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new_with_state(
