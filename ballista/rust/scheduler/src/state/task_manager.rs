@@ -619,13 +619,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn decrease_pending_queue_size(&self, num: usize) {
-        let result = self
-            .pending_task_queue_size
-            .fetch_sub(num, AOrdering::Relaxed);
-        self.metrics_collector
-            .set_pending_tasks_queue_size(result as f64);
+        if num > 0 {
+            let result = self
+                .pending_task_queue_size
+                .fetch_sub(num, AOrdering::Relaxed);
+            self.metrics_collector
+                .set_pending_tasks_queue_size(result as f64);
 
-        debug!("Pending queue size decreased by {} to {}", num, result);
+            debug!("Pending queue size decreased by {} to {}", num, result);
+        }
     }
 
     pub fn get_pending_task_queue_size(&self) -> usize {
