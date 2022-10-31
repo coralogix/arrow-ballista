@@ -110,9 +110,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         let num_of_converted_tasks = graph.revive();
 
-        if num_of_converted_tasks > 0 {
-            self.increase_pending_queue_size(num_of_converted_tasks);
-        }
+        self.increase_pending_queue_size(num_of_converted_tasks);
 
         let mut active_graph_cache = self.active_job_cache.write().await;
         active_graph_cache.insert(job_id.to_owned(), Arc::new(RwLock::new(graph)));
@@ -182,9 +180,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             }
         }
 
-        if number_of_converted_tasks > 0 {
-            self.increase_pending_queue_size(number_of_converted_tasks);
-        }
+        self.increase_pending_queue_size(number_of_converted_tasks);
 
         Ok(events)
     }
@@ -393,6 +389,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let graph = graph.read().await.clone();
             let available_tasks = graph.available_tasks();
+            self.decrease_pending_queue_size(available_tasks);
             let value = self.encode_execution_graph(graph)?;
 
             debug!("Moving job {} from Active to Failed", job_id);
@@ -401,7 +398,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.state
                 .put(Keyspace::FailedJobs, job_id.to_owned(), value)
                 .await?;
-            self.decrease_pending_queue_size(available_tasks)
         } else {
             warn!("Fail to find job {} in the cache", job_id);
         }
@@ -413,10 +409,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         debug!("Update job {} in Active", job_id);
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let mut graph = graph.write().await;
-            if graph.revive() > 0 {
-                // we may have old running stages + newly created running stages
-                self.increase_pending_queue_size(graph.available_tasks());
-            }
+
+            graph.revive();
+            self.increase_pending_queue_size(graph.available_tasks());
+
             let graph = graph.clone();
             let value = self.encode_execution_graph(graph)?;
             self.state
@@ -609,28 +605,88 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn increase_pending_queue_size(&self, num: usize) {
-        let result = self
-            .pending_task_queue_size
-            .fetch_add(num, AOrdering::Relaxed);
-        self.metrics_collector
-            .set_pending_tasks_queue_size(result as f64);
+        if num != 0 {
+            loop {
+                let old_value = self.get_pending_task_queue_size();
 
-        debug!("Pending queue size increased by {} to {}", num, result);
+                if usize::MAX - old_value >= num {
+                    let new_value = old_value + num;
+                    match self.pending_task_queue_size.compare_exchange(
+                        old_value,
+                        new_value,
+                        AOrdering::AcqRel,
+                        AOrdering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.metrics_collector
+                                .set_pending_tasks_queue_size(new_value as f64);
+                            debug!(
+                                "Pending queue size {} increased by {} to {}",
+                                old_value, num, new_value
+                            );
+                            break;
+                        }
+                        Err(_) => {
+                            debug!(
+                                "Unable to increase pending queue size {} by {} to {}",
+                                old_value, num, new_value
+                            );
+                            continue;
+                        }
+                    }
+                } else {
+                    error!(
+                        "Refused to increase pending queue size {} by {}, wrap on overflow will happen", 
+                        old_value, num
+                    );
+                    break;
+                }
+            }
+        }
     }
 
     pub fn decrease_pending_queue_size(&self, num: usize) {
-        if num > 0 {
-            let result = self
-                .pending_task_queue_size
-                .fetch_sub(num, AOrdering::Relaxed);
-            self.metrics_collector
-                .set_pending_tasks_queue_size(result as f64);
+        if num != 0 {
+            loop {
+                let old_value = self.get_pending_task_queue_size();
 
-            debug!("Pending queue size decreased by {} to {}", num, result);
+                if old_value >= num {
+                    let new_value = old_value - num;
+                    match self.pending_task_queue_size.compare_exchange(
+                        old_value,
+                        new_value,
+                        AOrdering::AcqRel,
+                        AOrdering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.metrics_collector
+                                .set_pending_tasks_queue_size(new_value as f64);
+                            debug!(
+                                "Pending queue size {} decreased by {} to {}",
+                                old_value, num, new_value
+                            );
+                            break;
+                        }
+                        Err(_) => {
+                            debug!(
+                                "Unable to decreased pending queue size {} by {} to {}",
+                                old_value, num, new_value
+                            );
+                            continue;
+                        }
+                    };
+                } else {
+                    error!(
+                        "Refused to decrease pending queue size {} by {}, wrap on overflow will happen",
+                        old_value, num
+                    );
+                    break;
+                }
+            }
         }
     }
 
     pub fn get_pending_task_queue_size(&self) -> usize {
-        self.pending_task_queue_size.load(AOrdering::SeqCst)
+        self.pending_task_queue_size.load(AOrdering::Acquire)
     }
 }
