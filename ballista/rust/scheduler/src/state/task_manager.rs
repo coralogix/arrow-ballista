@@ -23,7 +23,9 @@ use crate::state::execution_graph::{ExecutionGraph, Task};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::{decode_protobuf, encode_protobuf, with_lock};
 use ballista_core::config::BallistaConfig;
-use ballista_core::error::{BallistaError, Result};
+#[cfg(not(test))]
+use ballista_core::error::BallistaError;
+use ballista_core::error::Result;
 use ballista_core::serde::protobuf::executor_grpc_client::ExecutorGrpcClient;
 
 use crate::state::session_manager::create_datafusion_context;
@@ -108,7 +110,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         let num_of_converted_tasks = graph.revive();
 
-        self.increase_pending_queue_size(num_of_converted_tasks)?;
+        self.increase_pending_queue_size(num_of_converted_tasks);
 
         let mut active_graph_cache = self.active_job_cache.write().await;
         active_graph_cache.insert(job_id.to_owned(), Arc::new(RwLock::new(graph)));
@@ -178,7 +180,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             }
         }
 
-        self.increase_pending_queue_size(number_of_converted_tasks)?;
+        self.increase_pending_queue_size(number_of_converted_tasks);
 
         Ok(events)
     }
@@ -233,10 +235,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         match assign_tasks.cmp(&converted_tasks) {
             Ordering::Greater => {
-                self.decrease_pending_queue_size(assign_tasks - converted_tasks)?
+                self.decrease_pending_queue_size(assign_tasks - converted_tasks)
             }
             Ordering::Less => {
-                self.increase_pending_queue_size(converted_tasks - assign_tasks)?
+                self.increase_pending_queue_size(converted_tasks - assign_tasks)
             }
             _ => (),
         }
@@ -325,7 +327,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     error!("Failed to get client for executor ID {}", executor_id)
                 }
             }
-            self.decrease_pending_queue_size(graph.available_tasks())?;
+            self.decrease_pending_queue_size(graph.available_tasks());
         }
 
         Ok(())
@@ -387,7 +389,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         if let Some(graph) = self.get_active_execution_graph(job_id).await {
             let graph = graph.read().await.clone();
             let available_tasks = graph.available_tasks();
-            self.decrease_pending_queue_size(available_tasks)?;
+            self.decrease_pending_queue_size(available_tasks);
             let value = self.encode_execution_graph(graph)?;
 
             debug!("Moving job {} from Active to Failed", job_id);
@@ -409,7 +411,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let mut graph = graph.write().await;
 
             graph.revive();
-            self.increase_pending_queue_size(graph.available_tasks())?;
+            self.increase_pending_queue_size(graph.available_tasks());
 
             let graph = graph.clone();
             let value = self.encode_execution_graph(graph)?;
@@ -602,7 +604,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             .collect()
     }
 
-    pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
+    pub fn increase_pending_queue_size(&self, num: usize) {
         if num != 0 {
             loop {
                 let old_value = self.get_pending_task_queue_size();
@@ -625,7 +627,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                             break;
                         }
                         Err(_) => {
-                            error!(
+                            debug!(
                                 "Unable to increase pending queue size {} by {} to {}",
                                 old_value, num, new_value
                             );
@@ -633,18 +635,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         }
                     }
                 } else {
-                    return Err(BallistaError::Internal(format!(
+                    error!(
                         "Refused to increase pending queue size {} by {}, wrap on overflow will happen", 
                         old_value, num
-                    )));
+                    );
+                    break;
                 }
             }
         }
-
-        Ok(())
     }
 
-    pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
+    pub fn decrease_pending_queue_size(&self, num: usize) {
         if num != 0 {
             loop {
                 let old_value = self.get_pending_task_queue_size();
@@ -667,7 +668,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                             break;
                         }
                         Err(_) => {
-                            error!(
+                            debug!(
                                 "Unable to decreased pending queue size {} by {} to {}",
                                 old_value, num, new_value
                             );
@@ -675,15 +676,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         }
                     };
                 } else {
-                    return Err(BallistaError::Internal(format!(
+                    error!(
                         "Refused to decrease pending queue size {} by {}, wrap on overflow will happen",
                         old_value, num
-                    )));
+                    );
+                    break;
                 }
             }
         }
-
-        Ok(())
     }
 
     pub fn get_pending_task_queue_size(&self) -> usize {
