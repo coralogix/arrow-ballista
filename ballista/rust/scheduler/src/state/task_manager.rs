@@ -609,28 +609,51 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     pub fn increase_pending_queue_size(&self, num: usize) {
-        let result = self
-            .pending_task_queue_size
-            .fetch_add(num, AOrdering::Relaxed);
-        self.metrics_collector
-            .set_pending_tasks_queue_size(result as f64);
+        let old_value = self.pending_task_queue_size.load(AOrdering::Acquire);
 
-        debug!("Pending queue size increased by {} to {}", num, result);
+        if usize::MAX - old_value >= num {
+            let new_value = old_value + num;
+            self.pending_task_queue_size
+                .store(new_value, AOrdering::Release);
+            self.metrics_collector
+                .set_pending_tasks_queue_size(new_value as f64);
+            debug!(
+                "Pending queue size {} increased by {} to {}",
+                old_value, num, new_value
+            );
+        } else {
+            error!(
+                "Refuse to increase pending queue size {} by {}, wrap on overflow will happen",
+                old_value, num
+            )
+        }
     }
 
     pub fn decrease_pending_queue_size(&self, num: usize) {
         if num > 0 {
-            let result = self
-                .pending_task_queue_size
-                .fetch_sub(num, AOrdering::Relaxed);
-            self.metrics_collector
-                .set_pending_tasks_queue_size(result as f64);
+            let old_value = self.pending_task_queue_size.load(AOrdering::Acquire);
 
-            debug!("Pending queue size decreased by {} to {}", num, result);
+            // wrap around overflow otherwise
+            if old_value >= num {
+                let new_value = old_value - num;
+                self.pending_task_queue_size
+                    .store(new_value, AOrdering::Release);
+                self.metrics_collector
+                    .set_pending_tasks_queue_size(new_value as f64);
+                debug!(
+                    "Pending queue size {} decreased by {} to {}",
+                    old_value, num, new_value
+                );
+            } else {
+                error!(
+                    "Refuse to decrease pending queue size {} by {}, wrap on overflow will happen",
+                    old_value, num
+                )
+            }
         }
     }
 
     pub fn get_pending_task_queue_size(&self) -> usize {
-        self.pending_task_queue_size.load(AOrdering::SeqCst)
+        self.pending_task_queue_size.load(AOrdering::Acquire)
     }
 }
