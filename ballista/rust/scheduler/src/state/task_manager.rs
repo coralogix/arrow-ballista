@@ -604,36 +604,40 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     pub fn increase_pending_queue_size(&self, num: usize) -> Result<()> {
         if num != 0 {
-            let old_value = self.get_pending_task_queue_size();
+            loop {
+                let old_value = self.get_pending_task_queue_size();
 
-            if usize::MAX - old_value >= num {
-                let new_value = old_value + num;
-                match self.pending_task_queue_size.compare_exchange(
-                    old_value,
-                    new_value,
-                    AOrdering::AcqRel,
-                    AOrdering::Relaxed,
-                ) {
-                    Ok(_) => {
-                        self.metrics_collector
-                            .set_pending_tasks_queue_size(new_value as f64);
-                        debug!(
-                            "Pending queue size {} increased by {} to {}",
-                            old_value, num, new_value
-                        );
+                if usize::MAX - old_value >= num {
+                    let new_value = old_value + num;
+                    match self.pending_task_queue_size.compare_exchange(
+                        old_value,
+                        new_value,
+                        AOrdering::AcqRel,
+                        AOrdering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.metrics_collector
+                                .set_pending_tasks_queue_size(new_value as f64);
+                            debug!(
+                                "Pending queue size {} increased by {} to {}",
+                                old_value, num, new_value
+                            );
+                            break;
+                        }
+                        Err(_) => {
+                            error!(
+                                "Unable to increase pending queue size {} by {} to {}",
+                                old_value, num, new_value
+                            );
+                            continue;
+                        }
                     }
-                    Err(_) => {
-                        return Err(BallistaError::Internal(format!(
-                            "Unable to increase pending queue size {} by {} to {}",
-                            old_value, num, new_value
-                        )))
-                    }
+                } else {
+                    return Err(BallistaError::Internal(format!(
+                        "Refused to increase pending queue size {} by {}, wrap on overflow will happen", 
+                        old_value, num
+                    )));
                 }
-            } else {
-                return Err(BallistaError::Internal(format!(
-                    "Refused to increase pending queue size {} by {}, wrap on overflow will happen", 
-                    old_value, num
-                )));
             }
         }
 
@@ -642,36 +646,40 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     pub fn decrease_pending_queue_size(&self, num: usize) -> Result<()> {
         if num != 0 {
-            let old_value = self.get_pending_task_queue_size();
+            loop {
+                let old_value = self.get_pending_task_queue_size();
 
-            if old_value >= num {
-                let new_value = old_value - num;
-                match self.pending_task_queue_size.compare_exchange(
-                    old_value,
-                    new_value,
-                    AOrdering::AcqRel,
-                    AOrdering::Relaxed,
-                ) {
-                    Ok(_) => {
-                        self.metrics_collector
-                            .set_pending_tasks_queue_size(new_value as f64);
-                        debug!(
-                            "Pending queue size {} decreased by {} to {}",
-                            old_value, num, new_value
-                        );
-                    }
-                    Err(_) => {
-                        return Err(BallistaError::Internal(format!(
-                            "Unable to decreased pending queue size {} by {} to {}",
-                            old_value, num, new_value
-                        )))
-                    }
-                };
-            } else {
-                return Err(BallistaError::Internal(format!(
-                    "Refused to decrease pending queue size {} by {}, wrap on overflow will happen",
-                    old_value, num
-                )));
+                if old_value >= num {
+                    let new_value = old_value - num;
+                    match self.pending_task_queue_size.compare_exchange(
+                        old_value,
+                        new_value,
+                        AOrdering::AcqRel,
+                        AOrdering::Relaxed,
+                    ) {
+                        Ok(_) => {
+                            self.metrics_collector
+                                .set_pending_tasks_queue_size(new_value as f64);
+                            debug!(
+                                "Pending queue size {} decreased by {} to {}",
+                                old_value, num, new_value
+                            );
+                            break;
+                        }
+                        Err(_) => {
+                            error!(
+                                "Unable to decreased pending queue size {} by {} to {}",
+                                old_value, num, new_value
+                            );
+                            continue;
+                        }
+                    };
+                } else {
+                    return Err(BallistaError::Internal(format!(
+                        "Refused to decrease pending queue size {} by {}, wrap on overflow will happen",
+                        old_value, num
+                    )));
+                }
             }
         }
 
