@@ -57,12 +57,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
     }
 
     fn inc_pending_tasks(&self, tasks: usize) {
+        error!("incrementing pending tasks by {}", tasks);
         let prev = self.pending_tasks.fetch_add(tasks, Ordering::SeqCst);
         self.metrics_collector
             .set_pending_tasks_queue_size((prev + tasks) as u64);
     }
 
     fn dec_pending_tasks(&self, tasks: usize) {
+        error!("decrementing pending tasks by {}", tasks);
         let prev = self.pending_tasks.fetch_sub(tasks, Ordering::SeqCst);
         self.metrics_collector
             .set_pending_tasks_queue_size(prev.saturating_sub(tasks) as u64);
@@ -149,6 +151,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .get_available_task_count(&job_id)
                     .await?;
 
+                error!("job {} submitted, adding {} pending tasks", job_id, available_tasks);
+
                 self.inc_pending_tasks(available_tasks);
 
                 info!("Job {} submitted", job_id);
@@ -233,6 +237,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 info!("Job {} Updated", job_id);
                 let new_tasks = self.state.task_manager.update_job(&job_id).await?;
 
+                error!("job {} updated, adding {} pending tasks", job_id, new_tasks);
+
                 self.inc_pending_tasks(new_tasks);
             }
             QueryStageSchedulerEvent::JobCancel(job_id) => {
@@ -283,6 +289,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             QueryStageSchedulerEvent::ReservationOffering(reservations) => {
                 let (reservations, assigned) =
                     self.state.offer_reservation(reservations).await?;
+
+                error!("Assigned {} tasks", assigned);
 
                 self.dec_pending_tasks(assigned);
 
