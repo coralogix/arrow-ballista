@@ -931,6 +931,10 @@ pub struct GetJobStatusParams {
 pub struct SuccessfulJob {
     #[prost(message, repeated, tag = "1")]
     pub partition_location: ::prost::alloc::vec::Vec<PartitionLocation>,
+    #[prost(uint64, tag = "2")]
+    pub queued_at: u64,
+    #[prost(uint64, tag = "3")]
+    pub completed_at: u64,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

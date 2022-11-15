@@ -20,8 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
-use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
-use ballista_core::serde::BallistaCodec;
+use ballista_core::serde::protobuf::{JobStatus, StopExecutorParams, TaskStatus};
+use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
 use ballista_core::utils::default_session_builder;
 
 use datafusion::execution::context::SessionState;
@@ -80,38 +80,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config_backend,
             cluster_state,
             default_session_builder,
-            codec,
-            scheduler_name.clone(),
-            config.clone(),
-        ));
-        let query_stage_scheduler =
-            Arc::new(QueryStageScheduler::new(state.clone(), metrics_collector));
-        let query_stage_event_loop = EventLoop::new(
-            "query_stage".to_owned(),
-            config.event_loop_buffer_size as usize,
-            query_stage_scheduler.clone(),
-        );
-
-        Self {
-            scheduler_name,
-            start_time: timestamp_millis() as u128,
-            state,
-            query_stage_event_loop,
-            query_stage_scheduler,
-        }
-    }
-
-    pub fn with_session_builder(
-        scheduler_name: String,
-        config_backend: Arc<dyn StateBackendClient>,
-        codec: BallistaCodec<T, U>,
-        config: SchedulerConfig,
-        session_builder: SessionBuilder,
-        metrics_collector: Arc<dyn SchedulerMetricsCollector>,
-    ) -> Self {
-        let state = Arc::new(SchedulerState::new(
-            config_backend,
-            session_builder,
             codec,
             scheduler_name.clone(),
             config.clone(),
@@ -211,15 +179,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         Ok(())
     }
 
-    pub(crate) fn pending_tasks(&self) -> usize {
+    pub fn pending_tasks(&self) -> usize {
         self.query_stage_scheduler.pending_tasks()
     }
 
-    pub(crate) fn metrics_collector(&self) -> &dyn SchedulerMetricsCollector {
-        self.query_stage_scheduler.metrics_collector()
-    }
-
-    pub(crate) async fn submit_job(
+    pub async fn submit_job(
         &self,
         job_id: &str,
         job_name: &str,
@@ -236,6 +200,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 queued_at: timestamp_millis(),
             })
             .await
+    }
+
+    pub async fn get_active_job_status(&self, job_id: &str) -> Result<Option<JobStatus>> {
+        self.state.task_manager.get_job_status(job_id).await
+    }
+
+    pub(crate) fn metrics_collector(&self) -> &dyn SchedulerMetricsCollector {
+        self.query_stage_scheduler.metrics_collector()
     }
 
     /// It just send task status update event to the channel,
