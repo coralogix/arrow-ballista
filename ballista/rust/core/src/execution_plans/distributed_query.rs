@@ -307,12 +307,18 @@ async fn execute_query(
 
                 break Ok(futures::stream::iter(streams).flatten());
             }
-            _ => {
+            Some(job_status::Status::Planning(_)) => {
                 if has_status_change {
                     info!("Job {} still in initialization ...", job_id);
                 }
                 wait_future.await;
                 prev_status = status;
+            }
+            _ => {
+                break Err(DataFusionError::Execution(format!(
+                    "Status for job {} not found",
+                    job_id
+                )));
             }
         };
     }

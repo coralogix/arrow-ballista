@@ -109,6 +109,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             )
             .await?;
 
+        // only when we moved job to another stage, we can remove it from previous
+        self.state.delete(Keyspace::PlanningJob, job_id).await?;
+
         let num_of_converted_tasks = graph.revive();
 
         self.increase_pending_queue_size(num_of_converted_tasks);
@@ -161,18 +164,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             })),
         };
         let value = encode_protobuf(&status)?;
-        self.state
-            .mv(Keyspace::PlanningJob, Keyspace::FailedJobs, job_id.as_str())
-            .await?;
 
-        // as in prev step we move value to, we need to update it to proper state
+        // we're interested to have some status at least somewhere,
+        // I think we can do it without atomicity guarantees
         self.state
             .put(Keyspace::FailedJobs, job_id.to_string(), value)
+            .await?;
+        self.state
+            .delete(Keyspace::PlanningJob, job_id.as_str())
             .await
-    }
-
-    pub async fn remove_job_from_planning(&self, job_id: &str) -> Result<()> {
-        self.state.delete(Keyspace::PlanningJob, job_id).await
     }
 
     /// Update given task statuses in the respective job and return a tuple containing:

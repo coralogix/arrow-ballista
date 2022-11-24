@@ -462,19 +462,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             };
 
             let plan = match plan {
-                Ok(plan) => {
-                    self.state
-                        .task_manager
-                        .remove_job_from_planning(job_id.as_str())
-                        .await
-                        .map_err(|e| {
-                            let msg =
-                                format!("Error removing job from planning stage: {}", e);
-                            error!("{}", msg);
-                            Status::internal(msg)
-                        })?;
-                    plan
-                }
+                Ok(plan) => plan,
                 Err(e) => {
                     let failed_at = SystemTime::now()
                         .duration_since(UNIX_EPOCH)
