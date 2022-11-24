@@ -369,6 +369,41 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 Status::internal(msg)
             })?;
 
+            let job_id = match optional_job_id {
+                // job_id was provided by the caller, lets check that the job_id is unique
+                Some(OptionalJobId::JobId(job_id)) => {
+                    match self.state.task_manager.get_job_status(&job_id).await {
+                        // not job found for this job id, we are good to go
+                        Ok(None) => Ok(job_id),
+                        // job with such job_id already exists, fail-fast
+                        Ok(Some(_)) => {
+                            let msg = format!("JobId: {:?} already exists", job_id);
+                            Err(Status::internal(msg))
+                        }
+                        Err(e) => {
+                            let msg = format!(
+                                "Error getting status for job {}: {:?}",
+                                job_id, e
+                            );
+                            error!("{}", msg);
+                            Err(Status::internal(msg))
+                        }
+                    }
+                }
+                _ => Ok(self.state.task_manager.generate_job_id()),
+            }?;
+
+            // let's start planning our job
+            self.state
+                .task_manager
+                .move_job_to_planning(job_id.clone())
+                .await
+                .map_err(|e| {
+                    let msg = format!("Error moving job to planning stage {}", e);
+                    error!("{}", msg);
+                    Status::internal(msg)
+                })?;
+
             let (session_id, session_ctx) = match optional_session_id {
                 Some(OptionalSessionId::SessionId(session_id)) => {
                     let ctx = self
@@ -404,6 +439,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             let plan = match query {
                 Query::LogicalPlan(message) => T::try_decode(message.as_slice())
                     .and_then(|m| {
+                        // it can take some time to process
                         m.try_into_logical_plan(
                             session_ctx.deref(),
                             self.state.codec.logical_extension_codec(),
@@ -413,7 +449,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         let msg = format!("Could not parse logical plan protobuf: {}", e);
                         error!("{}", msg);
                         Status::internal(msg)
-                    })?,
+                    }),
                 Query::Sql(sql) => session_ctx
                     .sql(&sql)
                     .await
@@ -422,34 +458,46 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         let msg = format!("Error parsing SQL: {}", e);
                         error!("{}", msg);
                         Status::internal(msg)
-                    })?,
+                    }),
+            };
+
+            let plan = match plan {
+                Ok(plan) => {
+                    self.state
+                        .task_manager
+                        .remove_job_from_planning(job_id.as_str())
+                        .await
+                        .map_err(|e| {
+                            let msg =
+                                format!("Error removing job from planning stage: {}", e);
+                            error!("{}", msg);
+                            Status::internal(msg)
+                        })?;
+                    plan
+                }
+                Err(e) => {
+                    let failed_at = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .expect("Time went backwards")
+                        .as_secs();
+                    self.state
+                        .task_manager
+                        .move_job_from_planned_to_failed(
+                            job_id.clone(),
+                            e.message().to_string(),
+                            failed_at,
+                        )
+                        .await
+                        .map_err(|e| {
+                            let msg = format!("Error failing job: {}", e);
+                            error!("{}", msg);
+                            Status::internal(msg)
+                        })?;
+                    return Err(e);
+                }
             };
 
             debug!("Received plan for execution: {:?}", plan);
-
-            let job_id = match optional_job_id {
-                // job_id was provided by the caller, lets check that the job_id is unique
-                Some(OptionalJobId::JobId(job_id)) => {
-                    match self.state.task_manager.get_job_status(&job_id).await {
-                        // not job found for this job id, we are good to go
-                        Ok(None) => Ok(job_id),
-                        // job with such job_id already exists, fail-fast
-                        Ok(Some(_)) => {
-                            let msg = format!("JobId: {:?} already exists", job_id);
-                            Err(Status::internal(msg))
-                        }
-                        Err(e) => {
-                            let msg = format!(
-                                "Error getting status for job {}: {:?}",
-                                job_id, e
-                            );
-                            error!("{}", msg);
-                            Err(Status::internal(msg))
-                        }
-                    }
-                }
-                _ => Ok(self.state.task_manager.generate_job_id()),
-            }?;
 
             let queued_at = SystemTime::now()
                 .duration_since(UNIX_EPOCH)

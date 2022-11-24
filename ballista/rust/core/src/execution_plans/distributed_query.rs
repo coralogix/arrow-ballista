@@ -278,13 +278,6 @@ async fn execute_query(
         let wait_future = tokio::time::sleep(Duration::from_millis(100));
         let has_status_change = prev_status != status;
         match status {
-            None => {
-                if has_status_change {
-                    info!("Job {} still in initialization ...", job_id);
-                }
-                wait_future.await;
-                prev_status = status;
-            }
             Some(job_status::Status::Queued(_)) => {
                 if has_status_change {
                     info!("Job {} still queued...", job_id);
@@ -313,6 +306,13 @@ async fn execute_query(
                 });
 
                 break Ok(futures::stream::iter(streams).flatten());
+            }
+            _ => {
+                if has_status_change {
+                    info!("Job {} still in initialization ...", job_id);
+                }
+                wait_future.await;
+                prev_status = status;
             }
         };
     }

@@ -808,12 +808,15 @@ message FailedJob {
   uint64 failed_at = 2;
 }
 
+message PlanningJob {}
+
 message JobStatus {
   oneof status {
     QueuedJob queued = 1;
     RunningJob running = 2;
     FailedJob failed = 3;
     CompletedJob completed = 4;
+    PlanningJob planning = 5;
   }
 }
 

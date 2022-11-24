@@ -53,6 +53,7 @@ impl parse_arg::ParseArgFromStr for StateBackend {
 pub enum Keyspace {
     Executors,
     ActiveJobs,
+    PlanningJob,
     CompletedJobs,
     FailedJobs,
     Slots,

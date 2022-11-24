@@ -30,7 +30,8 @@ use ballista_core::serde::protobuf::executor_grpc_client::ExecutorGrpcClient;
 
 use crate::state::session_manager::create_datafusion_context;
 use ballista_core::serde::protobuf::{
-    self, job_status, CancelTasksParams, FailedJob, JobStatus, TaskDefinition, TaskStatus,
+    self, job_status, CancelTasksParams, FailedJob, JobStatus, PlanningJob,
+    TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -126,6 +127,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Ok(Some(status))
         } else if let Ok(graph) = self.get_execution_graph(job_id).await {
             Ok(Some(graph.status()))
+        } else if let Ok(value) = self.state.get(Keyspace::PlanningJob, job_id).await {
+            Ok(Some(decode_protobuf(&value)?))
         } else {
             let value = self.state.get(Keyspace::FailedJobs, job_id).await?;
 
@@ -136,6 +139,40 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 Ok(None)
             }
         }
+    }
+
+    pub async fn move_job_to_planning(&self, job_id: String) -> Result<()> {
+        let value = encode_protobuf(&JobStatus {
+            status: Some(job_status::Status::Planning(PlanningJob {})),
+        })?;
+        self.state.put(Keyspace::PlanningJob, job_id, value).await
+    }
+
+    pub async fn move_job_from_planned_to_failed(
+        &self,
+        job_id: String,
+        error_message: String,
+        failed_at: u64,
+    ) -> Result<()> {
+        let status = JobStatus {
+            status: Some(job_status::Status::Failed(FailedJob {
+                error: error_message.clone(),
+                failed_at,
+            })),
+        };
+        let value = encode_protobuf(&status)?;
+        self.state
+            .mv(Keyspace::PlanningJob, Keyspace::FailedJobs, job_id.as_str())
+            .await?;
+
+        // as in prev step we move value to, we need to update it to proper state
+        self.state
+            .put(Keyspace::FailedJobs, job_id.to_string(), value)
+            .await
+    }
+
+    pub async fn remove_job_from_planning(&self, job_id: &str) -> Result<()> {
+        self.state.delete(Keyspace::PlanningJob, job_id).await
     }
 
     /// Update given task statuses in the respective job and return a tuple containing:
