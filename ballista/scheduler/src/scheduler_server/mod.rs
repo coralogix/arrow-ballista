@@ -108,6 +108,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     pub fn with_session_builder(
         scheduler_name: String,
         config_backend: Arc<dyn StateBackendClient>,
+        cluster_backend: Arc<dyn ClusterState>,
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         session_builder: SessionBuilder,
@@ -115,6 +116,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config_backend,
+            cluster_backend,
             session_builder,
             codec,
             scheduler_name.clone(),

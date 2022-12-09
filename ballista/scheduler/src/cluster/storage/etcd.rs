@@ -15,24 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
+//! Etcd config backend.
+
 use std::collections::HashSet;
 
 use std::task::Poll;
 
-use async_trait::async_trait;
 use ballista_core::error::{ballista_error, Result};
 use std::time::Instant;
 
-use crate::cluster::storage::KeyValueStore;
 use etcd_client::{
     GetOptions, LockOptions, LockResponse, Txn, TxnOp, WatchOptions, WatchStream, Watcher,
 };
 use futures::{Stream, StreamExt};
 use log::{debug, error, warn};
 
-use crate::cluster::storage::{Keyspace, Lock, Operation, Watch, WatchEvent};
+use crate::state::backend::{
+    Keyspace, Lock, Operation, StateBackendClient, Watch, WatchEvent,
+};
 
-/// A [`StateBackendClient`] implementation that uses etcd to save cluster state.
+/// A [`StateBackendClient`] implementation that uses etcd to save cluster configuration.
 #[derive(Clone)]
 pub struct EtcdClient {
     namespace: String,
@@ -45,8 +47,8 @@ impl EtcdClient {
     }
 }
 
-#[async_trait]
-impl KeyValueStore for EtcdClient {
+#[tonic::async_trait]
+impl StateBackendClient for EtcdClient {
     async fn get(&self, keyspace: Keyspace, key: &str) -> Result<Vec<u8>> {
         let key = format!("/{}/{:?}/{}", self.namespace, keyspace, key);
 
@@ -55,7 +57,7 @@ impl KeyValueStore for EtcdClient {
             .clone()
             .get(key, None)
             .await
-            .map_err(|e| ballista_error(&format!("etcd error {e:?}")))?
+            .map_err(|e| ballista_error(&format!("etcd error {:?}", e)))?
             .kvs()
             .get(0)
             .map(|kv| kv.value().to_owned())
@@ -74,7 +76,7 @@ impl KeyValueStore for EtcdClient {
             .clone()
             .get(prefix, Some(GetOptions::new().with_prefix()))
             .await
-            .map_err(|e| ballista_error(&format!("etcd error {e:?}")))?
+            .map_err(|e| ballista_error(&format!("etcd error {:?}", e)))?
             .kvs()
             .iter()
             .map(|kv| (kv.key_str().unwrap().to_owned(), kv.value().to_owned()))
@@ -99,7 +101,7 @@ impl KeyValueStore for EtcdClient {
             .clone()
             .get(prefix, Some(options))
             .await
-            .map_err(|e| ballista_error(&format!("etcd error {e:?}")))?
+            .map_err(|e| ballista_error(&format!("etcd error {:?}", e)))?
             .kvs()
             .iter()
             .map(|kv| (kv.key_str().unwrap().to_owned(), kv.value().to_owned()))
@@ -116,7 +118,7 @@ impl KeyValueStore for EtcdClient {
             .clone()
             .get(prefix.clone(), Some(options))
             .await
-            .map_err(|e| ballista_error(&format!("etcd error {e:?}")))?
+            .map_err(|e| ballista_error(&format!("etcd error {:?}", e)))?
             .kvs()
             .iter()
             .map(|kv| {
@@ -137,7 +139,7 @@ impl KeyValueStore for EtcdClient {
             .await
             .map_err(|e| {
                 warn!("etcd put failed: {}", e);
-                ballista_error(&format!("etcd put failed: {e}"))
+                ballista_error(&format!("etcd put failed: {}", e))
             })
             .map(|_| ())
     }
@@ -161,7 +163,7 @@ impl KeyValueStore for EtcdClient {
             .await
             .map_err(|e| {
                 error!("etcd operation failed: {}", e);
-                ballista_error(&format!("etcd operation failed: {e}"))
+                ballista_error(&format!("etcd operation failed: {}", e))
             })
             .map(|_| ())
     }
@@ -179,7 +181,7 @@ impl KeyValueStore for EtcdClient {
         let current_value = etcd
             .get(from_key.as_str(), None)
             .await
-            .map_err(|e| ballista_error(&format!("etcd error {e:?}")))?
+            .map_err(|e| ballista_error(&format!("etcd error {:?}", e)))?
             .kvs()
             .get(0)
             .map(|kv| kv.value().to_owned());
