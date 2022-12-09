@@ -36,8 +36,7 @@ use log::{error, warn};
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
-use crate::state::backend::cluster::ClusterState;
-use crate::state::backend::StateBackendClient;
+use crate::state::backend::{ClusterState, StateBackendClient};
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::{
     ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
@@ -72,14 +71,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     pub fn new(
         scheduler_name: String,
         config_backend: Arc<dyn StateBackendClient>,
-        cluster_state: Arc<dyn ClusterState>,
+        cluster_backend: Arc<dyn ClusterState>,
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config_backend,
-            cluster_state,
+            cluster_backend,
             default_session_builder,
             codec,
             scheduler_name.clone(),
@@ -113,6 +112,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config_backend,
+            cluster_backend,
             cluster_backend,
             session_builder,
             codec,
@@ -148,6 +148,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Self {
         let state = Arc::new(SchedulerState::with_task_launcher(
             config_backend,
+            cluster_backend,
             cluster_backend,
             default_session_builder,
             codec,
@@ -661,6 +662,8 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                state_storage.clone(),
+                state_storage,
                 state_storage,
                 cluster_state,
                 BallistaCodec::default(),
