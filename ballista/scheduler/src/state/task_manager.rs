@@ -170,6 +170,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
     }
 
+    /// Return the count of current active jobs on this scheduler instance.
+    pub fn get_active_job_count(&self) -> usize {
+        self.active_job_cache.len()
+    }
+
     /// Enqueue a job for scheduling
     pub async fn queue_job(
         &self,
