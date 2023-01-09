@@ -104,6 +104,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             } => {
                 info!("Job {} queued with name {:?}", job_id, job_name);
 
+                self.metrics_collector
+                    .record_queued(&job_id, timestamp_millis());
+
                 self.state
                     .task_manager
                     .queue_job(&job_id, &job_name, queued_at)
