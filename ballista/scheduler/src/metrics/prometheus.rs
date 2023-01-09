@@ -54,7 +54,9 @@ impl PrometheusMetricsCollector {
         let execution_time = register_histogram_with_registry!(
             "job_exec_time_seconds",
             "Histogram of successful job execution time in seconds",
-            vec![0.5_f64, 1_f64, 5_f64, 30_f64, 60_f64],
+            vec![
+                0.5_f64, 1_f64, 5_f64, 30_f64, 60_f64, 120_f64, 180_f64, 240_f64, 300_f64
+            ],
             registry
         )
         .map_err(|e| {
@@ -64,7 +66,10 @@ impl PrometheusMetricsCollector {
         let planning_time = register_histogram_with_registry!(
             "planning_time_ms",
             "Histogram of job planning time in milliseconds",
-            vec![1.0_f64, 5.0_f64, 25.0_f64, 100.0_f64, 500.0_f64],
+            vec![
+                1.0_f64, 5.0_f64, 25.0_f64, 100.0_f64, 200.0_f64, 300_f64, 400_f64,
+                500_f64, 1_000_f64, 2_000_f64, 3_000_f64
+            ],
             registry
         )
         .map_err(|e| {
