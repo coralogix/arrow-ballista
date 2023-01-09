@@ -46,6 +46,7 @@ pub struct PrometheusMetricsCollector {
     completed: Counter,
     submitted: Counter,
     pending_queue_size: Gauge,
+    active_jobs: Gauge,
 }
 
 impl PrometheusMetricsCollector {
@@ -115,6 +116,15 @@ impl PrometheusMetricsCollector {
             BallistaError::Internal(format!("Error registering metric: {:?}", e))
         })?;
 
+        let active_jobs = register_gauge_with_registry!(
+            "active_job_count",
+            "Number of active jobs on the scheduler",
+            registry
+        )
+        .map_err(|e| {
+            BallistaError::Internal(format!("Error registering metric: {:?}", e))
+        })?;
+
         Ok(Self {
             execution_time,
             planning_time,
@@ -123,6 +133,7 @@ impl PrometheusMetricsCollector {
             completed,
             submitted,
             pending_queue_size,
+            active_jobs,
         })
     }
 
@@ -138,6 +149,10 @@ impl PrometheusMetricsCollector {
 }
 
 impl SchedulerMetricsCollector for PrometheusMetricsCollector {
+    fn record_queued(&self, _job_id: &str, _queued_at: u64) {
+        self.active_jobs.inc()
+    }
+
     fn record_submitted(&self, _job_id: &str, queued_at: u64, submitted_at: u64) {
         self.submitted.inc();
         self.planning_time
@@ -146,15 +161,18 @@ impl SchedulerMetricsCollector for PrometheusMetricsCollector {
 
     fn record_completed(&self, _job_id: &str, queued_at: u64, completed_at: u64) {
         self.completed.inc();
+        self.active_jobs.dec();
         self.execution_time
             .observe((completed_at - queued_at) as f64 / 1000_f64)
     }
 
     fn record_failed(&self, _job_id: &str, _queued_at: u64, _failed_at: u64) {
+        self.active_jobs.dec();
         self.failed.inc()
     }
 
     fn record_cancelled(&self, _job_id: &str) {
+        self.active_jobs.dec();
         self.cancelled.inc();
     }
 
