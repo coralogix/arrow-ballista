@@ -47,8 +47,8 @@ base64 = { version = "0.13", default-features = false }
 clap = { version = "3", features = ["derive", "cargo"] }
 configure_me = "0.4.0"
 dashmap = "5.4.0"
-datafusion ={ git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
-datafusion-proto =  { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
+datafusion ={ git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
+datafusion-proto =  { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
 etcd-client = { version = "0.10", optional = true }
 flatbuffers = { version = "22.9.29" }
 futures = "0.3"

@@ -42,8 +42,8 @@ ballista-core = { path = "../core", version = "0.9.0" }
 chrono = { version = "0.4", default-features = false }
 configure_me = "0.4.0"
 dashmap = "5.4.0"
-datafusion = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
-datafusion-proto =  { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
+datafusion = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
+datafusion-proto =  { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
 futures = "0.3"
 hyper = "0.14.4"
 log = "0.4"

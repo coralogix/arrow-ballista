@@ -31,8 +31,8 @@ rust-version = "1.59"
 ballista-core = { path = "../core", version = "0.9.0" }
 ballista-executor = { path = "../executor", version = "0.9.0", optional = true }
 ballista-scheduler = { path = "../scheduler", version = "0.9.0", optional = true }
-datafusion = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
-datafusion-proto = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug" }
+datafusion = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
+datafusion-proto = { git = "https://github.com/fsnlla/arrow-datafusion.git", branch = "debug_new" }
 futures = "0.3"
 log = "0.4"
 parking_lot = "0.12"
