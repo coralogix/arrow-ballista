@@ -664,8 +664,8 @@ impl<T: Send + Sync> Lock for OwnedMutexGuard<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::backend::ClusterState;
     use crate::state::backend::sled::SledClient;
+    use crate::state::backend::ClusterState;
 
     use ballista_core::error::Result;
     use ballista_core::serde::protobuf::{
