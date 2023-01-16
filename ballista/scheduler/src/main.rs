@@ -191,7 +191,7 @@ async fn init_state_backend(
             (backend.clone(), backend)
         }
         #[cfg(not(feature = "sled"))]
-        StateBackend::Standalone => {
+        StateBackend::Sled => {
             unimplemented!(
                 "build the scheduler with the `sled` feature to use the standalone config backend"
             )

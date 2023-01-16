@@ -17,7 +17,8 @@
 
 use crate::config::SchedulerConfig;
 use crate::metrics::default_metrics_collector;
-use crate::{scheduler_server::SchedulerServer, state::backend::sled::SledClient};
+use crate::scheduler_server::SchedulerServer;
+use crate::state::backend::sled::SledClient;
 use ballista_core::serde::protobuf::PhysicalPlanNode;
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::create_grpc_server;
