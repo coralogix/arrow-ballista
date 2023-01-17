@@ -217,7 +217,7 @@ async fn main() -> Result<()> {
         std::process::exit(0);
     }
 
-    let (config_backend, cluster_backend) = init_state_backend(&opt).await?;
+    let (_config_backend, cluster_backend) = init_state_backend(&opt).await?;
 
     let special_mod_log_level = opt.log_level_setting;
     let namespace = opt.namespace;
