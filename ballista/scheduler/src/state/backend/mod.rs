@@ -665,7 +665,7 @@ impl<T: Send + Sync> Lock for OwnedMutexGuard<T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::state::backend::standalone::StandaloneClient;
+    use crate::state::backend::sled::SledClient;
     use crate::state::backend::ClusterState;
 
     use ballista_core::error::Result;
@@ -679,7 +679,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_stream() -> Result<()> {
-        let sled = StandaloneClient::try_new_temporary()?;
+        let sled = SledClient::try_new_temporary()?;
 
         let cluster_state: Arc<dyn ClusterState> = Arc::new(sled);
 
@@ -711,7 +711,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeats() -> Result<()> {
-        let sled = StandaloneClient::try_new_temporary()?;
+        let sled = SledClient::try_new_temporary()?;
 
         let cluster_state: Arc<dyn ClusterState> = Arc::new(sled);
 

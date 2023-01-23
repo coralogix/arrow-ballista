@@ -1419,7 +1419,7 @@ impl Debug for ExecutionGraph {
         let stages = self
             .stages
             .values()
-            .map(|stage| format!("{stage:?}"))
+            .map(|stage| format!("{:?}", stage))
             .collect::<Vec<String>>()
             .join("");
         write!(f, "ExecutionGraph[job_id={}, session_id={}, available_tasks={}, is_successful={}]\n{}",

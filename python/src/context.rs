@@ -118,7 +118,8 @@ impl PySessionContext {
         self.ctx
             .register_table(&*name, Arc::new(table))
             .map_err(DataFusionError::from)?;
-        let table = wait_for_future(py, self._table(&name)).map_err(DataFusionError::from)?;
+        let table =
+            wait_for_future(py, self._table(&name)).map_err(DataFusionError::from)?;
 
         Ok(PyDataFrame::new(table))
     }
@@ -249,7 +250,8 @@ impl PySessionContext {
     }
 
     fn table(&self, name: &str, py: Python) -> PyResult<PyDataFrame> {
-        let table = wait_for_future(py, self._table(name)).map_err(DataFusionError::from)?;
+        let table =
+            wait_for_future(py, self._table(name)).map_err(DataFusionError::from)?;
 
         Ok(PyDataFrame::new(table))
     }
