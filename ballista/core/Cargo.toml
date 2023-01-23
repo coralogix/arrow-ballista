@@ -55,9 +55,9 @@ datafusion-objectstore-hdfs = { version = "0.1.1", default-features = false, opt
 datafusion-proto = "18.0.0"
 futures = "0.3"
 hashbrown = "0.13"
+itertools = "0.10"
 
 lazy_static = "1.4.0"
-itertools = "0.10"
 libloading = "0.7.3"
 log = "0.4"
 lru = "0.8.1"
