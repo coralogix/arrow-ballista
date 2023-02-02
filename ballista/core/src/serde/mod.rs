@@ -283,8 +283,242 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
 
             Ok(())
         } else {
-            Err(DataFusionError::Internal(
-                "unsupported plan type".to_string(),
+            Err(proto_error("Missing required field in protobuf"))
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! into_required {
+    ($PB:expr) => {{
+        if let Some(field) = $PB.as_ref() {
+            Ok(field.into())
+        } else {
+            Err(proto_error("Missing required field in protobuf"))
+        }
+    }};
+}
+
+#[macro_export]
+macro_rules! convert_box_required {
+    ($PB:expr) => {{
+        if let Some(field) = $PB.as_ref() {
+            field.as_ref().try_into()
+        } else {
+            Err(proto_error("Missing required field in protobuf"))
+        }
+    }};
+}
+
+impl From<protobuf::JoinSide> for JoinSide {
+    fn from(t: protobuf::JoinSide) -> Self {
+        match t {
+            protobuf::JoinSide::LeftSide => JoinSide::Left,
+            protobuf::JoinSide::RightSide => JoinSide::Right,
+        }
+    }
+}
+
+impl From<JoinSide> for protobuf::JoinSide {
+    fn from(t: JoinSide) -> Self {
+        match t {
+            JoinSide::Left => protobuf::JoinSide::LeftSide,
+            JoinSide::Right => protobuf::JoinSide::RightSide,
+        }
+    }
+}
+
+fn byte_to_string(b: u8) -> Result<String, BallistaError> {
+    let b = &[b];
+    let b = std::str::from_utf8(b)
+        .map_err(|_| BallistaError::General("Invalid CSV delimiter".to_owned()))?;
+    Ok(b.to_owned())
+}
+
+fn str_to_byte(s: &str) -> Result<u8, BallistaError> {
+    if s.len() != 1 {
+        return Err(BallistaError::General("Invalid CSV delimiter".to_owned()));
+    }
+    Ok(s.as_bytes()[0])
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use datafusion::arrow::datatypes::SchemaRef;
+    use datafusion::common::DFSchemaRef;
+    use datafusion::error::DataFusionError;
+    use datafusion::execution::{
+        context::{QueryPlanner, SessionState, TaskContext},
+        runtime_env::{RuntimeConfig, RuntimeEnv},
+        FunctionRegistry,
+    };
+    use datafusion::logical_expr::{
+        col, Expr, Extension, LogicalPlan, UserDefinedLogicalNode,
+    };
+    use datafusion::physical_plan::expressions::PhysicalSortExpr;
+    use datafusion::physical_plan::planner::{DefaultPhysicalPlanner, ExtensionPlanner};
+    use datafusion::physical_plan::{
+        DisplayFormatType, Distribution, ExecutionPlan, Partitioning, PhysicalPlanner,
+        SendableRecordBatchStream, Statistics,
+    };
+    use datafusion::prelude::{CsvReadOptions, SessionConfig, SessionContext};
+    use prost::Message;
+    use std::any::Any;
+
+    use datafusion_proto::from_proto::parse_expr;
+    use std::convert::TryInto;
+    use std::fmt;
+    use std::fmt::{Debug, Formatter};
+    use std::ops::Deref;
+    use std::sync::Arc;
+
+    pub mod proto {
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct TopKPlanProto {
+            #[prost(uint64, tag = "1")]
+            pub k: u64,
+
+            #[prost(message, optional, tag = "2")]
+            pub expr: ::core::option::Option<datafusion_proto::protobuf::LogicalExprNode>,
+        }
+
+        #[derive(Clone, Eq, PartialEq, ::prost::Message)]
+        pub struct TopKExecProto {
+            #[prost(uint64, tag = "1")]
+            pub k: u64,
+        }
+    }
+
+    use crate::error::BallistaError;
+    use crate::serde::protobuf::PhysicalPlanNode;
+    use crate::serde::{
+        AsExecutionPlan, AsLogicalPlan, LogicalExtensionCodec, PhysicalExtensionCodec,
+    };
+    use crate::utils::with_object_store_provider;
+    use datafusion_proto::protobuf::LogicalPlanNode;
+    use proto::{TopKExecProto, TopKPlanProto};
+
+    struct TopKPlanNode {
+        k: usize,
+        input: LogicalPlan,
+        /// The sort expression (this example only supports a single sort
+        /// expr)
+        expr: Expr,
+    }
+
+    impl TopKPlanNode {
+        pub fn new(k: usize, input: LogicalPlan, expr: Expr) -> Self {
+            Self { k, input, expr }
+        }
+    }
+
+    impl Debug for TopKPlanNode {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            self.fmt_for_explain(f)
+        }
+    }
+
+    impl UserDefinedLogicalNode for TopKPlanNode {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn inputs(&self) -> Vec<&LogicalPlan> {
+            vec![&self.input]
+        }
+
+        /// Schema for TopK is the same as the input
+        fn schema(&self) -> &DFSchemaRef {
+            self.input.schema()
+        }
+
+        fn expressions(&self) -> Vec<Expr> {
+            vec![self.expr.clone()]
+        }
+
+        /// For example: `TopK: k=10`
+        fn fmt_for_explain(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            write!(f, "TopK: k={}", self.k)
+        }
+
+        fn from_template(
+            &self,
+            exprs: &[Expr],
+            inputs: &[LogicalPlan],
+        ) -> Arc<dyn UserDefinedLogicalNode> {
+            assert_eq!(inputs.len(), 1, "input size inconsistent");
+            assert_eq!(exprs.len(), 1, "expression size inconsistent");
+            Arc::new(TopKPlanNode {
+                k: self.k,
+                input: inputs[0].clone(),
+                expr: exprs[0].clone(),
+            })
+        }
+    }
+
+    struct TopKExec {
+        input: Arc<dyn ExecutionPlan>,
+        /// The maxium number of values
+        k: usize,
+    }
+
+    impl TopKExec {
+        pub fn new(k: usize, input: Arc<dyn ExecutionPlan>) -> Self {
+            Self { input, k }
+        }
+    }
+
+    impl Debug for TopKExec {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(f, "TopKExec")
+        }
+    }
+
+    impl ExecutionPlan for TopKExec {
+        /// Return a reference to Any that can be used for downcasting
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn schema(&self) -> SchemaRef {
+            self.input.schema()
+        }
+
+        fn output_partitioning(&self) -> Partitioning {
+            Partitioning::UnknownPartitioning(1)
+        }
+
+        fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
+            None
+        }
+
+        fn required_input_distribution(&self) -> Vec<Distribution> {
+            vec![Distribution::SinglePartition]
+        }
+
+        fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+            vec![self.input.clone()]
+        }
+
+        fn with_new_children(
+            self: Arc<Self>,
+            children: Vec<Arc<dyn ExecutionPlan>>,
+        ) -> datafusion::error::Result<Arc<dyn ExecutionPlan>> {
+            Ok(Arc::new(TopKExec {
+                input: children[0].clone(),
+                k: self.k,
+            }))
+        }
+
+        /// Execute one partition and return an iterator over RecordBatch
+        fn execute(
+            &self,
+            _partition: usize,
+            _context: Arc<TaskContext>,
+        ) -> datafusion::error::Result<SendableRecordBatchStream> {
+            Err(DataFusionError::NotImplemented(
+                "not implemented".to_string(),
             ))
         }
     }
