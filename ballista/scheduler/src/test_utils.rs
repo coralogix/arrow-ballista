@@ -693,8 +693,8 @@ pub fn assert_submitted_event(job_id: &str, collector: &TestMetricsCollector) {
         .iter()
         .any(|ev| matches!(ev, MetricEvent::Submitted(_, _, _)));
 
-    assert!(queued, "Expected queued event for job {}", job_id);
-    assert!(submitted, "Expected submitted event for job {}", job_id);
+    assert!(queued, "{}", "Expected queued event for job {job_id}");
+    assert!(submitted, "{}", "Expected submitted event for job {job_id}");
 }
 
 pub fn assert_no_submitted_event(job_id: &str, collector: &TestMetricsCollector) {

@@ -826,7 +826,7 @@ async fn get_table(
                 (Arc::new(format), path, DEFAULT_CSV_EXTENSION)
             }
             "parquet" => {
-                let path = format!("{}/{}", path, table);
+                let path = format!("{path}/{table}");
                 let format = ParquetFormat::default().with_enable_pruning(Some(true));
 
                 (Arc::new(format), path, DEFAULT_PARQUET_EXTENSION)

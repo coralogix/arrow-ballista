@@ -127,7 +127,7 @@ impl PrometheusMetricsCollector {
             registry
         )
         .map_err(|e| {
-            BallistaError::Internal(format!("Error registering metric: {:?}", e))
+            BallistaError::Internal(format!("Error registering metric: {e:?}"))
         })?;
 
         Ok(Self {
