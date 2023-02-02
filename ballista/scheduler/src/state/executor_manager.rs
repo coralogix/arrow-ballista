@@ -17,7 +17,7 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::state::backend::{ClusterState, TaskDistribution};
+use crate::state::backend::TaskDistribution;
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf;
@@ -162,6 +162,8 @@ impl ExecutorManager {
             self.reserve_slots_local(n).await
         } else {
             let alive_executors = self.get_alive_executors_within_one_minute();
+
+            println!("Alive executors: {alive_executors:?}");
 
             self.cluster_state
                 .reserve_slots(n, self.task_distribution, Some(alive_executors))
@@ -685,8 +687,7 @@ mod test {
         assert_eq!(
             reservations.len(),
             40,
-            "Expected 40 reservations for policy {:?}",
-            slots_policy
+            "Expected 40 reservations for policy {slots_policy:?}"
         );
 
         // Now cancel them
@@ -698,8 +699,7 @@ mod test {
         assert_eq!(
             reservations.len(),
             40,
-            "Expected 40 reservations for policy {:?}",
-            slots_policy
+            "Expected 40 reservations for policy {slots_policy:?}"
         );
 
         Ok(())

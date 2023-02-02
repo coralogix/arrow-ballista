@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
 use ballista_core::serde::protobuf::{JobStatus, StopExecutorParams, TaskStatus};
-use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
+use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::default_session_builder;
 
 use datafusion::execution::context::SessionState;
@@ -32,12 +32,13 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 
 use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
+use crate::state::execution_graph::ExecutionGraph;
 use log::{error, warn};
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
-use crate::state::backend::{ClusterState, StateBackendClient};
-use crate::state::execution_graph::ExecutionGraph;
+use crate::state::backend::cluster::ClusterState;
+use crate::state::backend::StateBackendClient;
 use crate::state::executor_manager::{
     ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
 };
@@ -71,14 +72,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     pub fn new(
         scheduler_name: String,
         config_backend: Arc<dyn StateBackendClient>,
-        cluster_backend: Arc<dyn ClusterState>,
+        cluster_state: Arc<dyn ClusterState>,
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config_backend,
-            cluster_backend,
+            cluster_state,
             default_session_builder,
             codec,
             scheduler_name.clone(),
@@ -112,7 +113,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             config_backend,
-            cluster_backend,
             cluster_backend,
             session_builder,
             codec,
@@ -148,7 +148,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Self {
         let state = Arc::new(SchedulerState::with_task_launcher(
             config_backend,
-            cluster_backend,
             cluster_backend,
             default_session_builder,
             codec,
@@ -525,7 +524,8 @@ mod test {
         match status.status {
             Some(job_status::Status::Successful(SuccessfulJob {
                 partition_location,
-                ..
+                queued_at: _,
+                completed_at: _,
             })) => {
                 assert_eq!(partition_location.len(), 4);
             }
@@ -666,8 +666,6 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
-                state_storage.clone(),
-                state_storage,
                 state_storage,
                 cluster_state,
                 BallistaCodec::default(),

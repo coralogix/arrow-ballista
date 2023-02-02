@@ -28,7 +28,6 @@ use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::{timestamp_millis, SchedulerServer};
 use crate::state::backend::sled::SledClient;
-use crate::state::backend::sled::SledClient;
 
 use crate::state::executor_manager::ExecutorManager;
 use crate::state::task_manager::TaskLauncher;
