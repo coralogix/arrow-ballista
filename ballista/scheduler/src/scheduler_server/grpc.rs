@@ -29,7 +29,7 @@ use ballista_core::serde::protobuf::{
     HeartBeatResult, PollWorkParams, PollWorkResult, RegisterExecutorParams,
     RegisterExecutorResult, UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
-use ballista_core::serde::scheduler::ExecutorMetadata;
+use ballista_core::serde::scheduler::ExecutorMetadata;use ballista_core::serde::AsExecutionPlan;
 
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::file_format::FileFormat;
@@ -312,7 +312,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
         let GetFileMetadataParams { path, file_type } = request.into_inner();
         let file_format: Arc<dyn FileFormat> = match file_type.as_str() {
-            "parquet" => Ok(Arc::new(ParquetFormat::new(config))),
+            "parquet" => Ok(Arc::new(ParquetFormat::new())),
             // TODO implement for CSV
             _ => Err(tonic::Status::unimplemented(
                 "get_file_metadata unsupported file type",
@@ -601,6 +601,7 @@ mod test {
     use ballista_core::serde::scheduler::ExecutorSpecification;
     use ballista_core::serde::BallistaCodec;
 
+    use crate::state::backend::cluster::DefaultClusterState;
     use crate::state::executor_manager::DEFAULT_EXECUTOR_TIMEOUT_SECONDS;
     use crate::state::SchedulerState;
     use crate::test_utils::test_cluster_context;

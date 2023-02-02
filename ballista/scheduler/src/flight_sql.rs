@@ -89,6 +89,7 @@ impl FlightSqlServiceImpl {
     }
 
     #[allow(deprecated)]
+    #[allow(deprecated)]
     fn tables(&self, ctx: Arc<SessionContext>) -> Result<RecordBatch, ArrowError> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("catalog_name", DataType::Utf8, true),
@@ -156,6 +157,7 @@ impl FlightSqlServiceImpl {
         let authorization = str.to_string();
         let bearer = "Bearer ";
         if !authorization.starts_with(bearer) {
+            Err(Status::internal("Invalid auth header!"))?;
             Err(Status::internal("Invalid auth header!"))?;
         }
         let auth = authorization[bearer.len()..].to_string();

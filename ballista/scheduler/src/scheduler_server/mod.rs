@@ -23,7 +23,7 @@ use ballista_core::event_loop::{EventLoop, EventSender};
 use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
 use ballista_core::serde::BallistaCodec;
 use ballista_core::serde::protobuf::{JobStatus, StopExecutorParams, TaskStatus};
-use ballista_core::serde::{AsExecutionPlan, BallistaCodec};
+use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::default_session_builder;
 
 use datafusion::execution::context::SessionState;
@@ -558,7 +558,8 @@ mod test {
         match status.status {
             Some(job_status::Status::Successful(SuccessfulJob {
                 partition_location,
-                ..
+                queued_at: _,
+                completed_at: _,
             })) => {
                 assert_eq!(partition_location.len(), 4);
             }

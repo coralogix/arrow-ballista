@@ -32,7 +32,6 @@ use datafusion_proto::{
     logical_plan::{AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec},
     physical_plan::{AsExecutionPlan, PhysicalExtensionCodec},
 };
-
 use prost::Message;
 use std::fmt::Debug;
 use std::marker::PhantomData;
