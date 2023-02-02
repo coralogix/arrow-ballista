@@ -98,7 +98,6 @@ impl FlightSqlServiceImpl {
             Field::new("table_type", DataType::Utf8, false),
         ]));
         let tables = ctx.tables()?; // resolved in #501
-        let tables = ctx.tables()?; // resolved in #501
         let names: Vec<_> = tables.iter().map(|it| Some(it.as_str())).collect();
         let types: Vec<_> = names.iter().map(|_| Some("TABLE")).collect();
         let cats: Vec<_> = names.iter().map(|_| None).collect();
@@ -106,7 +105,6 @@ impl FlightSqlServiceImpl {
         let rb = RecordBatch::try_new(
             schema,
             [cats, schemas, names, types]
-                .iter()
                 .iter()
                 .map(|i| Arc::new(StringArray::from(i.clone())) as ArrayRef)
                 .collect::<Vec<_>>(),
@@ -123,7 +121,6 @@ impl FlightSqlServiceImpl {
         RecordBatch::try_new(
             schema,
             [TABLE_TYPES]
-                .iter()
                 .iter()
                 .map(|i| Arc::new(StringArray::from(i.to_vec())) as ArrayRef)
                 .collect::<Vec<_>>(),
@@ -153,7 +150,6 @@ impl FlightSqlServiceImpl {
         let auth = req
             .metadata()
             .get("authorization")
-            .ok_or_else(|| Status::internal("No authorization header!"))?;
             .ok_or_else(|| Status::internal("No authorization header!"))?;
         let str = auth
             .to_str()

@@ -4,12 +4,10 @@
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BallistaPhysicalPlanNode {
-    #[prost(
-        oneof = "ballista_physical_plan_node::PhysicalPlanType",
-        tags = "1, 2, 3"
-    )]
-    pub physical_plan_type:
-        ::core::option::Option<ballista_physical_plan_node::PhysicalPlanType>,
+    #[prost(oneof = "ballista_physical_plan_node::PhysicalPlanType", tags = "1, 2, 3")]
+    pub physical_plan_type: ::core::option::Option<
+        ballista_physical_plan_node::PhysicalPlanType,
+    >,
 }
 /// Nested message and enum types in `BallistaPhysicalPlanNode`.
 pub mod ballista_physical_plan_node {
@@ -36,8 +34,9 @@ pub struct ShuffleWriterExecNode {
     #[prost(message, optional, tag = "3")]
     pub input: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
     #[prost(message, optional, tag = "4")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -64,8 +63,9 @@ pub struct ExplainExecNode {
     #[prost(message, optional, tag = "1")]
     pub schema: ::core::option::Option<::datafusion_proto::protobuf::Schema>,
     #[prost(message, repeated, tag = "2")]
-    pub stringified_plans:
-        ::prost::alloc::vec::Vec<::datafusion_proto::protobuf::StringifiedPlan>,
+    pub stringified_plans: ::prost::alloc::vec::Vec<
+        ::datafusion_proto::protobuf::StringifiedPlan,
+    >,
     #[prost(bool, tag = "3")]
     pub verbose: bool,
 }
@@ -176,8 +176,9 @@ pub struct UnResolvedStage {
     #[prost(uint32, tag = "1")]
     pub stage_id: u32,
     #[prost(message, optional, tag = "2")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(uint32, repeated, tag = "3")]
     pub output_links: ::prost::alloc::vec::Vec<u32>,
     #[prost(message, repeated, tag = "4")]
@@ -187,8 +188,9 @@ pub struct UnResolvedStage {
     #[prost(uint32, tag = "6")]
     pub stage_attempt_num: u32,
     #[prost(string, repeated, tag = "7")]
-    pub last_attempt_failure_reasons:
-        ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub last_attempt_failure_reasons: ::prost::alloc::vec::Vec<
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -198,8 +200,9 @@ pub struct ResolvedStage {
     #[prost(uint32, tag = "2")]
     pub partitions: u32,
     #[prost(message, optional, tag = "3")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(uint32, repeated, tag = "4")]
     pub output_links: ::prost::alloc::vec::Vec<u32>,
     #[prost(message, repeated, tag = "5")]
@@ -209,8 +212,9 @@ pub struct ResolvedStage {
     #[prost(uint32, tag = "7")]
     pub stage_attempt_num: u32,
     #[prost(string, repeated, tag = "8")]
-    pub last_attempt_failure_reasons:
-        ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub last_attempt_failure_reasons: ::prost::alloc::vec::Vec<
+        ::prost::alloc::string::String,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -220,8 +224,9 @@ pub struct SuccessfulStage {
     #[prost(uint32, tag = "2")]
     pub partitions: u32,
     #[prost(message, optional, tag = "3")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(uint32, repeated, tag = "4")]
     pub output_links: ::prost::alloc::vec::Vec<u32>,
     #[prost(message, repeated, tag = "5")]
@@ -243,8 +248,9 @@ pub struct FailedStage {
     #[prost(uint32, tag = "2")]
     pub partitions: u32,
     #[prost(message, optional, tag = "3")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(uint32, repeated, tag = "4")]
     pub output_links: ::prost::alloc::vec::Vec<u32>,
     #[prost(bytes = "vec", tag = "5")]
@@ -357,8 +363,9 @@ pub struct ExecutePartition {
     pub partition_location: ::prost::alloc::vec::Vec<PartitionLocation>,
     /// Output partition for shuffle writer
     #[prost(message, optional, tag = "6")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -470,10 +477,7 @@ pub struct NamedTime {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct OperatorMetric {
-    #[prost(
-        oneof = "operator_metric::Metric",
-        tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
-    )]
+    #[prost(oneof = "operator_metric::Metric", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub metric: ::core::option::Option<operator_metric::Metric>,
 }
 /// Nested message and enum types in `OperatorMetric`.
@@ -789,8 +793,9 @@ pub struct TaskDefinition {
     pub plan: ::prost::alloc::vec::Vec<u8>,
     /// Output partition for shuffle writer
     #[prost(message, optional, tag = "8")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(string, tag = "9")]
     pub session_id: ::prost::alloc::string::String,
     #[prost(uint64, tag = "10")]
@@ -814,8 +819,9 @@ pub struct MultiTaskDefinition {
     pub plan: ::prost::alloc::vec::Vec<u8>,
     /// Output partition for shuffle writer
     #[prost(message, optional, tag = "6")]
-    pub output_partitioning:
-        ::core::option::Option<::datafusion_proto::protobuf::PhysicalHashRepartition>,
+    pub output_partitioning: ::core::option::Option<
+        ::datafusion_proto::protobuf::PhysicalHashRepartition,
+    >,
     #[prost(string, tag = "7")]
     pub session_id: ::prost::alloc::string::String,
     #[prost(uint64, tag = "8")]
@@ -922,8 +928,9 @@ pub struct ExecuteQueryParams {
     #[prost(oneof = "execute_query_params::Query", tags = "1, 2")]
     pub query: ::core::option::Option<execute_query_params::Query>,
     #[prost(oneof = "execute_query_params::OptionalSessionId", tags = "3")]
-    pub optional_session_id:
-        ::core::option::Option<execute_query_params::OptionalSessionId>,
+    pub optional_session_id: ::core::option::Option<
+        execute_query_params::OptionalSessionId,
+    >,
 }
 /// Nested message and enum types in `ExecuteQueryParams`.
 pub mod execute_query_params {
@@ -1118,9 +1125,7 @@ pub struct RunningTaskInfo {
     #[prost(uint32, tag = "4")]
     pub partition_id: u32,
 }
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum PartitionMode {
     CollectLeft = 0,
@@ -1149,9 +1154,7 @@ impl PartitionMode {
         }
     }
 }
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum AggregateMode {
     Partial = 0,
@@ -1183,8 +1186,8 @@ impl AggregateMode {
 /// Generated client implementations.
 pub mod scheduler_grpc_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct SchedulerGrpcClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -1228,8 +1231,9 @@ pub mod scheduler_grpc_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             SchedulerGrpcClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -1253,12 +1257,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::PollWorkParams>,
         ) -> Result<tonic::Response<super::PollWorkResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/PollWork",
@@ -1268,14 +1275,16 @@ pub mod scheduler_grpc_client {
         pub async fn register_executor(
             &mut self,
             request: impl tonic::IntoRequest<super::RegisterExecutorParams>,
-        ) -> Result<tonic::Response<super::RegisterExecutorResult>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<tonic::Response<super::RegisterExecutorResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/RegisterExecutor",
@@ -1288,12 +1297,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::HeartBeatParams>,
         ) -> Result<tonic::Response<super::HeartBeatResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/HeartBeatFromExecutor",
@@ -1303,14 +1315,16 @@ pub mod scheduler_grpc_client {
         pub async fn update_task_status(
             &mut self,
             request: impl tonic::IntoRequest<super::UpdateTaskStatusParams>,
-        ) -> Result<tonic::Response<super::UpdateTaskStatusResult>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<tonic::Response<super::UpdateTaskStatusResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/UpdateTaskStatus",
@@ -1320,14 +1334,16 @@ pub mod scheduler_grpc_client {
         pub async fn get_file_metadata(
             &mut self,
             request: impl tonic::IntoRequest<super::GetFileMetadataParams>,
-        ) -> Result<tonic::Response<super::GetFileMetadataResult>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<tonic::Response<super::GetFileMetadataResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/GetFileMetadata",
@@ -1338,12 +1354,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::ExecuteQueryParams>,
         ) -> Result<tonic::Response<super::ExecuteQueryResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/ExecuteQuery",
@@ -1354,12 +1373,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::GetJobStatusParams>,
         ) -> Result<tonic::Response<super::GetJobStatusResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/GetJobStatus",
@@ -1370,14 +1392,16 @@ pub mod scheduler_grpc_client {
         pub async fn executor_stopped(
             &mut self,
             request: impl tonic::IntoRequest<super::ExecutorStoppedParams>,
-        ) -> Result<tonic::Response<super::ExecutorStoppedResult>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<tonic::Response<super::ExecutorStoppedResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/ExecutorStopped",
@@ -1388,12 +1412,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::CancelJobParams>,
         ) -> Result<tonic::Response<super::CancelJobResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/CancelJob",
@@ -1404,12 +1431,15 @@ pub mod scheduler_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::CleanJobDataParams>,
         ) -> Result<tonic::Response<super::CleanJobDataResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/CleanJobData",
@@ -1421,8 +1451,8 @@ pub mod scheduler_grpc_client {
 /// Generated client implementations.
 pub mod executor_grpc_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct ExecutorGrpcClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -1466,8 +1496,9 @@ pub mod executor_grpc_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             ExecutorGrpcClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -1490,12 +1521,15 @@ pub mod executor_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::LaunchTaskParams>,
         ) -> Result<tonic::Response<super::LaunchTaskResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.ExecutorGrpc/LaunchTask",
@@ -1505,14 +1539,16 @@ pub mod executor_grpc_client {
         pub async fn launch_multi_task(
             &mut self,
             request: impl tonic::IntoRequest<super::LaunchMultiTaskParams>,
-        ) -> Result<tonic::Response<super::LaunchMultiTaskResult>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+        ) -> Result<tonic::Response<super::LaunchMultiTaskResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.ExecutorGrpc/LaunchMultiTask",
@@ -1523,12 +1559,15 @@ pub mod executor_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::StopExecutorParams>,
         ) -> Result<tonic::Response<super::StopExecutorResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.ExecutorGrpc/StopExecutor",
@@ -1539,12 +1578,15 @@ pub mod executor_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::CancelTasksParams>,
         ) -> Result<tonic::Response<super::CancelTasksResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.ExecutorGrpc/CancelTasks",
@@ -1555,12 +1597,15 @@ pub mod executor_grpc_client {
             &mut self,
             request: impl tonic::IntoRequest<super::RemoveJobDataParams>,
         ) -> Result<tonic::Response<super::RemoveJobDataResult>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.ExecutorGrpc/RemoveJobData",
@@ -1671,7 +1716,10 @@ pub mod scheduler_grpc_server {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -1680,13 +1728,15 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/PollWork" => {
                     #[allow(non_camel_case_types)]
                     struct PollWorkSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::PollWorkParams>
-                        for PollWorkSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::PollWorkParams>
+                    for PollWorkSvc<T> {
                         type Response = super::PollWorkResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::PollWorkParams>,
@@ -1716,20 +1766,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/RegisterExecutor" => {
                     #[allow(non_camel_case_types)]
                     struct RegisterExecutorSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::RegisterExecutorParams>
-                        for RegisterExecutorSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::RegisterExecutorParams>
+                    for RegisterExecutorSvc<T> {
                         type Response = super::RegisterExecutorResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RegisterExecutorParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).register_executor(request).await };
+                            let fut = async move {
+                                (*inner).register_executor(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1753,13 +1806,15 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/HeartBeatFromExecutor" => {
                     #[allow(non_camel_case_types)]
                     struct HeartBeatFromExecutorSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::HeartBeatParams>
-                        for HeartBeatFromExecutorSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::HeartBeatParams>
+                    for HeartBeatFromExecutorSvc<T> {
                         type Response = super::HeartBeatResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::HeartBeatParams>,
@@ -1791,20 +1846,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/UpdateTaskStatus" => {
                     #[allow(non_camel_case_types)]
                     struct UpdateTaskStatusSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::UpdateTaskStatusParams>
-                        for UpdateTaskStatusSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::UpdateTaskStatusParams>
+                    for UpdateTaskStatusSvc<T> {
                         type Response = super::UpdateTaskStatusResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::UpdateTaskStatusParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).update_task_status(request).await };
+                            let fut = async move {
+                                (*inner).update_task_status(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1828,20 +1886,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/GetFileMetadata" => {
                     #[allow(non_camel_case_types)]
                     struct GetFileMetadataSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::GetFileMetadataParams>
-                        for GetFileMetadataSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::GetFileMetadataParams>
+                    for GetFileMetadataSvc<T> {
                         type Response = super::GetFileMetadataResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetFileMetadataParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).get_file_metadata(request).await };
+                            let fut = async move {
+                                (*inner).get_file_metadata(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1865,20 +1926,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/ExecuteQuery" => {
                     #[allow(non_camel_case_types)]
                     struct ExecuteQuerySvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::ExecuteQueryParams>
-                        for ExecuteQuerySvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::ExecuteQueryParams>
+                    for ExecuteQuerySvc<T> {
                         type Response = super::ExecuteQueryResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ExecuteQueryParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).execute_query(request).await };
+                            let fut = async move {
+                                (*inner).execute_query(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1902,20 +1966,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/GetJobStatus" => {
                     #[allow(non_camel_case_types)]
                     struct GetJobStatusSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::GetJobStatusParams>
-                        for GetJobStatusSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::GetJobStatusParams>
+                    for GetJobStatusSvc<T> {
                         type Response = super::GetJobStatusResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetJobStatusParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).get_job_status(request).await };
+                            let fut = async move {
+                                (*inner).get_job_status(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1939,20 +2006,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/ExecutorStopped" => {
                     #[allow(non_camel_case_types)]
                     struct ExecutorStoppedSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::ExecutorStoppedParams>
-                        for ExecutorStoppedSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::ExecutorStoppedParams>
+                    for ExecutorStoppedSvc<T> {
                         type Response = super::ExecutorStoppedResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::ExecutorStoppedParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).executor_stopped(request).await };
+                            let fut = async move {
+                                (*inner).executor_stopped(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -1976,13 +2046,15 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/CancelJob" => {
                     #[allow(non_camel_case_types)]
                     struct CancelJobSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::CancelJobParams>
-                        for CancelJobSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::CancelJobParams>
+                    for CancelJobSvc<T> {
                         type Response = super::CancelJobResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CancelJobParams>,
@@ -2012,20 +2084,23 @@ pub mod scheduler_grpc_server {
                 "/ballista.protobuf.SchedulerGrpc/CleanJobData" => {
                     #[allow(non_camel_case_types)]
                     struct CleanJobDataSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<T: SchedulerGrpc>
-                        tonic::server::UnaryService<super::CleanJobDataParams>
-                        for CleanJobDataSvc<T>
-                    {
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::CleanJobDataParams>
+                    for CleanJobDataSvc<T> {
                         type Response = super::CleanJobDataResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CleanJobDataParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).clean_job_data(request).await };
+                            let fut = async move {
+                                (*inner).clean_job_data(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -2046,14 +2121,18 @@ pub mod scheduler_grpc_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }
@@ -2159,7 +2238,10 @@ pub mod executor_grpc_server {
         type Response = http::Response<tonic::body::BoxBody>;
         type Error = std::convert::Infallible;
         type Future = BoxFuture<Self::Response, Self::Error>;
-        fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        fn poll_ready(
+            &mut self,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
             Poll::Ready(Ok(()))
         }
         fn call(&mut self, req: http::Request<B>) -> Self::Future {
@@ -2168,13 +2250,15 @@ pub mod executor_grpc_server {
                 "/ballista.protobuf.ExecutorGrpc/LaunchTask" => {
                     #[allow(non_camel_case_types)]
                     struct LaunchTaskSvc<T: ExecutorGrpc>(pub Arc<T>);
-                    impl<T: ExecutorGrpc>
-                        tonic::server::UnaryService<super::LaunchTaskParams>
-                        for LaunchTaskSvc<T>
-                    {
+                    impl<
+                        T: ExecutorGrpc,
+                    > tonic::server::UnaryService<super::LaunchTaskParams>
+                    for LaunchTaskSvc<T> {
                         type Response = super::LaunchTaskResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::LaunchTaskParams>,
@@ -2204,20 +2288,23 @@ pub mod executor_grpc_server {
                 "/ballista.protobuf.ExecutorGrpc/LaunchMultiTask" => {
                     #[allow(non_camel_case_types)]
                     struct LaunchMultiTaskSvc<T: ExecutorGrpc>(pub Arc<T>);
-                    impl<T: ExecutorGrpc>
-                        tonic::server::UnaryService<super::LaunchMultiTaskParams>
-                        for LaunchMultiTaskSvc<T>
-                    {
+                    impl<
+                        T: ExecutorGrpc,
+                    > tonic::server::UnaryService<super::LaunchMultiTaskParams>
+                    for LaunchMultiTaskSvc<T> {
                         type Response = super::LaunchMultiTaskResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::LaunchMultiTaskParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).launch_multi_task(request).await };
+                            let fut = async move {
+                                (*inner).launch_multi_task(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -2241,20 +2328,23 @@ pub mod executor_grpc_server {
                 "/ballista.protobuf.ExecutorGrpc/StopExecutor" => {
                     #[allow(non_camel_case_types)]
                     struct StopExecutorSvc<T: ExecutorGrpc>(pub Arc<T>);
-                    impl<T: ExecutorGrpc>
-                        tonic::server::UnaryService<super::StopExecutorParams>
-                        for StopExecutorSvc<T>
-                    {
+                    impl<
+                        T: ExecutorGrpc,
+                    > tonic::server::UnaryService<super::StopExecutorParams>
+                    for StopExecutorSvc<T> {
                         type Response = super::StopExecutorResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::StopExecutorParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).stop_executor(request).await };
+                            let fut = async move {
+                                (*inner).stop_executor(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -2278,19 +2368,23 @@ pub mod executor_grpc_server {
                 "/ballista.protobuf.ExecutorGrpc/CancelTasks" => {
                     #[allow(non_camel_case_types)]
                     struct CancelTasksSvc<T: ExecutorGrpc>(pub Arc<T>);
-                    impl<T: ExecutorGrpc>
-                        tonic::server::UnaryService<super::CancelTasksParams>
-                        for CancelTasksSvc<T>
-                    {
+                    impl<
+                        T: ExecutorGrpc,
+                    > tonic::server::UnaryService<super::CancelTasksParams>
+                    for CancelTasksSvc<T> {
                         type Response = super::CancelTasksResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::CancelTasksParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut = async move { (*inner).cancel_tasks(request).await };
+                            let fut = async move {
+                                (*inner).cancel_tasks(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -2314,20 +2408,23 @@ pub mod executor_grpc_server {
                 "/ballista.protobuf.ExecutorGrpc/RemoveJobData" => {
                     #[allow(non_camel_case_types)]
                     struct RemoveJobDataSvc<T: ExecutorGrpc>(pub Arc<T>);
-                    impl<T: ExecutorGrpc>
-                        tonic::server::UnaryService<super::RemoveJobDataParams>
-                        for RemoveJobDataSvc<T>
-                    {
+                    impl<
+                        T: ExecutorGrpc,
+                    > tonic::server::UnaryService<super::RemoveJobDataParams>
+                    for RemoveJobDataSvc<T> {
                         type Response = super::RemoveJobDataResult;
-                        type Future =
-                            BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::RemoveJobDataParams>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
-                            let fut =
-                                async move { (*inner).remove_job_data(request).await };
+                            let fut = async move {
+                                (*inner).remove_job_data(request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -2348,14 +2445,18 @@ pub mod executor_grpc_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", "12")
-                        .header("content-type", "application/grpc")
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", "12")
+                                .header("content-type", "application/grpc")
+                                .body(empty_body())
+                                .unwrap(),
+                        )
+                    })
+                }
             }
         }
     }

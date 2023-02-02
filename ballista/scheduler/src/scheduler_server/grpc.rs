@@ -297,7 +297,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
         let GetFileMetadataParams { path, file_type } = request.into_inner();
         let file_format: Arc<dyn FileFormat> = match file_type.as_str() {
-            "parquet" => Ok(Arc::new(ParquetFormat::new(config))),
+            "parquet" => Ok(Arc::new(ParquetFormat::new())),
             // TODO implement for CSV
             _ => Err(tonic::Status::unimplemented(
                 "get_file_metadata unsupported file type",
@@ -601,8 +601,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 state_storage.clone(),
-                state_storage.clone(),
-                cluster_state,
+                cluster_state.clone(),
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
