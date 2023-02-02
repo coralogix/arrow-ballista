@@ -90,6 +90,8 @@ pub(crate) struct ExecutorManager {
     slots_policy: SlotsPolicy,
     task_distribution: TaskDistribution,
     cluster_state: Arc<dyn ClusterState>,
+    task_distribution: TaskDistribution,
+    cluster_state: Arc<dyn ClusterState>,
     // executor_id -> ExecutorMetadata map
     executor_metadata: Arc<DashMap<String, ExecutorMetadata>>,
     // executor_id -> ExecutorHeartbeat map

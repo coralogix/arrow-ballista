@@ -130,6 +130,15 @@ impl PrometheusMetricsCollector {
             BallistaError::Internal(format!("Error registering metric: {:?}", e))
         })?;
 
+        let active_jobs = register_gauge_with_registry!(
+            "active_job_count",
+            "Number of active jobs on the scheduler",
+            registry
+        )
+        .map_err(|e| {
+            BallistaError::Internal(format!("Error registering metric: {:?}", e))
+        })?;
+
         Ok(Self {
             execution_time,
             planning_time,

@@ -26,7 +26,7 @@ use std::time::Instant;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::SessionBuilder;
-use crate::state::backend::{Lock, StateBackendClient};
+use crate::state::backend::{ClusterState, Lock, StateBackendClient};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::session_manager::SessionManager;
 use crate::state::task_manager::{TaskLauncher, TaskManager};
@@ -484,6 +484,7 @@ mod test {
         let cluster_state = Arc::new(DefaultClusterState::new(state_storage.clone()));
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_default_scheduler_name(
+                state_storage.clone(),
                 state_storage,
                 cluster_state,
                 default_session_builder,
@@ -522,6 +523,7 @@ mod test {
         let cluster_state = Arc::new(DefaultClusterState::new(state_storage.clone()));
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::with_task_launcher(
+                state_storage.clone(),
                 state_storage,
                 cluster_state,
                 default_session_builder,
@@ -609,6 +611,7 @@ mod test {
         let cluster_state = Arc::new(DefaultClusterState::new(state_storage.clone()));
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::with_task_launcher(
+                state_storage.clone(),
                 state_storage,
                 cluster_state,
                 default_session_builder,

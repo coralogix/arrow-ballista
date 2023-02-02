@@ -89,6 +89,7 @@ impl FlightSqlServiceImpl {
     }
 
     #[allow(deprecated)]
+    #[allow(deprecated)]
     fn tables(&self, ctx: Arc<SessionContext>) -> Result<RecordBatch, ArrowError> {
         let schema = Arc::new(Schema::new(vec![
             Field::new("catalog_name", DataType::Utf8, true),
@@ -97,6 +98,7 @@ impl FlightSqlServiceImpl {
             Field::new("table_type", DataType::Utf8, false),
         ]));
         let tables = ctx.tables()?; // resolved in #501
+        let tables = ctx.tables()?; // resolved in #501
         let names: Vec<_> = tables.iter().map(|it| Some(it.as_str())).collect();
         let types: Vec<_> = names.iter().map(|_| Some("TABLE")).collect();
         let cats: Vec<_> = names.iter().map(|_| None).collect();
@@ -104,6 +106,7 @@ impl FlightSqlServiceImpl {
         let rb = RecordBatch::try_new(
             schema,
             [cats, schemas, names, types]
+                .iter()
                 .iter()
                 .map(|i| Arc::new(StringArray::from(i.clone())) as ArrayRef)
                 .collect::<Vec<_>>(),
@@ -120,6 +123,7 @@ impl FlightSqlServiceImpl {
         RecordBatch::try_new(
             schema,
             [TABLE_TYPES]
+                .iter()
                 .iter()
                 .map(|i| Arc::new(StringArray::from(i.to_vec())) as ArrayRef)
                 .collect::<Vec<_>>(),
@@ -150,12 +154,14 @@ impl FlightSqlServiceImpl {
             .metadata()
             .get("authorization")
             .ok_or_else(|| Status::internal("No authorization header!"))?;
+            .ok_or_else(|| Status::internal("No authorization header!"))?;
         let str = auth
             .to_str()
             .map_err(|e| Status::internal(format!("Error parsing header: {e}")))?;
         let authorization = str.to_string();
         let bearer = "Bearer ";
         if !authorization.starts_with(bearer) {
+            Err(Status::internal("Invalid auth header!"))?;
             Err(Status::internal("Invalid auth header!"))?;
         }
         let auth = authorization[bearer.len()..].to_string();
