@@ -110,8 +110,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         .submit_job(&job_id, &job_name, session_ctx, &plan, queued_at)
                         .await
                     {
-                        let fail_message =
-                            format!("Error planning job {}: {:?}", job_id, e);
+                        let fail_message = format!("Error planning job {job_id}: {e:?}");
                         error!("{}", &fail_message);
                         QueryStageSchedulerEvent::JobPlanningFailed {
                             job_id,
@@ -323,8 +322,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     }
                     Err(e) => {
                         let msg = format!(
-                            "TaskManager error to handle Executor {} lost: {}",
-                            executor_id, e
+                            "TaskManager error to handle Executor {executor_id} lost: {e}"
                         );
                         error!("{}", msg);
                     }

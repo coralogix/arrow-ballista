@@ -374,10 +374,7 @@ impl<T: StateBackendClient> ClusterState for T {
         let current_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| {
-                BallistaError::Internal(format!(
-                    "Error getting current timestamp: {:?}",
-                    e
-                ))
+                BallistaError::Internal(format!("Error getting current timestamp: {e:?}"))
             })?
             .as_secs();
 
@@ -442,10 +439,7 @@ impl<T: StateBackendClient> ClusterState for T {
         let current_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| {
-                BallistaError::Internal(format!(
-                    "Error getting current timestamp: {:?}",
-                    e
-                ))
+                BallistaError::Internal(format!("Error getting current timestamp: {e:?}"))
             })?
             .as_secs();
 
@@ -518,8 +512,7 @@ fn get_alive_executors(
         .checked_sub(Duration::from_secs(last_seen_threshold))
         .ok_or_else(|| {
             BallistaError::Internal(format!(
-                "Error getting alive executors, invalid last_seen_threshold of {}",
-                last_seen_threshold
+                "Error getting alive executors, invalid last_seen_threshold of {last_seen_threshold}"
             ))
         })?
         .as_secs();
@@ -663,6 +656,7 @@ impl<T: Send + Sync> Lock for OwnedMutexGuard<T> {
 }
 
 #[cfg(test)]
+#[allow(non_fmt_panics)]
 mod tests {
     use crate::state::backend::sled::SledClient;
     use crate::state::backend::ClusterState;
@@ -702,7 +696,7 @@ mod tests {
                 false
             };
 
-            assert!(received, "Did not receive heartbeat for executor {}", i);
+            assert!(received, "Did not receive heartbeat for executor {i}");
         }
 
         Ok(())
@@ -737,14 +731,9 @@ mod tests {
                 assert_eq!(
                     hb.executor_id,
                     i.to_string(),
-                    "Expected heartbeat in map for {}",
-                    i
+                    "Expected heartbeat in map for {i}"
                 );
-                assert_eq!(
-                    hb.timestamp, i,
-                    "Expected timestamp to be correct for {}",
-                    i
-                );
+                assert_eq!(hb.timestamp, i, "Expected timestamp to be correct for {i}");
             } else {
                 panic!("Expected heartbeat for executor {}", i);
             }
@@ -775,14 +764,9 @@ mod tests {
                 assert_eq!(
                     hb.executor_id,
                     i.to_string(),
-                    "Expected heartbeat in map for {}",
-                    i
+                    "Expected heartbeat in map for {i}"
                 );
-                assert_eq!(
-                    hb.timestamp, i,
-                    "Expected timestamp to be correct for {}",
-                    i
-                );
+                assert_eq!(hb.timestamp, i, "Expected timestamp to be correct for {i}");
             } else {
                 panic!("Expected heartbeat for executor {}", i);
             }

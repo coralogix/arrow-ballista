@@ -138,14 +138,14 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let addr = format!("{}:{}", bind_host, port);
+    let addr = format!("{bind_host}:{port}");
     let addr = addr
         .parse()
-        .with_context(|| format!("Could not parse address: {}", addr))?;
+        .with_context(|| format!("Could not parse address: {addr}"))?;
 
     let scheduler_host = opt.scheduler_host;
     let scheduler_port = opt.scheduler_port;
-    let scheduler_url = format!("http://{}:{}", scheduler_host, scheduler_port);
+    let scheduler_url = format!("http://{scheduler_host}:{scheduler_port}");
 
     let work_dir = opt.work_dir.unwrap_or(
         TempDir::new()?
@@ -234,8 +234,7 @@ async fn main() -> Result<()> {
         match x {
             Some(conn) => Ok(conn),
             _ => Err(BallistaError::General(format!(
-                "Timed out attempting to connect to scheduler at {}",
-                scheduler_url
+                "Timed out attempting to connect to scheduler at {scheduler_url}"
             ))
             .into()),
         }
@@ -323,7 +322,7 @@ async fn main() -> Result<()> {
     // until the `shutdown` signal is received or a stop request is coming.
     let (notify_scheduler, stop_reason) = tokio::select! {
         service_val = check_services(&mut service_handlers) => {
-            let msg = format!("executor services stopped with reason {:?}", service_val);
+            let msg = format!("executor services stopped with reason {service_val:?}");
             info!("{:?}", msg);
             (true, msg)
         },
@@ -360,8 +359,6 @@ async fn main() -> Result<()> {
         // Wait for tasks to drain
         tasks_drained.await;
     }
-
-
 
     // Extract the `shutdown_complete` receiver and transmitter
     // explicitly drop `shutdown_transmitter`. This is important, as the

@@ -57,7 +57,7 @@ pub fn decode_protobuf(bytes: &[u8]) -> Result<BallistaAction, BallistaError> {
     let mut buf = Cursor::new(bytes);
 
     protobuf::Action::decode(&mut buf)
-        .map_err(|e| BallistaError::Internal(format!("{:?}", e)))
+        .map_err(|e| BallistaError::Internal(format!("{e:?}")))
         .and_then(|node| node.try_into())
 }
 
@@ -505,8 +505,7 @@ mod tests {
             if let Some((input, _)) = inputs.split_first() {
                 let proto = TopKPlanProto::decode(buf).map_err(|e| {
                     DataFusionError::Internal(format!(
-                        "failed to decode logical plan: {:?}",
-                        e
+                        "failed to decode logical plan: {e:?}"
                     ))
                 })?;
 
@@ -541,8 +540,7 @@ mod tests {
 
                 proto.encode(buf).map_err(|e| {
                     DataFusionError::Internal(format!(
-                        "failed to encode logical plan: {:?}",
-                        e
+                        "failed to encode logical plan: {e:?}"
                     ))
                 })?;
 
@@ -581,8 +579,7 @@ mod tests {
             if let Some((input, _)) = inputs.split_first() {
                 let proto = TopKExecProto::decode(buf).map_err(|e| {
                     BallistaError::Internal(format!(
-                        "failed to decode execution plan: {:?}",
-                        e
+                        "failed to decode execution plan: {e:?}"
                     ))
                 })?;
                 Ok(Arc::new(TopKExec::new(proto.k as usize, input.clone())))
@@ -601,8 +598,7 @@ mod tests {
 
                 proto.encode(buf).map_err(|e| {
                     BallistaError::Internal(format!(
-                        "failed to encode execution plan: {:?}",
-                        e
+                        "failed to encode execution plan: {e:?}"
                     ))
                 })?;
 
@@ -641,10 +637,7 @@ mod tests {
         let proto = LogicalPlanNode::try_from_logical_plan(&topk_plan, &extension_codec)?;
         let logical_round_trip = proto.try_into_logical_plan(&ctx, &extension_codec)?;
 
-        assert_eq!(
-            format!("{:?}", topk_plan),
-            format!("{:?}", logical_round_trip)
-        );
+        assert_eq!(format!("{topk_plan:?}"), format!("{logical_round_trip:?}"));
 
         let proto = PhysicalPlanNode::try_from_physical_plan(
             topk_exec.clone(),
@@ -653,10 +646,7 @@ mod tests {
         let physical_round_trip =
             proto.try_into_physical_plan(&ctx, runtime.deref(), &extension_codec)?;
 
-        assert_eq!(
-            format!("{:?}", topk_exec),
-            format!("{:?}", physical_round_trip)
-        );
+        assert_eq!(format!("{topk_exec:?}"), format!("{physical_round_trip:?}"));
 
         Ok(())
     }

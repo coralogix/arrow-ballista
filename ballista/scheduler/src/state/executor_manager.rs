@@ -461,10 +461,7 @@ impl ExecutorManager {
         let current_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| {
-                BallistaError::Internal(format!(
-                    "Error getting current timestamp: {:?}",
-                    e
-                ))
+                BallistaError::Internal(format!("Error getting current timestamp: {e:?}"))
             })?
             .as_secs();
 
@@ -661,6 +658,7 @@ impl ExecutorManager {
 }
 
 #[cfg(test)]
+#[allow(non_fmt_panics)]
 mod test {
     use crate::config::SlotsPolicy;
     use crate::scheduler_server::timestamp_secs;
@@ -702,8 +700,7 @@ mod test {
         assert_eq!(
             reservations.len(),
             40,
-            "Expected 40 reservations for policy {:?}",
-            slots_policy
+            "Expected 40 reservations for policy {slots_policy:?}"
         );
 
         // Now cancel them
@@ -715,8 +712,7 @@ mod test {
         assert_eq!(
             reservations.len(),
             40,
-            "Expected 40 reservations for policy {:?}",
-            slots_policy
+            "Expected 40 reservations for policy {slots_policy:?}"
         );
 
         Ok(())
@@ -897,8 +893,7 @@ mod test {
             reservations
                 .iter()
                 .all(|res| res.executor_id == "executor-1"),
-            "Expected all reservations from non-fenced executor, bound found {:?}",
-            reservations
+            "Expected all reservations from non-fenced executor, bound found {reservations:?}"
         );
 
         Ok(())
@@ -913,8 +908,8 @@ mod test {
         for i in 0..total_executors {
             result.push((
                 ExecutorMetadata {
-                    id: format!("executor-{}", i),
-                    host: format!("host-{}", i),
+                    id: format!("executor-{i}"),
+                    host: format!("host-{i}"),
                     port: 8080,
                     grpc_port: 9090,
                     specification: ExecutorSpecification {
@@ -922,7 +917,7 @@ mod test {
                     },
                 },
                 ExecutorData {
-                    executor_id: format!("executor-{}", i),
+                    executor_id: format!("executor-{i}"),
                     total_task_slots: slots_per_executor,
                     available_task_slots: slots_per_executor,
                 },

@@ -30,4 +30,5 @@ pub mod state;
 #[cfg(feature = "flight-sql")]
 pub mod flight_sql;
 #[cfg(test)]
+#[allow(clippy::uninlined_format_args, non_fmt_panics)]
 pub mod test_utils;

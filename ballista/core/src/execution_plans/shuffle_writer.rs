@@ -212,7 +212,7 @@ impl ShuffleWriterExec {
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
-                    path.push(&format!("{}", input_partition));
+                    path.push(&format!("{input_partition}"));
                     std::fs::create_dir_all(&path)?;
                     path.push("data.arrow");
                     let path = path.to_str().unwrap();
@@ -226,7 +226,7 @@ impl ShuffleWriterExec {
                         limit_and_accumulator,
                     )
                     .await
-                    .map_err(|e| DataFusionError::Execution(format!("{:?}", e)))?;
+                    .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
 
                     write_metrics
                         .input_rows
@@ -300,12 +300,11 @@ impl ShuffleWriterExec {
                                     }
                                     None => {
                                         let mut path = path.clone();
-                                        path.push(&format!("{}", output_partition));
+                                        path.push(&format!("{output_partition}"));
                                         std::fs::create_dir_all(&path)?;
 
                                         path.push(format!(
-                                            "data-{}.arrow",
-                                            input_partition
+                                            "data-{input_partition}.arrow"
                                         ));
                                         debug!("Writing results to {:?}", path);
 
@@ -539,7 +538,7 @@ mod tests {
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)
             .await
-            .map_err(|e| DataFusionError::Execution(format!("{:?}", e)))?;
+            .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
         assert_eq!(1, batches.len());
         let batch = &batches[0];
         assert_eq!(3, batch.num_columns());
@@ -596,7 +595,7 @@ mod tests {
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)
             .await
-            .map_err(|e| DataFusionError::Execution(format!("{:?}", e)))?;
+            .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
         assert_eq!(1, batches.len());
         let batch = &batches[0];
         assert_eq!(3, batch.num_columns());

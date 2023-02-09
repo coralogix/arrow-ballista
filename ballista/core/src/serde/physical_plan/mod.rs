@@ -84,7 +84,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
         Self: Sized,
     {
         PhysicalPlanNode::decode(buf).map_err(|e| {
-            BallistaError::Internal(format!("failed to decode physical plan: {:?}", e))
+            BallistaError::Internal(format!("failed to decode physical plan: {e:?}"))
         })
     }
 
@@ -94,7 +94,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
         Self: Sized,
     {
         self.encode(buf).map_err(|e| {
-            BallistaError::Internal(format!("failed to encode physical plan: {:?}", e))
+            BallistaError::Internal(format!("failed to encode physical plan: {e:?}"))
         })
     }
 
@@ -107,8 +107,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
     ) -> Result<Arc<dyn ExecutionPlan>, BallistaError> {
         let plan = self.physical_plan_type.as_ref().ok_or_else(|| {
             proto_error(format!(
-                "physical_plan::from_proto() Unsupported physical plan '{:?}'",
-                self
+                "physical_plan::from_proto() Unsupported physical plan '{self:?}'"
             ))
         })?;
         match plan {
@@ -627,8 +626,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                     .map(|expr| {
                         let expr = expr.expr_type.as_ref().ok_or_else(|| {
                             proto_error(format!(
-                                "physical_plan::from_proto() Unexpected expr {:?}",
-                                self
+                                "physical_plan::from_proto() Unexpected expr {self:?}"
                             ))
                         })?;
                         if let protobuf::physical_expr_node::ExprType::Sort(sort_expr) = expr {
@@ -637,8 +635,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                                 .as_ref()
                                 .ok_or_else(|| {
                                     proto_error(format!(
-                                        "physical_plan::from_proto() Unexpected sort expr {:?}",
-                                        self
+                                        "physical_plan::from_proto() Unexpected sort expr {self:?}"
                                     ))
                                 })?
                                 .as_ref();
@@ -651,8 +648,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                             })
                         } else {
                             Err(BallistaError::General(format!(
-                                "physical_plan::from_proto() {:?}",
-                                self
+                                "physical_plan::from_proto() {self:?}"
                             )))
                         }
                     })
@@ -673,8 +669,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                     .map(|expr| {
                         let expr = expr.expr_type.as_ref().ok_or_else(|| {
                             proto_error(format!(
-                                "physical_plan::from_proto() Unexpected expr {:?}",
-                                self
+                                "physical_plan::from_proto() Unexpected expr {self:?}"
                             ))
                         })?;
                         if let protobuf::physical_expr_node::ExprType::Sort(sort_expr) = expr {
@@ -683,8 +678,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                                 .as_ref()
                                 .ok_or_else(|| {
                                     proto_error(format!(
-                                        "physical_plan::from_proto() Unexpected sort expr {:?}",
-                                        self
+                                        "physical_plan::from_proto() Unexpected sort expr {self:?}"
                                     ))
                                 })?
                                 .as_ref();
@@ -697,8 +691,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                             })
                         } else {
                             Err(BallistaError::General(format!(
-                                "physical_plan::from_proto() {:?}",
-                                self
+                                "physical_plan::from_proto() {self:?}"
                             )))
                         }
                     })
@@ -1153,8 +1146,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                 None => None,
                 other => {
                     return Err(BallistaError::General(format!(
-                        "physical_plan::to_proto() invalid partitioning for ShuffleWriterExec: {:?}",
-                        other
+                        "physical_plan::to_proto() invalid partitioning for ShuffleWriterExec: {other:?}"
                     )))
                 }
             };
@@ -1245,8 +1237,7 @@ impl AsExecutionPlan for PhysicalPlanNode {
                     })
                 }
                 Err(e) => Err(BallistaError::Internal(format!(
-                    "Unsupported plan and extension codec failed with [{}]. Plan: {:?}",
-                    e, plan_clone
+                    "Unsupported plan and extension codec failed with [{e}]. Plan: {plan_clone:?}"
                 ))),
             }
         }
@@ -1374,10 +1365,7 @@ mod roundtrip_tests {
                 codec.physical_extension_codec(),
             )
             .expect("from proto");
-        assert_eq!(
-            format!("{:?}", exec_plan),
-            format!("{:?}", result_exec_plan)
-        );
+        assert_eq!(format!("{exec_plan:?}"), format!("{result_exec_plan:?}"));
         Ok(())
     }
 
@@ -1401,10 +1389,7 @@ mod roundtrip_tests {
                 codec.physical_extension_codec(),
             )
             .expect("from proto");
-        assert_eq!(
-            format!("{:?}", exec_plan),
-            format!("{:?}", result_exec_plan)
-        );
+        assert_eq!(format!("{exec_plan:?}"), format!("{result_exec_plan:?}"));
         Ok(())
     }
 
