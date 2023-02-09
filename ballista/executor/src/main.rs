@@ -35,9 +35,11 @@ use uuid::Uuid;
 
 use ballista_core::config::{LogRotationPolicy, TaskSchedulingPolicy};
 use ballista_core::error::BallistaError;
+use ballista_core::serde::protobuf::executor_status::Status;
 use ballista_core::serde::protobuf::{
     executor_registration, scheduler_grpc_client::SchedulerGrpcClient,
-    ExecutorRegistration, ExecutorStoppedParams, PhysicalPlanNode,
+    ExecutorRegistration, ExecutorStatus, ExecutorStoppedParams, HeartBeatParams,
+    PhysicalPlanNode,
 };
 use ballista_core::serde::scheduler::ExecutorSpecification;
 use ballista_core::serde::BallistaCodec;
@@ -46,7 +48,7 @@ use ballista_core::utils::{
 };
 use ballista_core::{print_version, BALLISTA_VERSION};
 use ballista_executor::executor::{Executor, TasksDrainedFuture};
-use ballista_executor::executor_server::IS_FENCED;
+use ballista_executor::executor_server::TERMINATING;
 use ballista_executor::flight_service::BallistaFlightService;
 use ballista_executor::metrics::LoggingMetricsCollector;
 use ballista_executor::shutdown::Shutdown;
@@ -341,11 +343,27 @@ async fn main() -> Result<()> {
         },
     };
 
-    if notify_scheduler {
-        // Set status to fenced
-        info!("Setting executor to fenced status  and notifying scheduler");
-        IS_FENCED.store(true, Ordering::Relaxed);
+    // Set status to fenced
+    info!("setting executor to FENCED status");
+    TERMINATING.store(true, Ordering::Release);
 
+    if notify_scheduler {
+        // Send a heartbeat to update status of executor to `Fenced`. This should signal to the
+        // scheduler to no longer scheduler tasks on this executor
+        if let Err(error) = scheduler
+            .heart_beat_from_executor(HeartBeatParams {
+                executor_id: executor_id.clone(),
+                metrics: vec![],
+                status: Some(ExecutorStatus {
+                    status: Some(Status::Fenced(String::default())),
+                }),
+            })
+            .await
+        {
+            error!("error sending heartbeat with fenced status: {:?}", error);
+        }
+
+        // TODO we probably don't need a separate rpc call for this....
         if let Err(error) = scheduler
             .executor_stopped(ExecutorStoppedParams {
                 executor_id,

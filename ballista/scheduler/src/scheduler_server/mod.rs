@@ -275,13 +275,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 for expired in expired_executors {
                     let executor_id = expired.executor_id.clone();
                     let executor_manager = state.executor_manager.clone();
-                    let stop_reason = format!(
-                        "Executor {} heartbeat timed out after {}s",
-                        executor_id.clone(),
-                        DEFAULT_EXECUTOR_TIMEOUT_SECONDS
-                    );
-
-                    warn!("{stop_reason}");
 
                     let sender_clone = event_sender.clone();
 
@@ -292,6 +285,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                             .and_then(|status| status.status.as_ref()),
                         Some(ballista_core::serde::protobuf::executor_status::Status::Fenced(_))
                     );
+
+                    let stop_reason = if fenced {
+                        format!(
+                        "ACTIVE executor {executor_id} heartbeat timed out after {DEFAULT_EXECUTOR_TIMEOUT_SECONDS}s"
+                    )
+                    } else {
+                        format!(
+                            "FENCED executor {executor_id} heartbeat timed out after {fenced_wait_secs}s",
+                        )
+                    };
+
+                    warn!("{stop_reason}");
 
                     // If executor is expired, remove it immediately
                     Self::remove_executor(
