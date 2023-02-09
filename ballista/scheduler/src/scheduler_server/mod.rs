@@ -280,38 +280,50 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                     warn!("{}", stop_reason.clone());
                     let sender_clone = event_sender.clone();
 
-                    // If executor is dead, remove it immediately
-                    Self::remove_executor(
-                        executor_manager,
-                        sender_clone,
-                        &executor_id,
-                        Some(stop_reason.clone()),
-                        0,
+                    let fenced = matches!(
+                        expired
+                            .status
+                            .as_ref()
+                            .and_then(|status| status.status.as_ref()),
+                        Some(ballista_core::serde::protobuf::executor_status::Status::Fenced(_))
                     );
 
-                    match state.executor_manager.get_client(&executor_id).await {
-                        Ok(mut client) => {
-                            tokio::task::spawn(async move {
-                                match client
-                                    .stop_executor(StopExecutorParams {
-                                        executor_id,
-                                        reason: stop_reason,
-                                        force: true,
-                                    })
-                                    .await
-                                {
-                                    Err(error) => {
-                                        warn!(
+                    // If executor is not already fenced then stop it. If it is fenced then it should already be shutting
+                    // down and we do not need to do anything here.
+                    if !fenced {
+                        // If executor is expired, remove it immediately
+                        Self::remove_executor(
+                            executor_manager,
+                            sender_clone,
+                            &executor_id,
+                            Some(stop_reason.clone()),
+                            0,
+                        );
+
+                        match state.executor_manager.get_client(&executor_id).await {
+                            Ok(mut client) => {
+                                tokio::task::spawn(async move {
+                                    match client
+                                        .stop_executor(StopExecutorParams {
+                                            executor_id,
+                                            reason: stop_reason,
+                                            force: true,
+                                        })
+                                        .await
+                                    {
+                                        Err(error) => {
+                                            warn!(
                                             "Failed to send stop_executor rpc due to, {}",
                                             error
                                         );
+                                        }
+                                        Ok(_value) => {}
                                     }
-                                    Ok(_value) => {}
-                                }
-                            });
-                        }
-                        Err(_) => {
-                            warn!("Executor is already dead, failed to connect to Executor {}", executor_id);
+                                });
+                            }
+                            Err(_) => {
+                                warn!("Executor is already dead, failed to connect to Executor {}", executor_id);
+                            }
                         }
                     }
                 }
