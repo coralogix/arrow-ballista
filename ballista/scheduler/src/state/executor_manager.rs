@@ -82,6 +82,7 @@ impl ExecutorReservation {
 /// Only after missing two or tree consecutive heartbeats from a executor, the executor is mark
 /// to be dead.
 pub const DEFAULT_EXECUTOR_TIMEOUT_SECONDS: u64 = 180;
+pub const EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS: u64 = 15;
 
 #[derive(Clone)]
 pub(crate) struct ExecutorManager {

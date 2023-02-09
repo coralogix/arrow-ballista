@@ -39,6 +39,7 @@ use crate::state::backend::{ClusterState, StateBackendClient};
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::{
     ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
+    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
 };
 
 use crate::state::task_manager::TaskLauncher;
@@ -288,11 +289,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
                     let stop_reason = if fenced {
                         format!(
-                        "ACTIVE executor {executor_id} heartbeat timed out after {DEFAULT_EXECUTOR_TIMEOUT_SECONDS}s"
+                        "FENCED executor {executor_id} heartbeat timed out after {fenced_wait_secs}s"
                     )
                     } else {
                         format!(
-                            "FENCED executor {executor_id} heartbeat timed out after {fenced_wait_secs}s",
+                            "ACTIVE executor {executor_id} heartbeat timed out after {DEFAULT_EXECUTOR_TIMEOUT_SECONDS}s",
                         )
                     };
 
@@ -337,8 +338,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                         }
                     }
                 }
-                tokio::time::sleep(Duration::from_secs(DEFAULT_EXECUTOR_TIMEOUT_SECONDS))
-                    .await;
+                tokio::time::sleep(Duration::from_secs(
+                    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
+                ))
+                .await;
             }
         });
         Ok(())
