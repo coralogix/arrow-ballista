@@ -316,6 +316,8 @@ async fn main() -> Result<()> {
         finished_job_state_clean_up_interval_seconds: opt
             .finished_job_state_clean_up_interval_seconds,
         advertise_flight_sql_endpoint: opt.advertise_flight_sql_endpoint,
+        // TODO configure me
+        remove_executor_wait_secs: 30,
     };
 
     start_server(

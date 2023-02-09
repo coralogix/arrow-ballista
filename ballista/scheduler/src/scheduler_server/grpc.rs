@@ -508,13 +508,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             error!("{}", msg);
             Status::internal(msg)
         })?;
-        Self::remove_executor(executor_manager, event_sender, &executor_id, Some(reason))
-            .await
-            .map_err(|e| {
-                let msg = format!("Error to remove executor in Scheduler due to {:?}", e);
-                error!("{}", msg);
-                Status::internal(msg)
-            })?;
+
+        Self::remove_executor(
+            executor_manager,
+            event_sender,
+            &executor_id,
+            Some(reason),
+            self.remove_executor_wait_secs,
+        );
 
         Ok(Response::new(ExecutorStoppedResult {}))
     }
@@ -590,6 +591,7 @@ mod test {
 
     use crate::state::executor_manager::DEFAULT_EXECUTOR_TIMEOUT_SECONDS;
     use crate::state::{backend::sled::SledClient, SchedulerState};
+    use crate::test_utils::await_condition;
 
     use super::{SchedulerGrpc, SchedulerServer};
 
@@ -692,7 +694,7 @@ mod test {
                 state_storage.clone(),
                 state_storage,
                 BallistaCodec::default(),
-                SchedulerConfig::default(),
+                SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
             );
         scheduler.init().await?;
@@ -750,8 +752,13 @@ mod test {
             .await
             .expect("getting executor");
 
+        let is_stopped = await_condition(Duration::from_millis(10), 5, || {
+            futures::future::ready(Ok(state.executor_manager.is_dead_executor("abc")))
+        })
+        .await?;
+
         // executor should be marked to dead
-        assert!(state.executor_manager.is_dead_executor("abc"));
+        assert!(is_stopped, "Executor not marked dead after 50ms");
 
         let active_executors = state
             .executor_manager

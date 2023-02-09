@@ -37,6 +37,8 @@ pub struct SchedulerConfig {
     pub finished_job_state_clean_up_interval_seconds: u64,
     /// The route endpoint for proxying flight sql results via scheduler
     pub advertise_flight_sql_endpoint: Option<String>,
+    /// Number of seconds to wait after executor stopped signal to remove executor from pool
+    pub remove_executor_wait_secs: u64,
 }
 
 impl Default for SchedulerConfig {
@@ -48,6 +50,7 @@ impl Default for SchedulerConfig {
             finished_job_data_clean_up_interval_seconds: 300,
             finished_job_state_clean_up_interval_seconds: 3600,
             advertise_flight_sql_endpoint: None,
+            remove_executor_wait_secs: 0,
         }
     }
 }
@@ -93,6 +96,11 @@ impl SchedulerConfig {
 
     pub fn with_executor_slots_policy(mut self, policy: SlotsPolicy) -> Self {
         self.executor_slots_policy = policy;
+        self
+    }
+
+    pub fn with_remove_executor_wait_secs(mut self, value: u64) -> Self {
+        self.remove_executor_wait_secs = value;
         self
     }
 }

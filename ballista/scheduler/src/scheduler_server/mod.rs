@@ -64,6 +64,7 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     pub(crate) state: Arc<SchedulerState<T, U>>,
     pub(crate) query_stage_event_loop: EventLoop<QueryStageSchedulerEvent>,
     query_stage_scheduler: Arc<QueryStageScheduler<T, U>>,
+    remove_executor_wait_secs: u64,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T, U> {
@@ -97,6 +98,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             state,
             query_stage_event_loop,
             query_stage_scheduler,
+            remove_executor_wait_secs: config.remove_executor_wait_secs,
         }
     }
 
@@ -131,6 +133,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             state,
             query_stage_event_loop,
             query_stage_scheduler,
+            remove_executor_wait_secs: config.remove_executor_wait_secs,
         }
     }
 
@@ -167,6 +170,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             state,
             query_stage_event_loop,
             query_stage_scheduler,
+            remove_executor_wait_secs: config.remove_executor_wait_secs,
         }
     }
 
@@ -276,20 +280,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                     );
                     warn!("{}", stop_reason.clone());
                     let sender_clone = event_sender.clone();
+
+                    // If executor is dead, remove it immediately
                     Self::remove_executor(
                         executor_manager,
                         sender_clone,
                         &executor_id,
                         Some(stop_reason.clone()),
-                    )
-                    .await
-                    .unwrap_or_else(|e| {
-                        let msg = format!(
-                            "Error to remove Executor in Scheduler due to {:?}",
-                            e
-                        );
-                        error!("{}", msg);
-                    });
+                        0,
+                    );
 
                     match state.executor_manager.get_client(&executor_id).await {
                         Ok(mut client) => {
@@ -324,24 +323,33 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         Ok(())
     }
 
-    pub(crate) async fn remove_executor(
+    pub(crate) fn remove_executor(
         executor_manager: ExecutorManager,
         event_sender: EventSender<QueryStageSchedulerEvent>,
         executor_id: &str,
         reason: Option<String>,
-    ) -> Result<()> {
-        // Update the executor manager immediately here
-        executor_manager
-            .remove_executor(executor_id, reason.clone())
-            .await?;
+        wait_secs: u64,
+    ) {
+        let executor_id = executor_id.to_owned();
+        tokio::spawn(async move {
+            // Wait for `wait_secs` before removing executor
+            tokio::time::sleep(Duration::from_secs(wait_secs)).await;
 
-        event_sender
-            .post_event(QueryStageSchedulerEvent::ExecutorLost(
-                executor_id.to_owned(),
-                reason,
-            ))
-            .await?;
-        Ok(())
+            // Update the executor manager immediately here
+            if let Err(e) = executor_manager
+                .remove_executor(&executor_id, reason.clone())
+                .await
+            {
+                error!("error removing executor {executor_id}: {e:?}");
+            }
+
+            if let Err(e) = event_sender
+                .post_event(QueryStageSchedulerEvent::ExecutorLost(executor_id, reason))
+                .await
+            {
+                error!("error sending ExecutorLost event: {e:?}");
+            }
+        });
     }
 }
 

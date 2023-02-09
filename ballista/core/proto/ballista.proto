@@ -687,6 +687,7 @@ message ExecutorStatus {
     string active = 1;
     string dead = 2;
     string unknown = 3;
+    string fenced = 4;
   }
 }
 

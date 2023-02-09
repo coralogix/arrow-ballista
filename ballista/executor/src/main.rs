@@ -18,6 +18,7 @@
 //! Ballista Rust executor binary.
 
 use std::net::SocketAddr;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use std::{env, io};
@@ -44,7 +45,8 @@ use ballista_core::utils::{
     create_grpc_client_connection, create_grpc_server, with_object_store_provider,
 };
 use ballista_core::{print_version, BALLISTA_VERSION};
-use ballista_executor::executor::Executor;
+use ballista_executor::executor::{Executor, TasksDrainedFuture};
+use ballista_executor::executor_server::IS_FENCED;
 use ballista_executor::flight_service::BallistaFlightService;
 use ballista_executor::metrics::LoggingMetricsCollector;
 use ballista_executor::shutdown::Shutdown;
@@ -314,6 +316,8 @@ async fn main() -> Result<()> {
         shutdown_noti.subscribe_for_shutdown(),
     )));
 
+    let tasks_drained = TasksDrainedFuture(executor);
+
     // Concurrently run the service checking and listen for the `shutdown` signal and wait for the stop request coming.
     // The check_services runs until an error is encountered, so under normal circumstances, this `select!` statement runs
     // until the `shutdown` signal is received or a stop request is coming.
@@ -339,6 +343,10 @@ async fn main() -> Result<()> {
     };
 
     if notify_scheduler {
+        // Set status to fenced
+        info!("Setting executor to fenced status  and notifying scheduler");
+        IS_FENCED.store(true, Ordering::Relaxed);
+
         if let Err(error) = scheduler
             .executor_stopped(ExecutorStoppedParams {
                 executor_id,
@@ -348,7 +356,12 @@ async fn main() -> Result<()> {
         {
             error!("ExecutorStopped grpc failed: {:?}", error);
         }
+
+        // Wait for tasks to drain
+        tasks_drained.await;
     }
+
+
 
     // Extract the `shutdown_complete` receiver and transmitter
     // explicitly drop `shutdown_transmitter`. This is important, as the

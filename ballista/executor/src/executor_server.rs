@@ -18,9 +18,13 @@
 use ballista_core::BALLISTA_VERSION;
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::future::Future;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
@@ -195,6 +199,23 @@ struct ExecutorEnv {
 
 unsafe impl Sync for ExecutorEnv {}
 
+pub static IS_FENCED: AtomicBool = AtomicBool::new(false);
+
+#[derive(Default)]
+pub struct FencedStatusFuture;
+
+impl Future for FencedStatusFuture {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if IS_FENCED.load(Ordering::Relaxed) {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T, U> {
     fn new(
         scheduler_to_register: SchedulerGrpcClient<Channel>,
@@ -240,11 +261,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
     /// 1. First Heartbeat to its registration scheduler, if successful then return; else go next.
     /// 2. Heartbeat to schedulers which has launching tasks to this executor until one succeeds
     async fn heartbeat(&self) {
+        let status = if IS_FENCED.load(Ordering::Relaxed) {
+            executor_status::Status::Fenced("".to_string())
+        } else {
+            executor_status::Status::Active("".to_string())
+        };
+
         let heartbeat_params = HeartBeatParams {
             executor_id: self.executor.metadata.id.clone(),
             metrics: self.get_executor_metrics(),
             status: Some(ExecutorStatus {
-                status: Some(executor_status::Status::Active("".to_string())),
+                status: Some(status),
             }),
         };
         let mut scheduler = self.scheduler_to_register.clone();
@@ -433,8 +460,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> Heartbeater<T, U>
             // As long as the shutdown notification has not been received
             while !heartbeat_shutdown.is_shutdown() {
                 executor_server.heartbeat().await;
+                let fenced_future = FencedStatusFuture::default();
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(60000)) => {},
+                    _ = fenced_future => {
+                        info!("sending heartbeat with fenced status and stopping heartbeat");
+                        executor_server.heartbeat().await;
+                        drop(heartbeat_complete);
+                        return;
+                    }
                     _ = heartbeat_shutdown.recv() => {
                         info!("Stop heartbeater");
                         drop(heartbeat_complete);

@@ -1032,7 +1032,7 @@ pub mod executor_metric {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutorStatus {
-    #[prost(oneof = "executor_status::Status", tags = "1, 2, 3")]
+    #[prost(oneof = "executor_status::Status", tags = "1, 2, 3, 4")]
     pub status: ::core::option::Option<executor_status::Status>,
 }
 /// Nested message and enum types in `ExecutorStatus`.
@@ -1045,6 +1045,8 @@ pub mod executor_status {
         Dead(::prost::alloc::string::String),
         #[prost(string, tag = "3")]
         Unknown(::prost::alloc::string::String),
+        #[prost(string, tag = "4")]
+        Fenced(::prost::alloc::string::String),
     }
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1999,7 +2001,7 @@ pub mod executor_grpc_client {
 pub mod scheduler_grpc_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with SchedulerGrpcServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with SchedulerGrpcServer.
     #[async_trait]
     pub trait SchedulerGrpc: Send + Sync + 'static {
         /// Executors must poll the scheduler for heartbeat and to receive tasks
@@ -2545,7 +2547,7 @@ pub mod scheduler_grpc_server {
 pub mod executor_grpc_server {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
-    ///Generated trait containing gRPC methods that should be implemented for use with ExecutorGrpcServer.
+    /// Generated trait containing gRPC methods that should be implemented for use with ExecutorGrpcServer.
     #[async_trait]
     pub trait ExecutorGrpc: Send + Sync + 'static {
         async fn launch_task(
