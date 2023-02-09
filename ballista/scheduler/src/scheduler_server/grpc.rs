@@ -762,7 +762,9 @@ mod test {
             .get_alive_executors_within_one_minute();
         assert!(active_executors.is_empty());
 
-        let expired_executors = state.executor_manager.get_expired_executors();
+        let expired_executors = state
+            .executor_manager
+            .get_expired_executors(scheduler.remove_executor_wait_secs);
         assert!(expired_executors.is_empty());
 
         Ok(())
@@ -837,7 +839,9 @@ mod test {
             .get_alive_executors_within_one_minute();
         assert_eq!(active_executors.len(), 1);
 
-        let expired_executors = state.executor_manager.get_expired_executors();
+        let expired_executors = state
+            .executor_manager
+            .get_expired_executors(scheduler.remove_executor_wait_secs);
         assert!(expired_executors.is_empty());
 
         // simulate the heartbeat timeout

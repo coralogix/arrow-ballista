@@ -626,12 +626,22 @@ impl ExecutorManager {
     }
 
     /// Return a list of expired executors
-    pub(crate) fn get_expired_executors(&self) -> Vec<ExecutorHeartbeat> {
+    pub(crate) fn get_expired_executors(
+        &self,
+        fenced_wait_secs: u64,
+    ) -> Vec<ExecutorHeartbeat> {
         let now_epoch_ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("Time went backwards");
+        // Threshold for last heartbeat from Active executor before marking dead
         let last_seen_threshold = now_epoch_ts
             .checked_sub(Duration::from_secs(DEFAULT_EXECUTOR_TIMEOUT_SECONDS))
+            .unwrap_or_else(|| Duration::from_secs(0))
+            .as_secs();
+
+        // Threshold for last heartbeat for Fenced executor before marking dead
+        let fenced_wait_threshold = now_epoch_ts
+            .checked_sub(Duration::from_secs(fenced_wait_secs))
             .unwrap_or_else(|| Duration::from_secs(0))
             .as_secs();
 
@@ -640,7 +650,20 @@ impl ExecutorManager {
             .iter()
             .filter_map(|pair| {
                 let (_exec, heartbeat) = pair.pair();
-                (heartbeat.timestamp <= last_seen_threshold).then(|| heartbeat.clone())
+
+                let fenced = matches!(
+                    heartbeat
+                        .status
+                        .as_ref()
+                        .and_then(|status| status.status.as_ref()),
+                    Some(executor_status::Status::Fenced(_))
+                );
+
+                let fence_expired = heartbeat.timestamp <= fenced_wait_threshold;
+
+                let expired = heartbeat.timestamp <= last_seen_threshold;
+
+                ((fenced && fence_expired) || expired).then(|| heartbeat.clone())
             })
             .collect::<Vec<_>>();
         expired_executors

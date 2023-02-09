@@ -266,9 +266,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     fn expire_dead_executors(&self) -> Result<()> {
         let state = self.state.clone();
         let event_sender = self.query_stage_event_loop.get_sender()?;
+        let fenced_wait_secs = self.remove_executor_wait_secs;
         tokio::task::spawn(async move {
             loop {
-                let expired_executors = state.executor_manager.get_expired_executors();
+                let expired_executors = state
+                    .executor_manager
+                    .get_expired_executors(fenced_wait_secs);
                 for expired in expired_executors {
                     let executor_id = expired.executor_id.clone();
                     let executor_manager = state.executor_manager.clone();
@@ -277,7 +280,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                         executor_id.clone(),
                         DEFAULT_EXECUTOR_TIMEOUT_SECONDS
                     );
-                    warn!("{}", stop_reason.clone());
+
+                    warn!("{stop_reason}");
+
                     let sender_clone = event_sender.clone();
 
                     let fenced = matches!(
@@ -288,18 +293,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                         Some(ballista_core::serde::protobuf::executor_status::Status::Fenced(_))
                     );
 
+                    // If executor is expired, remove it immediately
+                    Self::remove_executor(
+                        executor_manager,
+                        sender_clone,
+                        &executor_id,
+                        Some(stop_reason.clone()),
+                        0,
+                    );
+
                     // If executor is not already fenced then stop it. If it is fenced then it should already be shutting
                     // down and we do not need to do anything here.
                     if !fenced {
-                        // If executor is expired, remove it immediately
-                        Self::remove_executor(
-                            executor_manager,
-                            sender_clone,
-                            &executor_id,
-                            Some(stop_reason.clone()),
-                            0,
-                        );
-
                         match state.executor_manager.get_client(&executor_id).await {
                             Ok(mut client) => {
                                 tokio::task::spawn(async move {
