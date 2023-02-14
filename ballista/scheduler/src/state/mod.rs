@@ -429,6 +429,7 @@ mod test {
         ExecutorData, ExecutorMetadata, ExecutorSpecification,
     };
     use ballista_core::serde::BallistaCodec;
+    use datafusion::config::Extensions;
 
     use crate::config::SchedulerConfig;
 
@@ -492,7 +493,10 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
             ));
 
-        let session_ctx = state.session_manager.create_session(&config).await?;
+        let session_ctx = state
+            .session_manager
+            .create_session(&config, Extensions::default())
+            .await?;
 
         let plan = test_graph(session_ctx.clone()).await;
 
@@ -592,7 +596,10 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
             ));
 
-        let session_ctx = state.session_manager.create_session(&config).await?;
+        let session_ctx = state
+            .session_manager
+            .create_session(&config, Extensions::default())
+            .await?;
 
         let plan = test_graph(session_ctx.clone()).await;
 
