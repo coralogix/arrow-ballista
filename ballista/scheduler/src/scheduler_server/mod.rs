@@ -20,11 +20,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
-use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
-use ballista_core::serde::BallistaCodec;
 use ballista_core::serde::protobuf::{JobStatus, StopExecutorParams, TaskStatus};
 use ballista_core::serde::BallistaCodec;
-use ballista_core::utils::default_session_builder;
 
 use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::LogicalPlan;
@@ -90,40 +87,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             metrics_collector,
             config.job_resubmit_interval_ms,
         ));
-        let query_stage_event_loop = EventLoop::new(
-            "query_stage".to_owned(),
-            config.event_loop_buffer_size as usize,
-            query_stage_scheduler.clone(),
-        );
-
-        Self {
-            scheduler_name,
-            start_time: timestamp_millis() as u128,
-            state,
-            query_stage_event_loop,
-            query_stage_scheduler,
-        }
-    }
-
-    pub fn with_session_builder(
-        scheduler_name: String,
-        config_backend: Arc<dyn StateBackendClient>,
-        cluster_backend: Arc<dyn ClusterState>,
-        codec: BallistaCodec<T, U>,
-        config: SchedulerConfig,
-        session_builder: SessionBuilder,
-        metrics_collector: Arc<dyn SchedulerMetricsCollector>,
-    ) -> Self {
-        let state = Arc::new(SchedulerState::new(
-            config_backend,
-            cluster_backend,
-            session_builder,
-            codec,
-            scheduler_name.clone(),
-            config.clone(),
-        ));
-        let query_stage_scheduler =
-            Arc::new(QueryStageScheduler::new(state.clone(), metrics_collector));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
             config.event_loop_buffer_size as usize,
@@ -558,8 +521,7 @@ mod test {
         match status.status {
             Some(job_status::Status::Successful(SuccessfulJob {
                 partition_location,
-                queued_at: _,
-                completed_at: _,
+                ..
             })) => {
                 assert_eq!(partition_location.len(), 4);
             }

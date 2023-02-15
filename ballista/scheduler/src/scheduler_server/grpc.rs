@@ -29,7 +29,7 @@ use ballista_core::serde::protobuf::{
     HeartBeatResult, PollWorkParams, PollWorkResult, RegisterExecutorParams,
     RegisterExecutorResult, UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
-use ballista_core::serde::scheduler::ExecutorMetadata;use ballista_core::serde::AsExecutionPlan;
+use ballista_core::serde::scheduler::ExecutorMetadata;
 
 use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::file_format::FileFormat;
@@ -601,7 +601,6 @@ mod test {
     use ballista_core::serde::scheduler::ExecutorSpecification;
     use ballista_core::serde::BallistaCodec;
 
-    use crate::state::backend::cluster::DefaultClusterState;
     use crate::state::executor_manager::DEFAULT_EXECUTOR_TIMEOUT_SECONDS;
     use crate::state::SchedulerState;
     use crate::test_utils::test_cluster_context;

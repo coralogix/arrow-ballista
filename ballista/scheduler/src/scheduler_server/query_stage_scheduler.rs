@@ -185,9 +185,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
                         tokio::task::spawn(async move {
                             tokio::time::sleep(Duration::from_millis(wait_ms)).await;
-
-                        tokio::task::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(200)).await;
                             if let Err(e) = tx_event
                                 .post_event(QueryStageSchedulerEvent::JobSubmitted {
                                     job_id,

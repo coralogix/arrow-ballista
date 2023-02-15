@@ -24,13 +24,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
+
+use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::session_manager::SessionManager;
 use crate::state::task_manager::{TaskLauncher, TaskManager};
 
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::state::execution_graph::TaskDescription;
-use backend::cluster::ClusterState;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf::TaskStatus;
 use ballista_core::serde::BallistaCodec;
@@ -41,8 +42,6 @@ use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{debug, error, info};
 use prost::Message;
-
-use self::executor_manager::{ExecutorManager, ExecutorReservation};
 
 pub mod execution_graph;
 pub mod execution_graph_dot;
@@ -230,7 +229,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                     }
                 }
 
-                let mut join_handles = vec![];
                 let mut join_handles = vec![];
                 for (executor_id, tasks) in executor_stage_assignments.into_iter() {
                     let tasks: Vec<Vec<TaskDescription>> = tasks.into_values().collect();
@@ -422,7 +420,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
 #[cfg(test)]
 mod test {
 
-    use crate::scheduler_server::timestamp_millis;
     use crate::state::SchedulerState;
     use ballista_core::config::{BallistaConfig, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS};
     use ballista_core::error::Result;
@@ -436,6 +433,7 @@ mod test {
 
     use crate::config::SchedulerConfig;
 
+    use crate::scheduler_server::timestamp_millis;
     use crate::test_utils::{test_cluster_context, BlackholeTaskLauncher};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::logical_expr::{col, sum};

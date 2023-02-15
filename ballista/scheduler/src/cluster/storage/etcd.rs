@@ -30,9 +30,7 @@ use etcd_client::{
 use futures::{Stream, StreamExt};
 use log::{debug, error, warn};
 
-use crate::state::backend::{
-    Keyspace, Lock, Operation, StateBackendClient, Watch, WatchEvent,
-};
+use super::{KeyValueStore, Keyspace, Lock, Operation, Watch, WatchEvent};
 
 /// A [`StateBackendClient`] implementation that uses etcd to save cluster state.
 #[derive(Clone)]
@@ -48,7 +46,7 @@ impl EtcdClient {
 }
 
 #[tonic::async_trait]
-impl StateBackendClient for EtcdClient {
+impl KeyValueStore for EtcdClient {
     async fn get(&self, keyspace: Keyspace, key: &str) -> Result<Vec<u8>> {
         let key = format!("/{}/{:?}/{}", self.namespace, keyspace, key);
 
