@@ -22,7 +22,7 @@ updates:
     schedule:
       interval: daily
     open-pull-requests-limit: 10
-    target-branch: main
+    target-branch: master
     labels: [auto-dependencies]
     ignore:
       # arrow and datafusion are bumped manually
