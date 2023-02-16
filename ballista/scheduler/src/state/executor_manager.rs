@@ -777,7 +777,7 @@ mod test {
         let cluster = test_cluster_context();
         let executor_manager =
             ExecutorManager::new(cluster.cluster_state(), slots_policy);
-            
+
         for (executor_metadata, executor_data) in executors {
             executor_manager
                 .register_executor(executor_metadata, executor_data, false)
