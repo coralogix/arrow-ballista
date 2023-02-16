@@ -32,8 +32,10 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
+use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::{
     ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
+    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
 };
 use crate::state::task_manager::TaskLauncher;
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
@@ -42,12 +44,6 @@ use log::{error, warn};
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 
-use crate::state::executor_manager::{
-    ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
-    EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
-};
-
-use crate::state::task_manager::TaskLauncher;
 use crate::state::SchedulerState;
 
 // include the generated protobuf source as a submodule
