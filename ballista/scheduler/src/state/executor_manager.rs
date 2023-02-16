@@ -678,7 +678,6 @@ impl ExecutorManager {
         }
         available_slots
     }
-
 }
 
 #[cfg(test)]
