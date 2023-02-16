@@ -65,7 +65,7 @@ jobs:
           git config user.email "$(git log -1 --pretty=format:%ae)"
           git remote add upstream https://github.com/${{ github.repository }}
           git fetch --unshallow upstream master
-          git rebase upstream/main
+          git rebase upstream/master
       - uses: r-lib/actions/pr-push@master
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
