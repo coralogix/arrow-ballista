@@ -154,6 +154,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         self.query_stage_scheduler.pending_tasks()
     }
 
+    pub fn available_task_slots(&self) -> usize {
+        self.state.executor_manager.get_total_available_task_slots()
+    }
+
+    pub fn total_task_slots(&self) -> usize {
+        self.state.executor_manager.get_total_task_slots()
+    }
+
     pub fn active_job_count(&self) -> usize {
         self.state.task_manager.get_active_job_count()
     }
