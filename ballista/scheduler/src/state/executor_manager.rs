@@ -652,31 +652,32 @@ impl ExecutorManager {
     pub(crate) fn get_total_available_task_slots(&self) -> usize {
         let alive = self.get_alive_executors_within_one_minute();
 
-        let mut available_slots = 0;
         let executor_data = self.executor_data.lock();
-
-        for executor_id in alive {
-            available_slots += executor_data
-                .get(&executor_id)
-                .map(|e| e.available_task_slots as usize)
-                .unwrap_or(0);
-        }
-        available_slots
+        return alive
+            .iter()
+            .map(|executor_id| {
+                executor_data
+                    .get(executor_id)
+                    .map(|e| e.available_task_slots as usize)
+                    .unwrap_or(0)
+            })
+            .sum();
     }
 
     pub(crate) fn get_total_task_slots(&self) -> usize {
         let alive = self.get_alive_executors_within_one_minute();
 
-        let mut available_slots = 0;
         let executor_data = self.executor_data.lock();
 
-        for executor_id in alive {
-            available_slots += executor_data
-                .get(&executor_id)
-                .map(|e| e.total_task_slots as usize)
-                .unwrap_or(0);
-        }
-        available_slots
+        return alive
+            .iter()
+            .map(|executor_id| {
+                executor_data
+                    .get(executor_id)
+                    .map(|e| e.total_task_slots as usize)
+                    .unwrap_or(0)
+            })
+            .sum();
     }
 }
 
