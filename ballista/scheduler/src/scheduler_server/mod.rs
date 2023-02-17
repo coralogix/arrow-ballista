@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -154,12 +155,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         self.query_stage_scheduler.pending_tasks()
     }
 
-    pub fn available_task_slots(&self) -> usize {
-        self.state.executor_manager.get_total_available_task_slots()
-    }
-
-    pub fn total_task_slots(&self) -> usize {
-        self.state.executor_manager.get_total_task_slots()
+    pub fn get_alive_executors(&self) -> HashSet<String> {
+        self.state
+            .executor_manager
+            .get_alive_executors_within_one_minute()
     }
 
     pub fn active_job_count(&self) -> usize {
