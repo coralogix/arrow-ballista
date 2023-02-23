@@ -412,6 +412,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             self.state.save_job(job_id, &guard).await?;
 
+            // After state is saved, remove job from active cache
+            let _ = self.remove_active_execution_graph(job_id);
+
             (running_tasks, pending_tasks)
         } else {
             // TODO listen the job state update event and fix task cancelling
