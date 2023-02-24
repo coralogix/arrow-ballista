@@ -308,7 +308,13 @@ fn send_fetch_partitions(
             let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
             // Block if the channel buffer is ful
             if let Err(e) = response_sender.send(r).await {
-                warn!("Fail to send response event to the channel due to {}", e);
+                warn!(
+                    job_id = p.partition_id.job_id,
+                    stage_id = p.partition_id.stage_id,
+                    partition_id = p.partition_id.partition_id,
+                    "Fail to send response event to the channel due to {}",
+                    e
+                );
             }
             // Increase semaphore by dropping existing permits.
             drop(permit);
