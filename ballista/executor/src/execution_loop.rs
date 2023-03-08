@@ -50,6 +50,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     mut scheduler: SchedulerGrpcClient<Channel>,
     executor: Arc<Executor>,
     codec: BallistaCodec<T, U>,
+    default_extensions: Extensions,
 ) -> Result<(), BallistaError> {
     let executor_specification: ExecutorSpecification = executor
         .metadata
@@ -111,6 +112,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         task,
                         &codec,
                         &dedicated_executor,
+                        default_extensions.clone(),
                     )
                     .await
                     {
@@ -152,6 +154,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     task: TaskDefinition,
     codec: &BallistaCodec<T, U>,
     dedicated_executor: &DedicatedExecutor,
+    extensions: Extensions,
 ) -> Result<(), BallistaError> {
     let task_id = task.task_id;
     let task_attempt_num = task.task_attempt_num;
@@ -192,7 +195,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
         task_scalar_functions,
         task_aggregate_functions,
         runtime.clone(),
-        Extensions::default(),
+        extensions,
     )?);
 
     let plan: Arc<dyn ExecutionPlan> =

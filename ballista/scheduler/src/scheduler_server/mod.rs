@@ -32,6 +32,8 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
+use crate::state::execution_graph::ExecutionGraph;
+use crate::state::session_manager::SessionManager;
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
 use log::{error, warn};
 
@@ -351,6 +353,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
         Ok(())
     }
+
+    pub fn get_alive_executors_within_one_minute(&self) -> HashSet<String> {
+        self.state
+            .executor_manager
+            .get_alive_executors_within_one_minute()
+    }
+
+    pub fn session_manager(&self) -> SessionManager {
+        self.state.session_manager.clone()
+    }
 }
 
 pub fn timestamp_secs() -> u64 {
@@ -372,6 +384,7 @@ mod test {
     use std::sync::Arc;
 
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
+    use datafusion::config::Extensions;
     use datafusion::logical_expr::{col, sum, LogicalPlan};
 
     use datafusion::test_util::scan_empty;
@@ -424,7 +437,7 @@ mod test {
         let ctx = scheduler
             .state
             .session_manager
-            .create_session(&config)
+            .create_session(&config, Extensions::default())
             .await?;
 
         let job_id = "job";
