@@ -33,24 +33,8 @@ use datafusion::physical_plan::udf::ScalarUDF;
 use datafusion::physical_plan::Partitioning;
 use futures::future::AbortHandle;
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll};
-
-pub struct TasksDrainedFuture(pub Arc<Executor>);
-
-impl Future for TasksDrainedFuture {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.0.abort_handles.len() > 0 {
-            Poll::Pending
-        } else {
-            Poll::Ready(())
-        }
-    }
-}
+use tokio::sync::watch;
 
 type AbortHandles = Arc<DashMap<(usize, PartitionId), AbortHandle>>;
 
@@ -84,6 +68,9 @@ pub struct Executor {
     /// Execution engine that the executor will delegate to
     /// for executing query stages
     pub(crate) execution_engine: Arc<dyn ExecutionEngine>,
+
+    drained: Arc<watch::Sender<()>>,
+    check_drained: watch::Receiver<()>,
 }
 
 impl Executor {
@@ -96,6 +83,7 @@ impl Executor {
         concurrent_tasks: usize,
         execution_engine: Option<Arc<dyn ExecutionEngine>>,
     ) -> Self {
+        let (drained, check_drained) = watch::channel(());
         Self {
             metadata,
             work_dir: work_dir.to_owned(),
@@ -108,6 +96,8 @@ impl Executor {
             abort_handles: Default::default(),
             execution_engine: execution_engine
                 .unwrap_or_else(|| Arc::new(DefaultExecutionEngine {})),
+            drained: Arc::new(drained),
+            check_drained
         }
     }
 }
@@ -131,9 +121,11 @@ impl Executor {
         self.abort_handles
             .insert((task_id, partition.clone()), abort_handle);
 
-        let partitions = task.await??;
+        let partitions = task.await;
 
-        self.abort_handles.remove(&(task_id, partition.clone()));
+        self.remove_handle(task_id, partition.clone());
+
+        let partitions = partitions??;
 
         self.metrics_collector.record_stage(
             &partition.job_id,
@@ -152,14 +144,14 @@ impl Executor {
         stage_id: usize,
         partition_id: usize,
     ) -> Result<bool, BallistaError> {
-        if let Some((_, handle)) = self.abort_handles.remove(&(
+        if let Some((_, handle)) = self.remove_handle(
             task_id,
             PartitionId {
                 job_id,
                 stage_id,
                 partition_id,
             },
-        )) {
+        ) {
             handle.abort();
             Ok(true)
         } else {
@@ -173,6 +165,33 @@ impl Executor {
 
     pub fn active_task_count(&self) -> usize {
         self.abort_handles.len()
+    }
+
+    pub async fn wait_drained(&self) {
+        let mut check_drained = self.check_drained.clone();
+        loop {
+            if self.active_task_count() == 0 {
+                break;
+            }
+
+            if check_drained.changed().await.is_err() {
+                break;
+            };
+        }
+    }
+
+    fn remove_handle(
+        &self,
+        task_id: usize,
+        partition: PartitionId,
+    ) -> Option<((usize, PartitionId), AbortHandle)> {
+        let removed = self.abort_handles.remove(&(task_id, partition));
+
+        if self.active_task_count() == 0 {
+            self.drained.send_replace(());
+        }
+
+        removed
     }
 }
 

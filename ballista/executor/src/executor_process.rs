@@ -306,7 +306,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         shutdown_noti.subscribe_for_shutdown(),
     )));
 
-    let tasks_drained = TasksDrainedFuture(executor);
+    let tasks_drained = executor.wait_drained();
 
     // Concurrently run the service checking and listen for the `shutdown` signal and wait for the stop request coming.
     // The check_services runs until an error is encountered, so under normal circumstances, this `select!` statement runs
