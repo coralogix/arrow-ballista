@@ -27,13 +27,7 @@ use log::warn;
 use sled_package as sled;
 use tokio::sync::Mutex;
 
-<<<<<<<< HEAD:ballista/scheduler/src/cluster/storage/sled.rs
 use crate::cluster::storage::{Keyspace, Lock, Operation, Watch, WatchEvent};
-========
-use crate::state::backend::{
-    ClusterState, Keyspace, Lock, Operation, StateBackendClient, Watch, WatchEvent,
-};
->>>>>>>> 0637711b51221590246c7ac41d86d72cb86ab609:ballista/scheduler/src/state/backend/sled.rs
 
 /// A [`StateBackendClient`] implementation that uses file-based storage to save cluster state.
 #[derive(Clone)]
@@ -61,10 +55,6 @@ impl SledClient {
             locks: Arc::new(Mutex::new(HashMap::new())),
         })
     }
-
-    pub fn into_cluster_state(self: Arc<Self>) -> Arc<dyn ClusterState> {
-        self
-    }
 }
 
 fn sled_to_ballista_error(e: sled::Error) -> BallistaError {
@@ -74,13 +64,8 @@ fn sled_to_ballista_error(e: sled::Error) -> BallistaError {
     }
 }
 
-<<<<<<<< HEAD:ballista/scheduler/src/cluster/storage/sled.rs
 #[async_trait]
 impl KeyValueStore for SledClient {
-========
-#[tonic::async_trait]
-impl StateBackendClient for SledClient {
->>>>>>>> 0637711b51221590246c7ac41d86d72cb86ab609:ballista/scheduler/src/state/backend/sled.rs
     async fn get(&self, keyspace: Keyspace, key: &str) -> Result<Vec<u8>> {
         let key = format!("/{keyspace:?}/{key}");
         Ok(self
@@ -297,13 +282,9 @@ impl Stream for SledWatch {
 
 #[cfg(test)]
 mod tests {
-<<<<<<<< HEAD:ballista/scheduler/src/cluster/storage/sled.rs
     use super::{KeyValueStore, SledClient, Watch, WatchEvent};
 
     use crate::cluster::storage::{Keyspace, Operation};
-========
-    use super::{SledClient, StateBackendClient, Watch, WatchEvent};
->>>>>>>> 0637711b51221590246c7ac41d86d72cb86ab609:ballista/scheduler/src/state/backend/sled.rs
 
     use futures::StreamExt;
     use std::result::Result;

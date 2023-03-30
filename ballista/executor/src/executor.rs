@@ -97,7 +97,7 @@ impl Executor {
             execution_engine: execution_engine
                 .unwrap_or_else(|| Arc::new(DefaultExecutionEngine {})),
             drained: Arc::new(drained),
-            check_drained
+            check_drained,
         }
     }
 }
