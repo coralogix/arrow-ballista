@@ -83,13 +83,35 @@ impl Executor {
         concurrent_tasks: usize,
         execution_engine: Option<Arc<dyn ExecutionEngine>>,
     ) -> Self {
+
+        Self::with_functions(
+            metadata,
+            work_dir,
+            runtime,
+            metrics_collector,
+            concurrent_tasks,
+            execution_engine,
+            HashMap::new(),
+            HashMap::new(),
+        )
+    }
+    pub fn with_functions(
+        metadata: ExecutorRegistration,
+        work_dir: &str,
+        runtime: Arc<RuntimeEnv>,
+        metrics_collector: Arc<dyn ExecutorMetricsCollector>,
+        concurrent_tasks: usize,
+        execution_engine: Option<Arc<dyn ExecutionEngine>>,
+        scalar_functions: HashMap<String, Arc<ScalarUDF>>,
+        aggregate_functions: HashMap<String, Arc<AggregateUDF>>,
+    ) -> Self {
         let (drained, check_drained) = watch::channel(());
+
         Self {
             metadata,
             work_dir: work_dir.to_owned(),
-            // TODO add logic to dynamically load UDF/UDAFs libs from files
-            scalar_functions: HashMap::new(),
-            aggregate_functions: HashMap::new(),
+            scalar_functions,
+            aggregate_functions,
             runtime,
             metrics_collector,
             concurrent_tasks,
