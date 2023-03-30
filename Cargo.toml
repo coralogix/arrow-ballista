@@ -16,16 +16,9 @@
 # under the License.
 
 [workspace]
-members = [
-    "ballista-cli",
-    "ballista/client",
-    "ballista/core",
-    "ballista/executor",
-    "ballista/scheduler",
-    "benchmarks",
-    "examples",
-]
 exclude = ["python"]
+members = ["ballista-cli", "ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "benchmarks", "examples",
+]
 
 [workspace.dependencies]
 arrow = { version = "34.0.0" }
