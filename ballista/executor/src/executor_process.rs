@@ -57,7 +57,7 @@ use ballista_core::utils::{
 use ballista_core::BALLISTA_VERSION;
 
 use crate::execution_engine::ExecutionEngine;
-use crate::executor::{Executor, TasksDrainedFuture};
+use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
 use crate::flight_service::BallistaFlightService;
 use crate::metrics::LoggingMetricsCollector;
