@@ -83,7 +83,6 @@ impl Executor {
         concurrent_tasks: usize,
         execution_engine: Option<Arc<dyn ExecutionEngine>>,
     ) -> Self {
-
         Self::with_functions(
             metadata,
             work_dir,
