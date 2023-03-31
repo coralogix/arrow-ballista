@@ -94,6 +94,8 @@ impl Executor {
             HashMap::new(),
         )
     }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn with_functions(
         metadata: ExecutorRegistration,
         work_dir: &str,
