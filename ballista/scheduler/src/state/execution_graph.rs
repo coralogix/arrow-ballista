@@ -47,9 +47,10 @@ use ballista_core::serde::scheduler::{
 use ballista_core::serde::BallistaCodec;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
+use crate::cluster::FailureReason;
 use crate::display::print_stage_metrics;
 use crate::planner::DistributedPlanner;
-use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::scheduler_server::event::{ErrorType, QueryStageSchedulerEvent};
 use crate::scheduler_server::timestamp_millis;
 pub(crate) use crate::state::execution_graph::execution_stage::{
     ExecutionStage, FailedStage, ResolvedStage, StageOutput, SuccessfulStage, TaskInfo,
@@ -413,11 +414,17 @@ impl ExecutionGraph {
                                                 failed_task.error
                                             );
                                             error!("{}", error_msg);
-                                            failed_stages.insert(stage_id, error_msg);
+                                            failed_stages.insert(
+                                                stage_id,
+                                                FailureReason::Internal(error_msg),
+                                            );
                                         }
                                     }
                                     Some(FailedReason::ExecutionError(_)) => {
-                                        failed_stages.insert(stage_id, failed_task.error);
+                                        failed_stages.insert(
+                                            stage_id,
+                                            FailureReason::Internal(failed_task.error),
+                                        );
                                     }
                                     Some(_) => {
                                         if failed_task.retryable
@@ -437,7 +444,10 @@ impl ExecutionGraph {
                         partition_id, stage_id, max_task_failures, failed_task.error
                     );
                                                 error!("{}", error_msg);
-                                                failed_stages.insert(stage_id, error_msg);
+                                                failed_stages.insert(
+                                                    stage_id,
+                                                    FailureReason::Internal(error_msg),
+                                                );
                                             }
                                         } else if failed_task.retryable {
                                             // TODO add new struct to track all the failed task infos
@@ -449,7 +459,10 @@ impl ExecutionGraph {
                                         let error_msg = format!(
                                             "Task {partition_id} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
                                         error!("{}", error_msg);
-                                        failed_stages.insert(stage_id, error_msg);
+                                        failed_stages.insert(
+                                            stage_id,
+                                            FailureReason::Internal(error_msg),
+                                        );
                                     }
                                 }
                             } else if let Some(task_status::Status::Successful(
@@ -529,7 +542,10 @@ impl ExecutionGraph {
                                 match failed_reason {
                                     Some(FailedReason::ExecutionError(_)) => {
                                         should_ignore = false;
-                                        failed_stages.insert(stage_id, failed_task.error);
+                                        failed_stages.insert(
+                                            stage_id,
+                                            FailureReason::Internal(failed_task.error),
+                                        );
                                     }
                                     Some(FailedReason::FetchPartitionError(
                                         fetch_partiton_error,
@@ -722,12 +738,13 @@ impl ExecutionGraph {
 
         if !updated_stages.failed_stages.is_empty() {
             info!("Job {} is failed", job_id);
-            self.fail_job(job_err_msg.clone());
+            self.fail_job(FailureReason::Internal(job_err_msg.clone()));
             events.push(QueryStageSchedulerEvent::JobRunningFailed {
                 job_id,
                 fail_message: job_err_msg,
                 queued_at: self.queued_at,
                 failed_at: timestamp_millis(),
+                error_type: ErrorType::Internal,
             });
         } else if self.is_successful() {
             // If this ExecutionGraph is successful, finish it
@@ -1231,13 +1248,13 @@ impl ExecutionGraph {
     }
 
     /// fail job with error message
-    pub fn fail_job(&mut self, error: String) {
+    pub fn fail_job(&mut self, job_failure: FailureReason) {
         self.end_time = timestamp_millis();
         self.status = JobStatus {
             job_id: self.job_id.clone(),
             job_name: self.job_name.clone(),
             status: Some(Status::Failed(FailedJob {
-                error,
+                error: Some(job_failure.into()),
                 queued_at: self.queued_at,
                 started_at: self.start_time,
                 ended_at: self.end_time,

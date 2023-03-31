@@ -46,6 +46,8 @@ use std::ops::DerefMut;
 use std::sync::Arc;
 use tracing::debug;
 
+use super::FailureReason;
+
 #[derive(Default)]
 pub struct InMemoryClusterState {
     /// Current available task slots for each executor
@@ -471,7 +473,11 @@ impl JobState for InMemoryJobState {
         Ok(())
     }
 
-    async fn fail_unscheduled_job(&self, job_id: &str, reason: String) -> Result<()> {
+    async fn fail_unscheduled_job(
+        &self,
+        job_id: &str,
+        reason: FailureReason,
+    ) -> Result<()> {
         if let Some((job_id, (job_name, queued_at))) = self.queued_jobs.remove(job_id) {
             self.completed_jobs.insert(
                 job_id.clone(),
@@ -480,7 +486,7 @@ impl JobState for InMemoryJobState {
                         job_id,
                         job_name,
                         status: Some(Status::Failed(FailedJob {
-                            error: reason,
+                            error: Some(reason.into()),
                             queued_at,
                             started_at: 0,
                             ended_at: timestamp_millis(),

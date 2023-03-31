@@ -573,10 +573,21 @@ message RunningJob {
 }
 
 message FailedJob {
-  string error = 1;
+  reserved 1;
   uint64 queued_at = 2;
   uint64 started_at = 3;
   uint64 ended_at = 4;
+
+  message Internal {
+    string message = 1;
+  }
+  message External {
+    string message = 1;
+  }
+  oneof error {
+    Internal internal = 5;
+    External external = 6;
+  }
 }
 
 message JobStatus {

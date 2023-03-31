@@ -978,14 +978,37 @@ pub struct RunningJob {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FailedJob {
-    #[prost(string, tag = "1")]
-    pub error: ::prost::alloc::string::String,
     #[prost(uint64, tag = "2")]
     pub queued_at: u64,
     #[prost(uint64, tag = "3")]
     pub started_at: u64,
     #[prost(uint64, tag = "4")]
     pub ended_at: u64,
+    #[prost(oneof = "failed_job::Error", tags = "5, 6")]
+    pub error: ::core::option::Option<failed_job::Error>,
+}
+/// Nested message and enum types in `FailedJob`.
+pub mod failed_job {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Internal {
+        #[prost(string, tag = "1")]
+        pub message: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct External {
+        #[prost(string, tag = "1")]
+        pub message: ::prost::alloc::string::String,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Error {
+        #[prost(message, tag = "5")]
+        Internal(Internal),
+        #[prost(message, tag = "6")]
+        External(External),
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
