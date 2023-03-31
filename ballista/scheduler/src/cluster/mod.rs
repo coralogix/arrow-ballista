@@ -340,8 +340,8 @@ impl FailureReason {
 impl Display for FailureReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::External(message) => write!(f, "External Failure Reason: {message}"),
-            Self::Internal(message) => write!(f, "Internal Failure Reason: {message}"),
+            Self::External(message) => write!(f, "{message}"),
+            Self::Internal(message) => write!(f, "{message}"),
         }
     }
 }
