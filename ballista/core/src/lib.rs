@@ -30,6 +30,7 @@ pub mod execution_plans;
 /// some plugins
 pub mod plugin;
 pub mod utils;
+pub mod tracing;
 
 #[macro_use]
 pub mod serde;

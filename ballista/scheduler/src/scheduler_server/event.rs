@@ -35,6 +35,7 @@ pub enum QueryStageSchedulerEvent {
     },
     JobSubmitted {
         job_id: String,
+        session_ctx: Arc<SessionContext>,
         queued_at: u64,
         submitted_at: u64,
         resubmit: bool,
@@ -42,6 +43,7 @@ pub enum QueryStageSchedulerEvent {
     // For a job which failed during planning
     JobPlanningFailed {
         job_id: String,
+        session_ctx: Arc<SessionContext>,
         fail_message: String,
         queued_at: u64,
         failed_at: u64,

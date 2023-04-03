@@ -21,6 +21,8 @@
 //! will use the ShuffleReaderExec to read these results.
 
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
+use tracing::{instrument, Span, Instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use std::any::Any;
 use std::future::Future;
@@ -29,6 +31,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::tracing::TraceExtension;
 use crate::utils;
 
 use crate::serde::protobuf::ShuffleWritePartition;
@@ -188,11 +191,17 @@ impl ShuffleWriterExec {
         self.limit
     }
 
+    #[instrument(skip_all)]
     pub fn execute_shuffle_write(
         &self,
         input_partition: usize,
         context: Arc<TaskContext>,
     ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
+        let span = Span::current();
+        if let Some(trace_extension) = context.session_config().config_options().extensions.get::<TraceExtension>() {
+            span.set_parent(trace_extension.into());
+        }
+        
         let mut path = PathBuf::from(&self.work_dir);
         path.push(&self.job_id);
         path.push(&format!("{}", self.stage_id));
@@ -361,7 +370,7 @@ impl ShuffleWriterExec {
                     "Invalid shuffle partitioning scheme".to_owned(),
                 )),
             }
-        }
+        }.instrument(span)
     }
 }
 
