@@ -30,13 +30,11 @@ use crate::cluster::storage::etcd::EtcdClient;
 use crate::cluster::storage::sled::SledClient;
 use crate::cluster::storage::KeyValueStore;
 use crate::config::{ClusterStorageConfig, SchedulerConfig};
-use crate::scheduler_server::event::ErrorType;
 use crate::scheduler_server::SessionBuilder;
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::serde::protobuf::failed_job::{self};
 use ballista_core::serde::protobuf::{AvailableTaskSlots, ExecutorHeartbeat, JobStatus};
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
 use ballista_core::serde::BallistaCodec;
@@ -49,7 +47,7 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use futures::Stream;
 use log::info;
 use std::collections::{HashMap, HashSet};
-use std::fmt::{self, Display};
+use std::fmt::{self};
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -321,43 +319,6 @@ pub enum JobStateEvent {
 /// Stream of `JobStateEvent`. This stream should contain all `JobStateEvent`s received
 /// by any schedulers with a shared `ClusterState`
 pub type JobStateEventStream = Pin<Box<dyn Stream<Item = JobStateEvent> + Send>>;
-
-#[derive(Clone)]
-pub enum FailureReason {
-    External(String),
-    Internal(String),
-}
-
-impl FailureReason {
-    pub fn from_error_type(error_type: ErrorType, message: String) -> Self {
-        match error_type {
-            ErrorType::External => Self::External(message),
-            _ => Self::Internal(message),
-        }
-    }
-}
-
-impl Display for FailureReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::External(message) => write!(f, "{message}"),
-            Self::Internal(message) => write!(f, "{message}"),
-        }
-    }
-}
-
-impl From<FailureReason> for failed_job::Error {
-    fn from(value: FailureReason) -> Self {
-        match value {
-            FailureReason::External(message) => {
-                failed_job::Error::External(failed_job::External { message })
-            }
-            FailureReason::Internal(message) => {
-                failed_job::Error::Internal(failed_job::Internal { message })
-            }
-        }
-    }
-}
 /// A trait that contains the necessary methods for persisting state related to executing jobs
 #[tonic::async_trait]
 pub trait JobState: Send + Sync {
@@ -397,7 +358,7 @@ pub trait JobState: Send + Sync {
     async fn fail_unscheduled_job(
         &self,
         job_id: &str,
-        reason: FailureReason,
+        reason: Arc<BallistaError>,
     ) -> Result<()>;
 
     /// Delete a job from the global state

@@ -61,7 +61,7 @@ pub enum QueryStageSchedulerEvent {
         fail_message: String,
         queued_at: u64,
         failed_at: u64,
-        error_type: ErrorType,
+        error: Arc<BallistaError>,
     },
     JobFinished {
         job_id: String,
@@ -71,10 +71,9 @@ pub enum QueryStageSchedulerEvent {
     // For a job fails with its execution graph setting failed
     JobRunningFailed {
         job_id: String,
-        fail_message: String,
         queued_at: u64,
         failed_at: u64,
-        error_type: ErrorType,
+        error: Arc<BallistaError>,
     },
     JobUpdated(String),
     JobCancel(String),

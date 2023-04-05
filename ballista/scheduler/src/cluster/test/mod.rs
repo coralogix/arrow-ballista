@@ -34,8 +34,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-use super::FailureReason;
-
 pub struct ClusterStateTest<S: ClusterState> {
     state: Arc<S>,
     received_heartbeats: Arc<DashMap<String, ExecutorHeartbeat>>,
@@ -444,7 +442,7 @@ impl<S: JobState> JobStateTest<S> {
         self.state
             .fail_unscheduled_job(
                 job_id,
-                FailureReason::Internal("failed planning".to_string()),
+                Arc::new(BallistaError::Internal("failed planning".to_string())),
             )
             .await?;
         Ok(self)

@@ -27,7 +27,7 @@ use ballista_core::error::Result;
 use datafusion::config::ConfigEntry;
 use futures::future::try_join_all;
 
-use crate::cluster::{FailureReason, JobState};
+use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
     self, JobStatus, KeyValuePair, MultiTaskDefinition, TaskDefinition, TaskId,
     TaskStatus,
@@ -156,7 +156,7 @@ impl JobInfoCache {
 pub struct UpdatedStages {
     pub resolved_stages: HashSet<usize>,
     pub successful_stages: HashSet<usize>,
-    pub failed_stages: HashMap<usize, FailureReason>,
+    pub failed_stages: HashMap<usize, Arc<BallistaError>>,
     pub rollback_running_stages: HashMap<usize, HashSet<String>>,
     pub resubmit_successful_stages: HashSet<usize>,
 }
@@ -415,15 +415,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         &self,
         job_id: &str,
     ) -> Result<(Vec<RunningTaskInfo>, usize)> {
-        self.abort_job(job_id, FailureReason::External("Cancelled".to_string()))
-            .await
+        self.abort_job(
+            job_id,
+            Arc::new(BallistaError::Internal("Cancelled".to_string())),
+        )
+        .await
     }
 
     /// Abort the job and return a Vec of running tasks need to cancel
     pub(crate) async fn abort_job(
         &self,
         job_id: &str,
-        failure_reason: FailureReason,
+        failure_reason: Arc<BallistaError>,
     ) -> Result<(Vec<RunningTaskInfo>, usize)> {
         let (tasks_to_cancel, pending_tasks) = if let Some(graph) =
             self.get_active_execution_graph(job_id)
@@ -461,11 +464,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     pub async fn fail_unscheduled_job(
         &self,
         job_id: &str,
-        failure_reason: FailureReason,
+        job_error: Arc<BallistaError>,
     ) -> Result<()> {
-        self.state
-            .fail_unscheduled_job(job_id, failure_reason)
-            .await
+        self.state.fail_unscheduled_job(job_id, job_error).await
     }
 
     pub async fn update_job(&self, job_id: &str) -> Result<usize> {
