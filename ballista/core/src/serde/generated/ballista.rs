@@ -1526,6 +1526,12 @@ pub mod failed_job {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TonicError {
+        /// enum Kind {
+        ///      TRANSPORT = 0;
+        ///      INVALID_URI = 1;
+        ///      INVALID_USER_AGENT = 2;
+        /// }
+        /// Kind kind = 2;
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
@@ -1534,6 +1540,92 @@ pub mod failed_job {
     pub struct GrpcError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
+        #[prost(enumeration = "grpc_error::Code", tag = "2")]
+        pub code: i32,
+    }
+    /// Nested message and enum types in `GrpcError`.
+    pub mod grpc_error {
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            ::prost::Enumeration
+        )]
+        #[repr(i32)]
+        pub enum Code {
+            Ok = 0,
+            Cancelled = 1,
+            Unknown = 2,
+            InvalidArgument = 3,
+            Deadlineexceeded = 4,
+            Notfound = 5,
+            Alreadyexists = 6,
+            Permissiondenied = 7,
+            Resourceexhausted = 8,
+            Failedprecondition = 9,
+            Aborted = 10,
+            Outofrange = 11,
+            Unimplemented = 12,
+            Internal = 13,
+            Unavailable = 14,
+            Dataloss = 15,
+            Unauthenticated = 16,
+        }
+        impl Code {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Code::Ok => "Ok",
+                    Code::Cancelled => "CANCELLED",
+                    Code::Unknown => "UNKNOWN",
+                    Code::InvalidArgument => "InvalidArgument",
+                    Code::Deadlineexceeded => "DEADLINEEXCEEDED",
+                    Code::Notfound => "NOTFOUND",
+                    Code::Alreadyexists => "ALREADYEXISTS",
+                    Code::Permissiondenied => "PERMISSIONDENIED",
+                    Code::Resourceexhausted => "RESOURCEEXHAUSTED",
+                    Code::Failedprecondition => "FAILEDPRECONDITION",
+                    Code::Aborted => "ABORTED",
+                    Code::Outofrange => "OUTOFRANGE",
+                    Code::Unimplemented => "UNIMPLEMENTED",
+                    Code::Internal => "INTERNAL",
+                    Code::Unavailable => "UNAVAILABLE",
+                    Code::Dataloss => "DATALOSS",
+                    Code::Unauthenticated => "UNAUTHENTICATED",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "Ok" => Some(Self::Ok),
+                    "CANCELLED" => Some(Self::Cancelled),
+                    "UNKNOWN" => Some(Self::Unknown),
+                    "InvalidArgument" => Some(Self::InvalidArgument),
+                    "DEADLINEEXCEEDED" => Some(Self::Deadlineexceeded),
+                    "NOTFOUND" => Some(Self::Notfound),
+                    "ALREADYEXISTS" => Some(Self::Alreadyexists),
+                    "PERMISSIONDENIED" => Some(Self::Permissiondenied),
+                    "RESOURCEEXHAUSTED" => Some(Self::Resourceexhausted),
+                    "FAILEDPRECONDITION" => Some(Self::Failedprecondition),
+                    "ABORTED" => Some(Self::Aborted),
+                    "OUTOFRANGE" => Some(Self::Outofrange),
+                    "UNIMPLEMENTED" => Some(Self::Unimplemented),
+                    "INTERNAL" => Some(Self::Internal),
+                    "UNAVAILABLE" => Some(Self::Unavailable),
+                    "DATALOSS" => Some(Self::Dataloss),
+                    "UNAUTHENTICATED" => Some(Self::Unauthenticated),
+                    _ => None,
+                }
+            }
+        }
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1557,6 +1649,12 @@ pub mod failed_job {
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct FetchFailed {
         #[prost(string, tag = "1")]
+        pub executor_id: ::prost::alloc::string::String,
+        #[prost(uint32, tag = "2")]
+        pub map_stage_id: u32,
+        #[prost(uint32, tag = "3")]
+        pub map_partition_id: u32,
+        #[prost(string, tag = "4")]
         pub message: ::prost::alloc::string::String,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]

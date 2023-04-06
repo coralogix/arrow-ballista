@@ -32,8 +32,8 @@ use crate::serde::protobuf::{
     failed_task::FailedReason,
 };
 use crate::serde::protobuf::{ExecutionError, FailedTask, FetchPartitionError, IoError};
+use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
-use datafusion::{arrow::error::ArrowError, parquet::errors::ParquetError};
 use futures::future::Aborted;
 use itertools::Itertools;
 use sqlparser::parser::{self, ParserError};
@@ -583,14 +583,51 @@ impl From<&BallistaError> for failed_job::Error {
                     }),
                 })
             }
-            BallistaError::IoError(_) => todo!(),
-            BallistaError::TonicError(_) => todo!(),
-            BallistaError::GrpcError(_) => todo!(),
-            BallistaError::GrpcConnectionError(_) => todo!(),
-            BallistaError::TokioError(_) => todo!(),
-            BallistaError::GrpcActionError(_) => todo!(),
-            BallistaError::FetchFailed(_, _, _, _) => todo!(),
-            BallistaError::Cancelled => todo!(),
+            BallistaError::IoError(error) => {
+                failed_job::Error::IoError(failed_job::IoError {
+                    message: error.to_string(),
+                })
+            }
+            BallistaError::TonicError(error) => {
+                failed_job::Error::TonicError(failed_job::TonicError {
+                    message: error.to_string(),
+                })
+            }
+            BallistaError::GrpcError(status) => {
+                failed_job::Error::GrpcError(failed_job::GrpcError {
+                    message: status.message().to_string(),
+                    code: status.code() as i32,
+                })
+            }
+            BallistaError::GrpcConnectionError(message) => {
+                failed_job::Error::GrpcConnectionError(failed_job::GrpcConnectionError {
+                    message: message.clone(),
+                })
+            }
+            BallistaError::TokioError(error) => {
+                failed_job::Error::TokioError(failed_job::TokioError {
+                    message: error.to_string(),
+                })
+            }
+            BallistaError::GrpcActionError(message) => {
+                failed_job::Error::GrpcActiveError(failed_job::GrpcActionError {
+                    message: message.to_string(),
+                })
+            }
+            BallistaError::FetchFailed(
+                executor_id,
+                map_stage_id,
+                map_partition_id,
+                message,
+            ) => failed_job::Error::FetchFailed(failed_job::FetchFailed {
+                executor_id: executor_id.clone(),
+                map_stage_id: *map_stage_id as u32,
+                map_partition_id: *map_partition_id as u32,
+                message: message.clone(),
+            }),
+            BallistaError::Cancelled => {
+                failed_job::Error::Cancelled(failed_job::Cancelled {})
+            }
         }
     }
 }

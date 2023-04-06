@@ -576,7 +576,6 @@ message FailedJob {
   message Internal {
     string message = 1;
   }
-
   message ArrowError {
     oneof error {
       NotYetImplemented not_yet_implemented = 1;
@@ -646,7 +645,6 @@ message FailedJob {
       ParserError parser_error = 2;
       RecursionLimitExceeded recursion_limit_exceeded = 3;
     }
-
     message TokenizerError {
       string message = 1;
     }
@@ -675,7 +673,6 @@ message FailedJob {
       Substrait substrair = 16;
       ParserError parser_error = 17;
     }
-
     message ParquetError {
       oneof error {
         General general = 1;
@@ -705,7 +702,6 @@ message FailedJob {
         string message = 1;
       }
     }
-
     message SchemaError {
       oneof error {
         AmbiguousReference ambiguous_reference = 1;
@@ -713,7 +709,6 @@ message FailedJob {
         DuplicateUnqualifiedField duplicate_unqualified_field = 3;
         FieldNotFound field_not_found = 4;
       }
-
       message AmbiguousReference {
         optional string qualifier = 1;
         string name = 2;
@@ -730,7 +725,6 @@ message FailedJob {
         repeated string valid_fields = 2;
       }
     }
-
     message AvroError {
       string message = 1;
     }
@@ -745,7 +739,6 @@ message FailedJob {
         NotImplemented not_implemented = 7;
         UnknownConfigurationKey unknown_configurationKey = 8;
       }
-
       message Generic {
         string store = 1;
         string source = 2;
@@ -782,37 +775,25 @@ message FailedJob {
     message Internal {
       string message = 1;
     }
-    /// This error happens whenever a plan is not valid. Examples include
-    /// impossible casts.
     message Plan {
       string message = 1;
     }
-    /// Error returned during execution of the query.
-    /// Examples include files not found, errors in parsing certain types.
     message Execution {
       string message = 1;
     }
-    /// This error is thrown when a consumer cannot acquire memory from the Memory Manager
-    /// we can just cancel the execution of the partition.
     message ResourcesExhausted {
       string message = 1;
     }
-    /// Errors originating from outside DataFusion's core codebase.
-    /// For example, a custom S3Error from the crate datafusion-objectstore-s3
     message External {
       string message = 1;
     }
-    /// Error occurs during code generation
     message JITError {
       string message = 1;
     }
-    /// Error with additional context
     message Context {
       string ctx = 1;
       DatafusionError error = 2;
     }
-    /// Errors originating from either mapping LogicalPlans to/from Substrait plans
-    /// or serializing/deserializing protobytes to Substrait plans
     message Substrait {
       string message = 1;
     }
@@ -828,7 +809,28 @@ message FailedJob {
   }
   message GrpcError {
     string message = 1;
+    Code code = 2;
+    enum Code {
+      Ok = 0;
+      CANCELLED = 1;
+      UNKNOWN = 2;
+      InvalidArgument = 3;
+      DEADLINEEXCEEDED = 4;
+      NOTFOUND = 5;
+      ALREADYEXISTS = 6;
+      PERMISSIONDENIED = 7;
+      RESOURCEEXHAUSTED = 8;
+      FAILEDPRECONDITION = 9;
+      ABORTED = 10;
+      OUTOFRANGE = 11;
+      UNIMPLEMENTED = 12;
+      INTERNAL = 13;
+      UNAVAILABLE = 14;
+      DATALOSS = 15;
+      UNAUTHENTICATED = 16;
+    }
   }
+
   message GrpcConnectionError {
     string message = 1;
   }
@@ -839,7 +841,10 @@ message FailedJob {
     string message = 1;
   }
   message FetchFailed {
-    string message = 1;
+    string executor_id = 1;
+    uint32 map_stage_id = 2;
+    uint32 map_partition_id = 3;
+    string message = 4;
   }
   message Cancelled {}
   oneof error {
