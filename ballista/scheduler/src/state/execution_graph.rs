@@ -2297,7 +2297,7 @@ mod test {
         assert!(!agg_graph.is_successful(), "Expect to fail the agg plan");
 
         let failure_reason = format!("{:?}", agg_graph.status);
-        assert!(failure_reason.contains("Job failed due to stage 2 failed: Stage 2 has failed 4 times, most recent failure reason"));
+        assert!(failure_reason.contains("Job failed due to stage 2 failed: Internal Ballista error: Stage 2 has failed 4 times, most recent failure reason"));
         assert!(failure_reason.contains("FetchPartitionError"));
 
         Ok(())
