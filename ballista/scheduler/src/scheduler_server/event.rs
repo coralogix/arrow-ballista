@@ -17,29 +17,13 @@
 
 use crate::state::executor_manager::ExecutorReservation;
 
-use datafusion::{error::DataFusionError, logical_expr::LogicalPlan};
+use datafusion::logical_expr::LogicalPlan;
 
 use crate::state::execution_graph::RunningTaskInfo;
 use ballista_core::{error::BallistaError, serde::protobuf::TaskStatus};
 use datafusion::prelude::SessionContext;
 use std::sync::Arc;
 
-#[derive(Clone)]
-pub enum ErrorType {
-    Internal,
-    External,
-}
-
-impl ErrorType {
-    pub fn from_ballista_error(err: BallistaError) -> Self {
-        match err {
-            BallistaError::DataFusionError(DataFusionError::External(_)) => {
-                ErrorType::External
-            }
-            _ => ErrorType::Internal,
-        }
-    }
-}
 #[derive(Clone)]
 pub enum QueryStageSchedulerEvent {
     JobQueued {

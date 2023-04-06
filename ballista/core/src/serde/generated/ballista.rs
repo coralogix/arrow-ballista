@@ -1414,46 +1414,36 @@ pub mod failed_job {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / This error happens whenever a plan is not valid. Examples include
-        /// / impossible casts.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Plan {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / Error returned during execution of the query.
-        /// / Examples include files not found, errors in parsing certain types.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Execution {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / This error is thrown when a consumer cannot acquire memory from the Memory Manager
-        /// / we can just cancel the execution of the partition.
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ResourcesExhausted {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / Errors originating from outside DataFusion's core codebase.
-        /// / For example, a custom S3Error from the crate datafusion-objectstore-s3
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct External {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / Error occurs during code generation
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct JitError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        /// / Error with additional context
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Context {
@@ -1464,8 +1454,6 @@ pub mod failed_job {
                 ::prost::alloc::boxed::Box<super::DatafusionError>,
             >,
         }
-        /// / Errors originating from either mapping LogicalPlans to/from Substrait plans
-        /// / or serializing/deserializing protobytes to Substrait plans
         #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Substrait {
@@ -1526,12 +1514,6 @@ pub mod failed_job {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TonicError {
-        /// enum Kind {
-        ///      TRANSPORT = 0;
-        ///      INVALID_URI = 1;
-        ///      INVALID_USER_AGENT = 2;
-        /// }
-        /// Kind kind = 2;
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
