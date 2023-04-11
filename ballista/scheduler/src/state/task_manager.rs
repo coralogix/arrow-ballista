@@ -38,6 +38,7 @@ use ballista_core::serde::BallistaCodec;
 use dashmap::DashMap;
 use datafusion::physical_plan::ExecutionPlan;
 
+use crossbeam_queue::SegQueue;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{debug, error, info, warn};
@@ -54,6 +55,73 @@ use crate::scheduler_server::timestamp_millis;
 use tracing::trace;
 
 type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
+
+#[derive(Default)]
+struct ActiveJobQueue {
+    queue: SegQueue<String>,
+    jobs: ActiveJobCache,
+}
+
+impl ActiveJobQueue {
+    pub fn pop(&self) -> Option<ActiveJobRef> {
+        loop {
+            if let Some(job_id) = self.queue.pop() {
+                if let Some(job_info) = self.jobs.get(&job_id) {
+                    return Some(ActiveJobRef {
+                        queue: &self.queue,
+                        job: job_info.clone(),
+                        job_id,
+                    });
+                } else {
+                    continue;
+                }
+            } else {
+                return None;
+            }
+        }
+    }
+
+    pub fn push(&self, job_id: String, graph: ExecutionGraph) {
+        self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
+        self.queue.push(job_id);
+    }
+
+    pub fn jobs(&self) -> &ActiveJobCache {
+        &self.jobs
+    }
+
+    pub fn get_job(&self, job_id: &str) -> Option<JobInfoCache> {
+        self.jobs.get(job_id).map(|info| info.clone())
+    }
+
+    pub fn remove(&self, job_id: &str) -> Option<JobInfoCache> {
+        self.jobs.remove(job_id).map(|(_, job)| job)
+    }
+
+    pub fn size(&self) -> usize {
+        self.jobs.len()
+    }
+}
+
+struct ActiveJobRef<'a> {
+    queue: &'a SegQueue<String>,
+    job: JobInfoCache,
+    job_id: String,
+}
+
+impl<'a> Deref for ActiveJobRef<'a> {
+    type Target = JobInfoCache;
+
+    fn deref(&self) -> &Self::Target {
+        &self.job
+    }
+}
+
+impl<'a> Drop for ActiveJobRef<'a> {
+    fn drop(&mut self) {
+        self.queue.push(std::mem::take(&mut self.job_id));
+    }
+}
 
 // TODO move to configuration file
 /// Default max failure attempts for task level retry
@@ -129,7 +197,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     codec: BallistaCodec<T, U>,
     scheduler_id: String,
     // Cache for active jobs curated by this scheduler
-    active_job_cache: ActiveJobCache,
+    active_job_queue: Arc<ActiveJobQueue>,
     launcher: Arc<dyn TaskLauncher>,
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
@@ -188,7 +256,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             state,
             codec,
             scheduler_id,
-            active_job_cache: Arc::new(DashMap::new()),
+            active_job_queue: Arc::new(ActiveJobQueue::default()),
             launcher,
             drained: Arc::new(drained),
             check_drained,
@@ -197,7 +265,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     /// Return the count of current active jobs on this scheduler instance.
     pub fn get_active_job_count(&self) -> usize {
-        self.active_job_cache.len()
+        self.active_job_queue.size()
     }
 
     /// Enqueue a job for scheduling
@@ -234,8 +302,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         self.state.submit_job(job_id.to_string(), &graph).await?;
 
         graph.revive();
-        self.active_job_cache
-            .insert(job_id.to_owned(), JobInfoCache::new(graph));
+        self.active_job_queue.push(job_id.to_owned(), graph);
 
         Ok(())
     }
@@ -366,9 +433,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assignments: Vec<(String, TaskDescription)> = vec![];
         let mut pending_tasks = 0usize;
         let mut assign_tasks = 0usize;
-        for pairs in self.active_job_cache.iter() {
-            let (_job_id, job_info) = pairs.pair();
-            let mut graph = job_info.execution_graph.write().await;
+        while let Some(job_info) = self.active_job_queue.pop() {
+            let mut graph = job_info.job.execution_graph.write().await;
             for reservation in free_reservations.iter().skip(assign_tasks) {
                 if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
                     assignments.push((reservation.executor_id.clone(), task));
@@ -497,7 +563,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         // Collect graphs we update so we can update them in storage
         let updated_graphs: DashMap<String, ExecutionGraph> = DashMap::new();
         {
-            for pairs in self.active_job_cache.iter() {
+            for pairs in self.active_job_queue.jobs().iter() {
                 let (job_id, job_info) = pairs.pair();
                 let mut graph = job_info.execution_graph.write().await;
                 let reset = graph.reset_stages_on_lost_executor(executor_id)?;
@@ -533,7 +599,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let job_id = task.partition.job_id.clone();
         let stage_id = task.partition.stage_id;
 
-        if let Some(mut job_info) = self.active_job_cache.get_mut(&job_id) {
+        let jobs = self.active_job_queue.jobs();
+        if let Some(mut job_info) = jobs.get_mut(&job_id) {
             let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id) {
                 plan.clone()
             } else {
@@ -640,7 +707,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 trace!("With task details {:?}", tasks);
             }
 
-            if let Some(mut job_info) = self.active_job_cache.get_mut(&job_id) {
+            let jobs = self.active_job_queue.jobs();
+            if let Some(mut job_info) = jobs.get_mut(&job_id) {
                 let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id)
                 {
                     plan.clone()
@@ -700,9 +768,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         &self,
         job_id: &str,
     ) -> Option<Arc<RwLock<ExecutionGraph>>> {
-        self.active_job_cache
-            .get(job_id)
-            .as_deref()
+        self.active_job_queue
+            .get_job(job_id)
             .map(|cached| cached.execution_graph.clone())
     }
 
@@ -712,9 +779,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         job_id: &str,
     ) -> Option<Arc<RwLock<ExecutionGraph>>> {
         let removed = self
-            .active_job_cache
+            .active_job_queue
             .remove(job_id)
-            .map(|value| value.1.execution_graph);
+            .map(|value| value.execution_graph);
 
         if self.get_active_job_count() == 0 {
             self.drained.send_replace(());

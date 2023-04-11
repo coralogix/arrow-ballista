@@ -36,6 +36,8 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::SchedulerState;
 
+const MAX_TASKS_PER_TICK: usize = 96;
+
 pub(crate) struct QueryStageScheduler<
     T: 'static + AsLogicalPlan,
     U: 'static + AsExecutionPlan,
