@@ -311,7 +311,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         Ok((new_reservations, pending_tasks))
     }
 
-    pub(crate) async fn submit_job(
+    pub async fn submit_job(
         &self,
         job_id: &str,
         job_name: &str,
