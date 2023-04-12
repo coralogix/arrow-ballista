@@ -143,6 +143,13 @@ default = "500"
 doc = "If the scheduler cannot scheduler pending tasks due to lack of available resources, it will attempt again after (approximately) this interval in milliseconds. Default of 500ms"
 
 [[param]]
+name = "tasks_per_tick"
+type = "u64"
+default = "256"
+doc = "The maximum number of tasks that can be scheduled on each scheduler tick"
+
+
+[[param]]
 name = "executor_termination_grace_period"
 type = "u64"
 default = "30"

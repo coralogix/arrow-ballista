@@ -35,8 +35,6 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
 use crate::state::SchedulerState;
 
-const MAX_TASKS_PER_TICK: usize = 144;
-
 pub(crate) struct QueryStageScheduler<
     T: 'static + AsLogicalPlan,
     U: 'static + AsExecutionPlan,
@@ -45,6 +43,7 @@ pub(crate) struct QueryStageScheduler<
     metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     pending_tasks: AtomicUsize,
     tick_interval: u64,
+    tasks_per_tick: usize,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageScheduler<T, U> {
@@ -52,12 +51,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
         state: Arc<SchedulerState<T, U>>,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         tick_interval: u64,
+        tasks_per_tick: usize,
     ) -> Self {
         Self {
             state,
             metrics_collector,
             pending_tasks: AtomicUsize::default(),
             tick_interval,
+            tasks_per_tick,
         }
     }
 
@@ -263,8 +264,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 }
             }
             QueryStageSchedulerEvent::ReservationOffering(mut reservations) => {
-                let mut remainder = if reservations.len() > MAX_TASKS_PER_TICK {
-                    reservations.split_off(MAX_TASKS_PER_TICK)
+                let mut remainder = if reservations.len() > self.tasks_per_tick {
+                    reservations.split_off(self.tasks_per_tick)
                 } else {
                     vec![]
                 };
@@ -316,7 +317,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 self.set_pending_tasks(pending_tasks);
 
                 if pending_tasks > 0 {
-                    let num_tasks = pending_tasks.min(MAX_TASKS_PER_TICK);
+                    let num_tasks = pending_tasks.min(self.tasks_per_tick);
 
                     let reservations = self
                         .state
@@ -334,7 +335,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                             .await?;
                     }
 
-                    if pending_tasks > MAX_TASKS_PER_TICK || num_reservations < num_tasks
+                    if pending_tasks > self.tasks_per_tick || num_reservations < num_tasks
                     {
                         // if there are more available tasks or we are not able to reserve all of
                         // our slots, scheduler another tick

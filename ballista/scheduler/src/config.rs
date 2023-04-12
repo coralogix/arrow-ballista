@@ -47,6 +47,8 @@ pub struct SchedulerConfig {
     /// When the scheduler cannot complete a scheduling task due to lack of resources it will wait for this amount of time
     /// (in milliseconds) to reschedule an action.
     pub scheduler_tick_interval_ms: u64,
+    /// Number of tasks that can be scheduler on each scheduler tick
+    pub tasks_per_tick: u64,
     /// Configuration for ballista cluster storage
     pub cluster_storage: ClusterStorageConfig,
     /// Time in seconds to allow executor for graceful shutdown. Once an executor signals it has entered Terminating status
@@ -68,6 +70,7 @@ impl Default for SchedulerConfig {
             advertise_flight_sql_endpoint: None,
             cluster_storage: ClusterStorageConfig::Memory,
             scheduler_tick_interval_ms: 500,
+            tasks_per_tick: 256,
             executor_termination_grace_period: 0,
         }
     }
@@ -143,6 +146,11 @@ impl SchedulerConfig {
 
     pub fn with_scheduler_tick_interval_ms(mut self, interval_ms: u64) -> Self {
         self.scheduler_tick_interval_ms = interval_ms;
+        self
+    }
+
+    pub fn with_tasks_per_tick(mut self, value: u64) -> Self {
+        self.tasks_per_tick = value;
         self
     }
 

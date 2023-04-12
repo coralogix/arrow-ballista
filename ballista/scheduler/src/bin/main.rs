@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
         advertise_flight_sql_endpoint: opt.advertise_flight_sql_endpoint,
         cluster_storage: ClusterStorageConfig::Memory,
         scheduler_tick_interval_ms: opt.scheduler_tick_interval_ms,
+        tasks_per_tick: opt.tasks_per_tick,
         executor_termination_grace_period: opt.executor_termination_grace_period,
     };
 

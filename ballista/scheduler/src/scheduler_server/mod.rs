@@ -89,6 +89,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             state.clone(),
             metrics_collector,
             config.scheduler_tick_interval_ms,
+            config.tasks_per_tick as usize,
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
@@ -126,6 +127,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             state.clone(),
             metrics_collector,
             config.scheduler_tick_interval_ms,
+            config.tasks_per_tick as usize,
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
