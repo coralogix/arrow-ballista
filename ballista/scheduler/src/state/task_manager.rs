@@ -45,11 +45,12 @@ use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tokio::sync::{watch, RwLock};
+use tokio::sync::{watch, RwLock, RwLockWriteGuard};
 
 use crate::scheduler_server::timestamp_millis;
 use tracing::trace;
@@ -79,6 +80,15 @@ impl ActiveJobQueue {
                 return None;
             }
         }
+    }
+
+    pub fn pending_tasks(&self) -> usize {
+        let mut count = 0;
+        for job in self.jobs.iter() {
+            count += job.pending_tasks.load(Ordering::Acquire);
+        }
+
+        count
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
@@ -203,19 +213,59 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     check_drained: watch::Receiver<()>,
 }
 
+struct ExecutionGraphWriteGuard<'a> {
+    inner: RwLockWriteGuard<'a, ExecutionGraph>,
+    pending_tasks: Arc<AtomicUsize>,
+}
+
+impl<'a> Deref for ExecutionGraphWriteGuard<'a> {
+    type Target = ExecutionGraph;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner.deref()
+    }
+}
+
+impl<'a> DerefMut for ExecutionGraphWriteGuard<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner.deref_mut()
+    }
+}
+
+impl<'a> Drop for ExecutionGraphWriteGuard<'a> {
+    fn drop(&mut self) {
+        let tasks = self.inner.available_tasks();
+        self.pending_tasks.store(tasks, Ordering::Release);
+    }
+}
+
 #[derive(Clone)]
 struct JobInfoCache {
     // Cache for active execution graphs curated by this scheduler
     execution_graph: Arc<RwLock<ExecutionGraph>>,
     // Cache for encoded execution stage plan to avoid duplicated encoding for multiple tasks
     encoded_stage_plans: HashMap<usize, Vec<u8>>,
+    // Number of current pending tasks for this job
+    pending_tasks: Arc<AtomicUsize>,
 }
 
 impl JobInfoCache {
     fn new(graph: ExecutionGraph) -> Self {
+        let pending_tasks = Arc::new(AtomicUsize::new(graph.available_tasks()));
+
         Self {
             execution_graph: Arc::new(RwLock::new(graph)),
             encoded_stage_plans: HashMap::new(),
+            pending_tasks,
+        }
+    }
+
+    pub async fn graph_mut(&self) -> ExecutionGraphWriteGuard {
+        let guard = self.execution_graph.write().await;
+
+        ExecutionGraphWriteGuard {
+            inner: guard,
+            pending_tasks: self.pending_tasks.clone(),
         }
     }
 }
@@ -261,6 +311,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             drained: Arc::new(drained),
             check_drained,
         }
+    }
+
+    /// Return the number of current pending tasks for active jobs
+    /// on this scheduler
+    pub fn get_pending_task_count(&self) -> usize {
+        self.active_job_queue.pending_tasks()
     }
 
     /// Return the count of current active jobs on this scheduler instance.
@@ -377,11 +433,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let num_tasks = statuses.len();
             debug!("Updating {} tasks in job {}", num_tasks, job_id);
 
-            // let graph = self.get_active_execution_graph(&job_id).await;
-            let job_events = if let Some(cached) =
-                self.get_active_execution_graph(&job_id)
-            {
-                let mut graph = cached.write().await;
+            let job_events = if let Some(job) = self.active_job_queue.get_job(&job_id) {
+                let mut graph = job.graph_mut().await;
+
                 graph.update_task_status(
                     executor,
                     statuses,
@@ -433,18 +487,23 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assignments: Vec<(String, TaskDescription)> = vec![];
         let mut pending_tasks = 0usize;
         let mut assign_tasks = 0usize;
-        while let Some(job_info) = self.active_job_queue.pop() {
-            let mut graph = job_info.job.execution_graph.write().await;
-            for reservation in free_reservations.iter().skip(assign_tasks) {
-                if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
-                    assignments.push((reservation.executor_id.clone(), task));
-                    assign_tasks += 1;
-                } else {
+
+        for _ in 0..self.get_active_job_count() {
+            if let Some(job_info) = self.active_job_queue.pop() {
+                let mut graph = job_info.graph_mut().await;
+                for reservation in free_reservations.iter().skip(assign_tasks) {
+                    if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
+                        assignments.push((reservation.executor_id.clone(), task));
+                        assign_tasks += 1;
+                    } else {
+                        break;
+                    }
+                }
+                if assign_tasks >= free_reservations.len() {
+                    pending_tasks += graph.available_tasks();
                     break;
                 }
-            }
-            if assign_tasks >= free_reservations.len() {
-                pending_tasks += graph.available_tasks();
+            } else {
                 break;
             }
         }
@@ -490,10 +549,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         job_id: &str,
         failure_reason: String,
     ) -> Result<(Vec<RunningTaskInfo>, usize)> {
-        let (tasks_to_cancel, pending_tasks) = if let Some(graph) =
-            self.get_active_execution_graph(job_id)
+        let (tasks_to_cancel, pending_tasks) = if let Some(job) =
+            self.active_job_queue.get_job(job_id)
         {
-            let mut guard = graph.write().await;
+            let mut guard = job.graph_mut().await;
 
             let pending_tasks = guard.available_tasks();
             let running_tasks = guard.running_tasks();
@@ -535,14 +594,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     pub async fn update_job(&self, job_id: &str) -> Result<usize> {
         debug!("Update active job {job_id}");
-        if let Some(graph) = self.get_active_execution_graph(job_id) {
-            let mut graph = graph.write().await;
+        if let Some(job) = self.active_job_queue.get_job(job_id) {
+            let mut graph = job.graph_mut().await;
 
             let curr_available_tasks = graph.available_tasks();
 
             graph.revive();
 
-            println!("Saving job with status {:?}", graph.status());
+            debug!("Saving job with status {:?}", graph.status());
 
             self.state.save_job(job_id, &graph).await?;
 
@@ -565,7 +624,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         {
             for pairs in self.active_job_queue.jobs().iter() {
                 let (job_id, job_info) = pairs.pair();
-                let mut graph = job_info.execution_graph.write().await;
+                let mut graph = job_info.graph_mut().await;
                 let reset = graph.reset_stages_on_lost_executor(executor_id)?;
                 if !reset.0.is_empty() {
                     updated_graphs.insert(job_id.to_owned(), graph.clone());
@@ -599,7 +658,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let job_id = task.partition.job_id.clone();
         let stage_id = task.partition.stage_id;
 
+        let props = self
+            .state
+            .get_session(&task.session_id)
+            .await?
+            .state()
+            .config_options()
+            .entries()
+            .into_iter()
+            .filter_map(|ConfigEntry { key, value, .. }| {
+                value.map(|value| KeyValuePair { key, value })
+            })
+            .collect();
+
         let jobs = self.active_job_queue.jobs();
+
         if let Some(mut job_info) = jobs.get_mut(&job_id) {
             let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id) {
                 plan.clone()
@@ -620,19 +693,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             let output_partitioning =
                 hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
-
-            let props = self
-                .state
-                .get_session(&task.session_id)
-                .await?
-                .state()
-                .config_options()
-                .entries()
-                .into_iter()
-                .filter_map(|ConfigEntry { key, value, .. }| {
-                    value.map(|value| KeyValuePair { key, value })
-                })
-                .collect();
 
             let task_definition = TaskDefinition {
                 task_id: task.task_id as u32,
@@ -752,6 +812,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         .as_millis() as u64,
                     props,
                 };
+
                 Ok(multi_task_definition)
             } else {
                 Err(BallistaError::General(format!("Cannot prepare multi task definition for job {job_id} which is not in active cache")))
@@ -770,7 +831,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     ) -> Option<Arc<RwLock<ExecutionGraph>>> {
         self.active_job_queue
             .get_job(job_id)
-            .map(|cached| cached.execution_graph.clone())
+            .map(|cached| cached.execution_graph)
     }
 
     /// Remove the `ExecutionGraph` for the given job ID from cache

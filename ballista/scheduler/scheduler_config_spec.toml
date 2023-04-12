@@ -137,10 +137,10 @@ doc = "Tracing log rotation policy, possible values: minutely, hourly, daily, ne
 default = "ballista_core::config::LogRotationPolicy::Daily"
 
 [[param]]
-name = "job_resubmit_interval_ms"
+name = "scheduler_tick_interval_ms"
 type = "u64"
-default = "0"
-doc = "If job is not able to be scheduled on submission, wait for this interval and resubmit. Default value of 0 indicates that job shuuld not be resubmitted"
+default = "500"
+doc = "If the scheduler cannot scheduler pending tasks due to lack of available resources, it will attempt again after (approximately) this interval in milliseconds. Default of 500ms"
 
 [[param]]
 name = "executor_termination_grace_period"

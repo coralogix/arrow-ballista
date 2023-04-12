@@ -88,7 +88,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.job_resubmit_interval_ms,
+            config.scheduler_tick_interval_ms,
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
@@ -125,7 +125,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.job_resubmit_interval_ms,
+            config.scheduler_tick_interval_ms,
         ));
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
