@@ -30,7 +30,7 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
-use crate::cluster::BallistaCluster;
+use crate::cluster::{BallistaCluster, JobState};
 use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
 use crate::state::session_manager::SessionManager;
@@ -39,6 +39,7 @@ use log::{error, warn};
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
+use crate::state::execution_graph::ExecutionGraph;
 
 use crate::state::executor_manager::{
     ExecutorManager, ExecutorReservation, DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
@@ -180,6 +181,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 plan: Box::new(plan.clone()),
                 queued_at: timestamp_millis(),
             })
+            .await
+    }
+
+    pub async fn get_execution_graph(
+        &self,
+        job_id: &str,
+    ) -> Result<Option<Arc<ExecutionGraph>>> {
+        self.state
+            .task_manager
+            .get_job_execution_graph(job_id)
             .await
     }
 
