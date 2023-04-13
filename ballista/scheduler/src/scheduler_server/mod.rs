@@ -184,6 +184,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             .await
     }
 
+    pub async fn get_active_job_status(&self, job_id: &str) -> Result<Option<JobState>> {
+        self.state.task_manager.get_job_status(job_id).await
+    }
+
     pub async fn get_execution_graph(
         &self,
         job_id: &str,
