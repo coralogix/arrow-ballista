@@ -381,7 +381,7 @@ impl UnresolvedStage {
         // Optimize join order based on new resolved statistics
         let optimize_join = JoinSelection::new();
         let plan =
-            optimize_join.optimize(plan, SessionConfig::default().config_options())?;
+            optimize_join.optimize(plan, SessionConfig::default().options_mut())?;
 
         Ok(ResolvedStage::new(
             self.stage_id,

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use datafusion::config::Extensions;
+use datafusion::config::{ConfigOptions, Extensions};
 use datafusion::physical_plan::ExecutionPlan;
 
 use ballista_core::serde::protobuf::{
@@ -31,6 +31,7 @@ use ballista_core::error::BallistaError;
 use ballista_core::serde::scheduler::{ExecutorSpecification, PartitionId};
 use ballista_core::serde::BallistaCodec;
 use datafusion::execution::context::TaskContext;
+use datafusion::prelude::SessionConfig;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::from_proto::parse_protobuf_hash_partitioning;
 use datafusion_proto::physical_plan::AsExecutionPlan;
@@ -177,6 +178,12 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
         task_props.insert(kv_pair.key, kv_pair.value);
     }
 
+    let mut config = ConfigOptions::new().with_extensions(extensions);
+    for (k, v) in task_props {
+        config.set(&k, &v)?;
+    }
+    let session_config = SessionConfig::from(config);
+
     let mut task_scalar_functions = HashMap::new();
     let mut task_aggregate_functions = HashMap::new();
     // TODO combine the functions from Executor's functions and TaskDefintion's function resources
@@ -188,15 +195,14 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     }
     let runtime = executor.runtime.clone();
     let session_id = task.session_id.clone();
-    let task_context = Arc::new(TaskContext::try_new(
-        task_identity.clone(),
+    let task_context = Arc::new(TaskContext::new(
+        Some(task_identity.clone()),
         session_id,
-        task_props,
+        session_config,
         task_scalar_functions,
         task_aggregate_functions,
         runtime.clone(),
-        extensions,
-    )?);
+    ));
 
     let plan: Arc<dyn ExecutionPlan> =
         U::try_decode(task.plan.as_slice()).and_then(|proto| {
