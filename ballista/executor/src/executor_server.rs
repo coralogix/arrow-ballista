@@ -17,7 +17,6 @@
 
 use ballista_core::BALLISTA_VERSION;
 use datafusion::config::Extensions;
-use datafusion::prelude::SessionConfig;
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::ops::Deref;
