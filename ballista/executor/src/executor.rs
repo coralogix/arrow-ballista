@@ -36,7 +36,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::watch;
 
-type AbortHandles = Arc<DashMap<(usize, PartitionId), AbortHandle>>;
+/// Map from (Job ID, task ID) -> AbortHandle for running task
+type AbortHandles = Arc<DashMap<(String, usize), AbortHandle>>;
 
 /// Ballista executor
 #[derive(Clone)]
@@ -142,11 +143,11 @@ impl Executor {
         );
 
         self.abort_handles
-            .insert((task_id, partition.clone()), abort_handle);
+            .insert((partition.job_id.clone(), task_id), abort_handle);
 
         let partitions = task.await;
 
-        self.remove_handle(task_id, partition.clone());
+        self.remove_handle(partition.job_id.clone(), task_id);
 
         let partitions = partitions??;
 
@@ -164,17 +165,10 @@ impl Executor {
         &self,
         task_id: usize,
         job_id: String,
-        stage_id: usize,
-        partition_id: usize,
+        _stage_id: usize,
+        _partition_id: usize,
     ) -> Result<bool, BallistaError> {
-        if let Some((_, handle)) = self.remove_handle(
-            task_id,
-            PartitionId {
-                job_id,
-                stage_id,
-                partition_id,
-            },
-        ) {
+        if let Some((_, handle)) = self.remove_handle(job_id, task_id) {
             handle.abort();
             Ok(true)
         } else {
@@ -205,10 +199,10 @@ impl Executor {
 
     fn remove_handle(
         &self,
+        job_id: String,
         task_id: usize,
-        partition: PartitionId,
-    ) -> Option<((usize, PartitionId), AbortHandle)> {
-        let removed = self.abort_handles.remove(&(task_id, partition));
+    ) -> Option<((String, usize), AbortHandle)> {
+        let removed = self.abort_handles.remove(&(job_id, task_id));
 
         if self.active_task_count() == 0 {
             self.drained.send_replace(());

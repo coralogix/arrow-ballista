@@ -24,7 +24,7 @@ use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
-use datafusion::config::ConfigEntry;
+use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
 
 use crate::cluster::JobState;
@@ -39,6 +39,7 @@ use dashmap::DashMap;
 use datafusion::physical_plan::ExecutionPlan;
 
 use crossbeam_queue::SegQueue;
+use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{debug, error, info, warn};
@@ -53,6 +54,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::{watch, RwLock, RwLockWriteGuard};
 
 use crate::scheduler_server::timestamp_millis;
+use ballista_core::physical_optimizer::OptimizeTaskGroup;
 use tracing::trace;
 
 type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
@@ -724,13 +726,100 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     ) -> Result<()> {
         let multi_tasks: Vec<_> = tasks
             .into_iter()
-            .map(|stage_tasks| self.prepare_multi_task_definition(stage_tasks))
+            .map(|stage_tasks| self.prepare_task_group(stage_tasks))
             .collect();
         let multi_tasks = try_join_all(multi_tasks).await;
 
         self.launcher
             .launch_tasks(executor, multi_tasks?, executor_manager)
             .await
+    }
+
+    async fn prepare_task_group(
+        &self,
+        tasks: Vec<TaskDescription>,
+    ) -> Result<MultiTaskDefinition> {
+        if let Some(task) = tasks.get(0) {
+            let session_id = task.session_id.clone();
+            let job_id = task.partition.job_id.clone();
+            let stage_id = task.partition.stage_id;
+            let stage_attempt_num = task.stage_attempt_num;
+
+            let props: Vec<_> = self
+                .state
+                .get_session(&session_id)
+                .await?
+                .state()
+                .config_options()
+                .entries()
+                .into_iter()
+                .filter_map(|ConfigEntry { key, value, .. }| {
+                    value.map(|value| KeyValuePair { key, value })
+                })
+                .collect();
+
+            if log::max_level() >= log::Level::Debug {
+                let task_ids: Vec<usize> = tasks
+                    .iter()
+                    .map(|task| task.partition.partition_id)
+                    .collect();
+                debug!("Preparing multi task definition for tasks {:?} belonging to job stage {}/{}", task_ids, job_id, stage_id);
+                trace!("With task details {:?}", tasks);
+            }
+
+            let jobs = self.active_job_queue.jobs();
+            if jobs.contains_key(&job_id) {
+                let partitions: Vec<usize> = tasks
+                    .iter()
+                    .map(|task| task.partition.partition_id)
+                    .collect();
+
+                let optimizer = OptimizeTaskGroup::new(partitions);
+
+                let group_plan =
+                    optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
+
+                let mut plan: Vec<u8> = vec![];
+                let plan_proto = U::try_from_physical_plan(
+                    group_plan,
+                    self.codec.physical_extension_codec(),
+                )?;
+                plan_proto.try_encode(&mut plan)?;
+
+                let output_partitioning =
+                    hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
+
+                let task_ids = tasks
+                    .iter()
+                    .map(|task| TaskId {
+                        task_id: task.task_id as u32,
+                        task_attempt_num: task.task_attempt as u32,
+                        partition_id: task.partition.partition_id as u32,
+                    })
+                    .collect();
+
+                let multi_task_definition = MultiTaskDefinition {
+                    task_ids,
+                    job_id,
+                    stage_id: stage_id as u32,
+                    stage_attempt_num: stage_attempt_num as u32,
+                    plan,
+                    output_partitioning,
+                    session_id,
+                    launch_time: timestamp_millis(),
+                    props,
+                    execute_group: true,
+                };
+
+                Ok(multi_task_definition)
+            } else {
+                Err(BallistaError::General(format!("Cannot prepare multi task definition for job {job_id} which is not in active cache")))
+            }
+        } else {
+            Err(BallistaError::General(
+                "Cannot prepare multi task definition for an empty vec".to_string(),
+            ))
+        }
     }
 
     #[allow(dead_code)]
@@ -811,6 +900,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         .unwrap()
                         .as_millis() as u64,
                     props,
+                    execute_group: false,
                 };
 
                 Ok(multi_task_definition)

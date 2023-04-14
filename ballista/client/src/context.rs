@@ -142,7 +142,6 @@ impl BallistaContext {
         config: &BallistaConfig,
         concurrent_tasks: usize,
     ) -> ballista_core::error::Result<Self> {
-
         use ballista_core::serde::BallistaCodec;
         use datafusion_proto::protobuf::PhysicalPlanNode;
 

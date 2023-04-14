@@ -15,22 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#![doc = include_str!("../README.md")]
-pub const BALLISTA_VERSION: &str = env!("CARGO_PKG_VERSION");
+mod task_group;
 
-pub fn print_version() {
-    println!("Ballista version: {BALLISTA_VERSION}")
-}
-
-pub mod client;
-pub mod config;
-pub mod error;
-pub mod event_loop;
-pub mod execution_plans;
-pub mod physical_optimizer;
-/// some plugins
-pub mod plugin;
-pub mod utils;
-
-#[macro_use]
-pub mod serde;
+pub use task_group::OptimizeTaskGroup;

@@ -906,7 +906,7 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
     let logical_plan = left_plan
         .join(right_plan, JoinType::Inner, (vec!["id"], vec!["id"]), None)
         .unwrap()
-        .aggregate(vec![col("id")], vec![sum(col("gmv"))])
+        .aggregate(vec![col("left.id")], vec![sum(col("left.gmv"))])
         .unwrap()
         .sort(vec![sort_expr])
         .unwrap()
