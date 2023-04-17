@@ -20,7 +20,6 @@ use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use datafusion::physical_optimizer::join_selection::JoinSelection;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;

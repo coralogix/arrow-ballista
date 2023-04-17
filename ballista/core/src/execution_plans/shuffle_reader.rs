@@ -441,7 +441,7 @@ async fn fetch_partition_object_store(
 mod tests {
     use super::*;
     use crate::execution_plans::ShuffleWriterExec;
-    use crate::serde::scheduler::{ExecutorMetadata, ExecutorSpecification, PartitionId};
+    use crate::serde::scheduler::{ExecutorMetadata, ExecutorSpecification};
     use crate::utils;
     use datafusion::arrow::array::{Int32Array, StringArray, UInt32Array};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
@@ -531,9 +531,9 @@ mod tests {
             Field::new("c", DataType::Int32, false),
         ]);
 
-        let job_id = "test_job_1";
+        let _job_id = "test_job_1";
         let mut partitions: Vec<PartitionLocation> = vec![];
-        for partition_id in 0..4 {
+        for _partition_id in 0..4 {
             partitions.push(PartitionLocation {
                 job_id: "".to_string(),
                 stage_id: 0,

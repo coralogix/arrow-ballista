@@ -40,7 +40,7 @@ use ballista_core::serde::protobuf::{
     RemoveJobDataParams, RemoveJobDataResult, StopExecutorParams, StopExecutorResult,
     TaskStatus, UpdateTaskStatusParams,
 };
-use ballista_core::serde::scheduler::PartitionId;
+
 use ballista_core::serde::scheduler::TaskDefinition;
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::{create_grpc_client_connection, create_grpc_server};
@@ -644,7 +644,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                         return;
                     }
                 };
-                if let Some(mut task) = maybe_task {
+                if let Some(task) = maybe_task {
                     let server = executor_server.clone();
                     let plan = task.plan;
                     let curator_task = task.tasks[0].clone();

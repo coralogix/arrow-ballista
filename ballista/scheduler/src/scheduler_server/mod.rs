@@ -595,7 +595,7 @@ mod test {
                     job_id: task.job_id.clone(),
                     stage_id: task.stage_id,
                     stage_attempt_num: task.stage_attempt_num,
-                    partitions: task.partitions.clone(),
+                    partitions: task.partitions,
                     launch_time: timestamp,
                     start_exec_time: timestamp,
                     end_exec_time: timestamp,

@@ -24,7 +24,7 @@ use crate::metrics::ExecutorMetricsCollector;
 use ballista_core::error::BallistaError;
 use ballista_core::serde::protobuf;
 use ballista_core::serde::protobuf::ExecutorRegistration;
-use ballista_core::serde::scheduler::PartitionId;
+
 use dashmap::DashMap;
 use datafusion::execution::context::TaskContext;
 use datafusion::execution::runtime_env::RuntimeEnv;
@@ -353,7 +353,7 @@ mod test {
         // Spawn our non-terminating task on a separate fiber.
         let executor_clone = executor.clone();
         tokio::task::spawn(async move {
-            let part = PartitionId {
+            let _part = PartitionId {
                 job_id: "job-id".to_owned(),
                 stage_id: 1,
                 partition_id: 0,

@@ -26,7 +26,7 @@ use std::{
 };
 
 use crate::error::{BallistaError, Result};
-use crate::serde::scheduler::{Action, PartitionId};
+use crate::serde::scheduler::Action;
 
 use arrow_flight::utils::flight_data_to_arrow_batch;
 use arrow_flight::Ticket;

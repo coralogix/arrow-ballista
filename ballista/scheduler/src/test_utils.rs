@@ -278,7 +278,7 @@ pub fn default_task_runner() -> impl TaskRunner {
             };
 
         let partitions: Vec<ShuffleWritePartition> = (0..partitions)
-            .map(|i| ShuffleWritePartition {
+            .map(|_i| ShuffleWritePartition {
                 partitions: vec![],
                 output_partition: 0,
                 path: String::default(),
@@ -294,14 +294,14 @@ pub fn default_task_runner() -> impl TaskRunner {
             job_id: task.job_id.clone(),
             stage_id: task.stage_id,
             stage_attempt_num: task.stage_attempt_num,
-            partitions: task.partitions.clone(),
+            partitions: task.partitions,
             launch_time: timestamp,
             start_exec_time: timestamp,
             end_exec_time: timestamp,
             metrics: vec![],
             status: Some(task_status::Status::Successful(SuccessfulTask {
-                executor_id: executor_id.clone(),
-                partitions: partitions.clone(),
+                executor_id: executor_id,
+                partitions: partitions,
             })),
         }
     })

@@ -42,7 +42,7 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
-use itertools::Itertools;
+
 use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -51,7 +51,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
+
 use tokio::sync::{watch, RwLock, RwLockWriteGuard};
 
 use crate::scheduler_server::timestamp_millis;
@@ -672,7 +672,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         let jobs = self.active_job_queue.jobs();
 
-        if let Some(mut job_info) = jobs.get_mut(&job_id) {
+        if let Some(_job_info) = jobs.get_mut(&job_id) {
             println!("Preparing task {task:?}");
 
             let optimizer = OptimizeTaskGroup::new(task.partitions.partitions.clone());

@@ -28,7 +28,7 @@ use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
 use crate::{as_task_status, TaskExecutionTimes};
 use ballista_core::error::BallistaError;
-use ballista_core::serde::scheduler::{ExecutorSpecification, PartitionId};
+use ballista_core::serde::scheduler::ExecutorSpecification;
 use ballista_core::serde::BallistaCodec;
 use datafusion::execution::context::TaskContext;
 use datafusion::prelude::SessionConfig;
