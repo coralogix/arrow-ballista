@@ -47,7 +47,7 @@ pub trait ExecutionEngine: Sync + Send {
 pub trait QueryStageExecutor: Sync + Send + Debug {
     async fn execute_query_stage(
         &self,
-        input_partition: usize,
+        input_partitions: Vec<usize>,
         context: Arc<TaskContext>,
     ) -> Result<Vec<ShuffleWritePartition>>;
 
@@ -74,6 +74,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
             ShuffleWriterExec::try_new(
                 job_id,
                 stage_id,
+                shuffle_writer.partitions().to_vec(),
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
@@ -103,12 +104,10 @@ impl DefaultQueryStageExec {
 impl QueryStageExecutor for DefaultQueryStageExec {
     async fn execute_query_stage(
         &self,
-        input_partition: usize,
+        _input_partitions: Vec<usize>,
         context: Arc<TaskContext>,
     ) -> Result<Vec<ShuffleWritePartition>> {
-        self.shuffle_writer
-            .execute_shuffle_write(input_partition, context)
-            .await
+        self.shuffle_writer.execute_shuffle_write(context).await
     }
 
     fn schema(&self) -> SchemaRef {

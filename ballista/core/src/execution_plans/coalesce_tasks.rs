@@ -112,6 +112,11 @@ impl ExecutionPlan for CoalesceTasksExec {
         let elapsed_compute = baseline_metrics.elapsed_compute().clone();
         let _timer = elapsed_compute.timer();
 
+        // If only executing a single partition, execute it directly
+        if self.partitions.len() == 1 {
+            return self.input.execute(self.partitions[0], context);
+        }
+
         // use a stream that allows each sender to put in at
         // least one result in an attempt to maximize
         // parallelism.

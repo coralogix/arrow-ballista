@@ -65,8 +65,10 @@ impl PartitionId {
 
 #[derive(Debug, Clone)]
 pub struct PartitionLocation {
-    pub map_partition_id: usize,
-    pub partition_id: PartitionId,
+    pub job_id: String,
+    pub stage_id: usize,
+    pub map_partitions: Vec<usize>,
+    pub output_partition: usize,
     pub executor_meta: ExecutorMetadata,
     pub partition_stats: PartitionStats,
     pub path: String,
@@ -275,11 +277,10 @@ impl ExecutePartitionResult {
 #[derive(Debug, Clone)]
 pub struct TaskDefinition {
     pub task_id: usize,
-    pub task_attempt_num: usize,
     pub job_id: String,
     pub stage_id: usize,
     pub stage_attempt_num: usize,
-    pub partition_id: usize,
+    pub partitions: Vec<usize>,
     pub plan: Vec<u8>,
     pub output_partitioning: Option<datafusion_protobuf::PhysicalHashRepartition>,
     pub session_id: String,

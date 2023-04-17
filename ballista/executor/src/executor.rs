@@ -132,33 +132,35 @@ impl Executor {
     /// and statistics.
     pub async fn execute_query_stage(
         &self,
+        job_id: &str,
+        stage_id: usize,
         task_id: usize,
-        partition: PartitionId,
+        partitions: &[usize],
         query_stage_exec: Arc<dyn QueryStageExecutor>,
         task_ctx: Arc<TaskContext>,
         _shuffle_output_partitioning: Option<Partitioning>,
     ) -> Result<Vec<protobuf::ShuffleWritePartition>, BallistaError> {
         let (task, abort_handle) = futures::future::abortable(
-            query_stage_exec.execute_query_stage(partition.partition_id, task_ctx),
+            query_stage_exec.execute_query_stage(partitions.to_vec(), task_ctx),
         );
 
         self.abort_handles
-            .insert((partition.job_id.clone(), task_id), abort_handle);
+            .insert((job_id.to_string(), task_id), abort_handle);
 
-        let partitions = task.await;
+        let shuffle_partitions = task.await;
 
-        self.remove_handle(partition.job_id.clone(), task_id);
+        self.remove_handle(job_id.to_string(), task_id);
 
-        let partitions = partitions??;
+        let shuffle_partitions = shuffle_partitions??;
 
         self.metrics_collector.record_stage(
-            &partition.job_id,
-            partition.stage_id,
-            partition.partition_id,
+            job_id,
+            stage_id,
+            partitions,
             query_stage_exec,
         );
 
-        Ok(partitions)
+        Ok(shuffle_partitions)
     }
 
     pub async fn cancel_task(
@@ -166,7 +168,6 @@ impl Executor {
         task_id: usize,
         job_id: String,
         _stage_id: usize,
-        _partition_id: usize,
     ) -> Result<bool, BallistaError> {
         if let Some((_, handle)) = self.remove_handle(job_id, task_id) {
             handle.abort();
@@ -218,7 +219,7 @@ mod test {
     use crate::metrics::LoggingMetricsCollector;
     use arrow::datatypes::{Schema, SchemaRef};
     use arrow::record_batch::RecordBatch;
-    use ballista_core::execution_plans::ShuffleWriterExec;
+    use ballista_core::execution_plans::{CoalesceTasksExec, ShuffleWriterExec};
     use ballista_core::serde::protobuf::ExecutorRegistration;
     use datafusion::execution::context::TaskContext;
 
@@ -316,7 +317,11 @@ mod test {
         let shuffle_write = ShuffleWriterExec::try_new(
             "job-id".to_owned(),
             1,
-            Arc::new(NeverendingOperator),
+            vec![0],
+            Arc::new(CoalesceTasksExec::new(
+                Arc::new(NeverendingOperator),
+                vec![0],
+            )),
             work_dir.clone(),
             None,
         )
@@ -355,8 +360,10 @@ mod test {
             };
             let task_result = executor_clone
                 .execute_query_stage(
+                    "job-id",
                     1,
-                    part,
+                    1,
+                    &[0],
                     Arc::new(query_stage_exec),
                     ctx.task_ctx(),
                     None,
@@ -369,7 +376,7 @@ mod test {
         // poll until that happens.
         for _ in 0..20 {
             if executor
-                .cancel_task(1, "job-id".to_owned(), 1, 0)
+                .cancel_task(1, "job-id".to_owned(), 1)
                 .await
                 .expect("cancelling task")
             {

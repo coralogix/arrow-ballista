@@ -34,7 +34,8 @@ use crate::utils;
 use crate::serde::protobuf::ShuffleWritePartition;
 use crate::serde::scheduler::PartitionStats;
 use datafusion::arrow::array::{
-    ArrayBuilder, ArrayRef, StringBuilder, StructBuilder, UInt32Builder, UInt64Builder,
+    ArrayBuilder, ArrayRef, ListBuilder, StringBuilder, StructBuilder, UInt32Builder,
+    UInt64Builder,
 };
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 
@@ -55,6 +56,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+use itertools::Itertools;
 use log::{debug, info};
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
@@ -67,6 +69,8 @@ pub struct ShuffleWriterExec {
     job_id: String,
     /// Unique query stage ID within the job
     stage_id: usize,
+    /// Stage partitions executed as part of the this shuffle write
+    partitions: Vec<usize>,
     /// Physical execution plan for this query stage
     plan: Arc<dyn ExecutionPlan>,
     /// Path to write output streams to
@@ -87,14 +91,13 @@ struct ShuffleWriteMetrics {
 }
 
 impl ShuffleWriteMetrics {
-    fn new(partition: usize, metrics: &ExecutionPlanMetricsSet) -> Self {
-        let write_time = MetricBuilder::new(metrics).subset_time("write_time", partition);
-        let repart_time =
-            MetricBuilder::new(metrics).subset_time("repart_time", partition);
+    fn new(metrics: &ExecutionPlanMetricsSet) -> Self {
+        let write_time = MetricBuilder::new(metrics).subset_time("write_time", 0);
+        let repart_time = MetricBuilder::new(metrics).subset_time("repart_time", 0);
 
-        let input_rows = MetricBuilder::new(metrics).counter("input_rows", partition);
+        let input_rows = MetricBuilder::new(metrics).counter("input_rows", 0);
 
-        let output_rows = MetricBuilder::new(metrics).output_rows(partition);
+        let output_rows = MetricBuilder::new(metrics).output_rows(0);
 
         Self {
             write_time,
@@ -110,6 +113,7 @@ impl ShuffleWriterExec {
     pub fn try_new(
         job_id: String,
         stage_id: usize,
+        partitions: Vec<usize>,
         plan: Arc<dyn ExecutionPlan>,
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
@@ -117,6 +121,7 @@ impl ShuffleWriterExec {
         Ok(Self {
             job_id,
             stage_id,
+            partitions,
             plan,
             work_dir,
             shuffle_output_partitioning,
@@ -134,6 +139,32 @@ impl ShuffleWriterExec {
         self.stage_id
     }
 
+    pub fn partitions(&self) -> &[usize] {
+        &self.partitions
+    }
+
+    pub fn with_partitions(&self, partitions: Vec<usize>) -> Result<Self> {
+        Self::try_new(
+            self.job_id.clone(),
+            self.stage_id,
+            partitions,
+            self.plan.clone(),
+            self.work_dir.clone(),
+            self.shuffle_output_partitioning.clone(),
+        )
+    }
+
+    pub fn with_work_dir(&self, work_dir: impl Into<String>) -> Result<Self> {
+        Self::try_new(
+            self.job_id.clone(),
+            self.stage_id,
+            self.partitions.to_vec(),
+            self.plan.clone(),
+            work_dir.into(),
+            self.shuffle_output_partitioning.clone(),
+        )
+    }
+
     /// Get the true output partitioning
     pub fn shuffle_output_partitioning(&self) -> Option<&Partitioning> {
         self.shuffle_output_partitioning.as_ref()
@@ -141,25 +172,29 @@ impl ShuffleWriterExec {
 
     pub fn execute_shuffle_write(
         &self,
-        input_partition: usize,
         context: Arc<TaskContext>,
     ) -> impl Future<Output = Result<Vec<ShuffleWritePartition>>> {
         let mut path = PathBuf::from(&self.work_dir);
         path.push(&self.job_id);
         path.push(&format!("{}", self.stage_id));
 
-        let write_metrics = ShuffleWriteMetrics::new(input_partition, &self.metrics);
+        let write_metrics = ShuffleWriteMetrics::new(&self.metrics);
         let output_partitioning = self.shuffle_output_partitioning.clone();
         let plan = self.plan.clone();
 
+        let partitions = self.partitions.clone();
+
         async move {
             let now = Instant::now();
-            let mut stream = plan.execute(input_partition, context)?;
+            let mut stream = plan.execute(0, context)?;
 
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
-                    path.push(&format!("{input_partition}"));
+                    path.push(&format!(
+                        "{}",
+                        partitions.iter().map(|p| p.to_string()).join("_")
+                    ));
                     std::fs::create_dir_all(&path)?;
                     path.push("data.arrow");
                     let path = path.to_str().unwrap();
@@ -183,14 +218,15 @@ impl ShuffleWriterExec {
                     timer.done();
 
                     info!(
-                        "Executed partition {} in {} seconds. Statistics: {}",
-                        input_partition,
+                        "Executed partitions {:?} in {} seconds. Statistics: {}",
+                        partitions,
                         now.elapsed().as_secs(),
                         stats
                     );
 
                     Ok(vec![ShuffleWritePartition {
-                        partition_id: input_partition as u64,
+                        partitions: partitions.iter().map(|p| *p as u32).collect(),
+                        output_partition: 0,
                         path: path.to_owned(),
                         num_batches: stats.num_batches.unwrap_or(0),
                         num_rows: stats.num_rows.unwrap_or(0),
@@ -231,7 +267,11 @@ impl ShuffleWriterExec {
                                         std::fs::create_dir_all(&path)?;
 
                                         path.push(format!(
-                                            "data-{input_partition}.arrow"
+                                            "data-{}.arrow",
+                                            partitions
+                                                .iter()
+                                                .map(|p| p.to_string())
+                                                .join("_")
                                         ));
                                         debug!("Writing results to {:?}", path);
 
@@ -267,7 +307,11 @@ impl ShuffleWriterExec {
                                 );
 
                                 part_locs.push(ShuffleWritePartition {
-                                    partition_id: i as u64,
+                                    partitions: partitions
+                                        .iter()
+                                        .map(|p| *p as u32)
+                                        .collect(),
+                                    output_partition: i as u32,
                                     path: w.path().to_string_lossy().to_string(),
                                     num_batches: w.num_batches,
                                     num_rows: w.num_rows,
@@ -320,6 +364,7 @@ impl ExecutionPlan for ShuffleWriterExec {
         Ok(Arc::new(ShuffleWriterExec::try_new(
             self.job_id.clone(),
             self.stage_id,
+            self.partitions.clone(),
             children[0].clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
@@ -335,7 +380,7 @@ impl ExecutionPlan for ShuffleWriterExec {
 
         let schema_captured = schema.clone();
         let fut_stream = self
-            .execute_shuffle_write(partition, context)
+            .execute_shuffle_write(context)
             .and_then(|part_loc| async move {
                 // build metadata result batch
                 let num_writers = part_loc.len();
@@ -348,14 +393,14 @@ impl ExecutionPlan for ShuffleWriterExec {
 
                 for loc in &part_loc {
                     path_builder.append_value(loc.path.clone());
-                    partition_builder.append_value(loc.partition_id as u32);
+                    partition_builder.append_value(loc.output_partition);
                     num_rows_builder.append_value(loc.num_rows);
                     num_batches_builder.append_value(loc.num_batches);
                     num_bytes_builder.append_value(loc.num_bytes);
                 }
 
                 // build arrays
-                let partition_num: ArrayRef = Arc::new(partition_builder.finish());
+                let partitions: ArrayRef = Arc::new(partition_builder.finish());
                 let path: ArrayRef = Arc::new(path_builder.finish());
                 let field_builders: Vec<Box<dyn ArrayBuilder>> = vec![
                     Box::new(num_rows_builder),
@@ -374,7 +419,7 @@ impl ExecutionPlan for ShuffleWriterExec {
                 // build result batch containing metadata
                 let batch = RecordBatch::try_new(
                     schema_captured.clone(),
-                    vec![partition_num, path, stats],
+                    vec![partitions, path, stats],
                 )?;
 
                 debug!("RESULTS METADATA:\n{:?}", batch);
@@ -430,6 +475,7 @@ mod tests {
     use datafusion::physical_plan::coalesce_partitions::CoalescePartitionsExec;
     use datafusion::physical_plan::expressions::Column;
 
+    use crate::execution_plans::CoalesceTasksExec;
     use datafusion::physical_plan::memory::MemoryExec;
     use datafusion::prelude::SessionContext;
     use tempfile::TempDir;
@@ -446,6 +492,7 @@ mod tests {
         let query_stage = ShuffleWriterExec::try_new(
             "jobOne".to_owned(),
             1,
+            vec![0],
             input_plan,
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
@@ -503,6 +550,7 @@ mod tests {
         let query_stage = ShuffleWriterExec::try_new(
             "jobOne".to_owned(),
             1,
+            vec![0],
             input_plan,
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
@@ -547,6 +595,12 @@ mod tests {
         )?;
         let partition = vec![batch.clone(), batch];
         let partitions = vec![partition.clone(), partition];
-        Ok(Arc::new(MemoryExec::try_new(&partitions, schema, None)?))
+
+        let task_exec = CoalesceTasksExec::new(
+            Arc::new(MemoryExec::try_new(&partitions, schema, None)?),
+            vec![0],
+        );
+
+        Ok(Arc::new(task_exec))
     }
 }

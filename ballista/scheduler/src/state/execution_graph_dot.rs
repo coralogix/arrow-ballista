@@ -151,9 +151,7 @@ fn write_plan_recursive(
     if let Some(reader) = plan.as_any().downcast_ref::<ShuffleReaderExec>() {
         for part in &reader.partition {
             for loc in part {
-                state
-                    .readers
-                    .insert(node_name.clone(), loc.partition_id.stage_id);
+                state.readers.insert(node_name.clone(), loc.stage_id);
             }
         }
     } else if let Some(reader) = plan.as_any().downcast_ref::<UnresolvedShuffleExec>() {

@@ -268,7 +268,7 @@ pub fn rollback_resolved_shuffles(
             let partition_locations = &shuffle_reader.partition;
             let output_partition_count = partition_locations.len();
             let input_partition_count = partition_locations[0].len();
-            let stage_id = partition_locations[0][0].partition_id.stage_id;
+            let stage_id = partition_locations[0][0].stage_id;
 
             let unresolved_shuffle = Arc::new(UnresolvedShuffleExec::new(
                 stage_id,
@@ -293,6 +293,7 @@ fn create_shuffle_writer(
     Ok(Arc::new(ShuffleWriterExec::try_new(
         job_id.to_owned(),
         stage_id,
+        vec![], // partitions will be assigned to each task when it is scheduled
         plan,
         "".to_owned(), // executor will decide on the work_dir path
         partitioning,

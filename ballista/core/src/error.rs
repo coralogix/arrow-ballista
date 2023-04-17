@@ -28,6 +28,7 @@ use crate::serde::protobuf::{ExecutionError, FailedTask, FetchPartitionError, Io
 use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
 use futures::future::Aborted;
+use futures::StreamExt;
 use sqlparser::parser;
 
 pub type Result<T> = result::Result<T, BallistaError>;
@@ -53,7 +54,7 @@ pub enum BallistaError {
     TokioError(tokio::task::JoinError),
     GrpcActionError(String),
     // (executor_id, map_stage_id, map_partition_id, message)
-    FetchFailed(String, usize, usize, String),
+    FetchFailed(String, usize, Vec<usize>, String),
     Cancelled,
 }
 
@@ -217,7 +218,7 @@ impl Display for BallistaError {
                 write!(
                     f,
                     "Shuffle fetch partition error from Executor {executor_id}, map_stage {map_stage}, \
-                map_partition {map_partition}, error desc: {desc}"
+                map_partitions {map_partition:?}, error desc: {desc}"
                 )
             }
             BallistaError::Cancelled => write!(f, "Task cancelled"),
@@ -231,7 +232,7 @@ impl From<BallistaError> for FailedTask {
             BallistaError::FetchFailed(
                 executor_id,
                 map_stage_id,
-                map_partition_id,
+                map_partitions,
                 desc,
             ) => {
                 FailedTask {
@@ -243,7 +244,10 @@ impl From<BallistaError> for FailedTask {
                         FetchPartitionError {
                             executor_id,
                             map_stage_id: map_stage_id as u32,
-                            map_partition_id: map_partition_id as u32,
+                            map_partitions: map_partitions
+                                .into_iter()
+                                .map(|p| p as u32)
+                                .collect(),
                         },
                     )),
                 }

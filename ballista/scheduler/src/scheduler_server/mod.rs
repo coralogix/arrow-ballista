@@ -408,8 +408,7 @@ mod test {
 
     use ballista_core::serde::protobuf::{
         failed_task, job_status, task_status, ExecutionError, FailedTask, JobStatus,
-        MultiTaskDefinition, ShuffleWritePartition, SuccessfulJob, SuccessfulTask,
-        TaskId, TaskStatus,
+        ShuffleWritePartition, SuccessfulJob, SuccessfulTask, TaskDefinition, TaskStatus,
     };
     use ballista_core::serde::scheduler::{
         ExecutorData, ExecutorMetadata, ExecutorSpecification,
@@ -472,7 +471,7 @@ mod test {
         {
             let task = {
                 let mut graph = graph.write().await;
-                graph.pop_next_task("executor-1")?
+                graph.pop_next_task("executor-1", 1)?
             };
             if let Some(task) = task {
                 let mut partitions: Vec<ShuffleWritePartition> = vec![];
@@ -484,7 +483,13 @@ mod test {
 
                 for partition_id in 0..num_partitions {
                     partitions.push(ShuffleWritePartition {
-                        partition_id: partition_id as u64,
+                        partitions: task
+                            .partitions
+                            .partitions
+                            .iter()
+                            .map(|p| *p as u32)
+                            .collect(),
+                        output_partition: partition_id as u32,
                         path: "some/path".to_string(),
                         num_batches: 1,
                         num_rows: 1,
@@ -495,10 +500,15 @@ mod test {
                 // Complete the task
                 let task_status = TaskStatus {
                     task_id: task.task_id as u32,
-                    job_id: task.partition.job_id.clone(),
-                    stage_id: task.partition.stage_id as u32,
+                    job_id: task.partitions.job_id.clone(),
+                    stage_id: task.partitions.stage_id as u32,
                     stage_attempt_num: task.stage_attempt_num as u32,
-                    partition_id: task.partition.partition_id as u32,
+                    partitions: task
+                        .partitions
+                        .partitions
+                        .iter()
+                        .map(|p| *p as u32)
+                        .collect(),
                     launch_time: 0,
                     start_exec_time: 0,
                     end_exec_time: 0,
@@ -578,40 +588,27 @@ mod test {
         let plan = test_plan();
 
         let runner = Arc::new(TaskRunnerFn::new(
-            |_executor_id: String, task: MultiTaskDefinition| {
-                let mut statuses = vec![];
-
-                for TaskId {
-                    task_id,
-                    partition_id,
-                    ..
-                } in task.task_ids
-                {
-                    let timestamp = timestamp_millis();
-                    statuses.push(TaskStatus {
-                        task_id,
-                        job_id: task.job_id.clone(),
-                        stage_id: task.stage_id,
-                        stage_attempt_num: task.stage_attempt_num,
-                        partition_id,
-                        launch_time: timestamp,
-                        start_exec_time: timestamp,
-                        end_exec_time: timestamp,
-                        metrics: vec![],
-                        status: Some(task_status::Status::Failed(FailedTask {
-                            error: "ERROR".to_string(),
-                            retryable: false,
-                            count_to_failures: false,
-                            failed_reason: Some(
-                                failed_task::FailedReason::ExecutionError(
-                                    ExecutionError {},
-                                ),
-                            ),
-                        })),
-                    });
+            |_executor_id: String, task: TaskDefinition| {
+                let timestamp = timestamp_millis();
+                TaskStatus {
+                    task_id: task.task_id,
+                    job_id: task.job_id.clone(),
+                    stage_id: task.stage_id,
+                    stage_attempt_num: task.stage_attempt_num,
+                    partitions: task.partitions.clone(),
+                    launch_time: timestamp,
+                    start_exec_time: timestamp,
+                    end_exec_time: timestamp,
+                    metrics: vec![],
+                    status: Some(task_status::Status::Failed(FailedTask {
+                        error: "ERROR".to_string(),
+                        retryable: false,
+                        count_to_failures: false,
+                        failed_reason: Some(failed_task::FailedReason::ExecutionError(
+                            ExecutionError {},
+                        )),
+                    })),
                 }
-
-                statuses
             },
         ));
 

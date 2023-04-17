@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::execution_plans::CoalesceTasksExec;
+use crate::execution_plans::{CoalesceTasksExec, ShuffleWriterExec};
 use datafusion::common::tree_node::{Transformed, TreeNode};
 use datafusion::common::Result;
 use datafusion::config::ConfigOptions;
@@ -25,6 +25,7 @@ use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion::physical_plan::filter::FilterExec;
 use datafusion::physical_plan::limit::LocalLimitExec;
 use datafusion::physical_plan::projection::ProjectionExec;
+use datafusion::physical_plan::union::UnionExec;
 use datafusion::physical_plan::ExecutionPlan;
 use std::sync::Arc;
 
@@ -42,6 +43,12 @@ impl OptimizeTaskGroup {
         &self,
         node: Arc<dyn ExecutionPlan>,
     ) -> Result<Transformed<Arc<dyn ExecutionPlan>>> {
+        if let Some(exec) = node.as_any().downcast_ref::<ShuffleWriterExec>() {
+            return Ok(Transformed::Yes(Arc::new(
+                exec.with_partitions(self.partitions.clone())?,
+            )));
+        }
+
         if node.children().is_empty() {
             return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
                 node,
@@ -71,6 +78,20 @@ impl OptimizeTaskGroup {
             if node.as_any().is::<LocalLimitExec>() {
                 new_plan = node.with_new_children(vec![new_plan])?;
             }
+
+            Ok(Transformed::Yes(new_plan))
+        } else if node.as_any().is::<UnionExec>()
+            && children
+                .iter()
+                .all(|child| child.as_any().is::<CoalesceTasksExec>())
+        {
+            let new_children =
+                children.iter().flat_map(|child| child.children()).collect();
+
+            let new_plan: Arc<dyn ExecutionPlan> = Arc::new(CoalesceTasksExec::new(
+                node.clone().with_new_children(new_children)?,
+                self.partitions.clone(),
+            ));
 
             Ok(Transformed::Yes(new_plan))
         } else {

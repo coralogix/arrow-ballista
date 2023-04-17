@@ -36,9 +36,9 @@ use ballista_core::serde::protobuf::{
     executor_metric, executor_status,
     scheduler_grpc_client::SchedulerGrpcClient,
     CancelTasksParams, CancelTasksResult, ExecutorMetric, ExecutorStatus,
-    HeartBeatParams, LaunchMultiTaskParams, LaunchMultiTaskResult, LaunchTaskParams,
-    LaunchTaskResult, RegisterExecutorParams, RemoveJobDataParams, RemoveJobDataResult,
-    StopExecutorParams, StopExecutorResult, TaskStatus, UpdateTaskStatusParams,
+    HeartBeatParams, LaunchTaskParams, LaunchTaskResult, RegisterExecutorParams,
+    RemoveJobDataParams, RemoveJobDataResult, StopExecutorParams, StopExecutorResult,
+    TaskStatus, UpdateTaskStatusParams,
 };
 use ballista_core::serde::scheduler::PartitionId;
 use ballista_core::serde::scheduler::TaskDefinition;
@@ -69,8 +69,6 @@ struct CuratorTaskDefinition {
     scheduler_id: String,
     plan: Vec<u8>,
     tasks: Vec<TaskDefinition>,
-    /// Flag indicating whether to execute this set of tasks as a task group
-    group: bool,
 }
 
 /// Wrap TaskStatus with its curator scheduler id for task update to its specific curator scheduler later
@@ -352,161 +350,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         )?)
     }
 
-    async fn run_task_group(
-        &self,
-        task_identity: &str,
-        scheduler_id: String,
-        curator_task_group: Vec<TaskDefinition>,
-        query_stage_exec: Arc<dyn QueryStageExecutor>,
-    ) -> Result<(), BallistaError> {
-        if curator_task_group.is_empty() {
-            return Err(BallistaError::Internal(
-                "Cannot execute empty task group".to_string(),
-            ));
-        }
-
-        let start_exec_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        let mut config =
-            ConfigOptions::new().with_extensions(self.default_extensions.clone());
-        for (k, v) in &curator_task_group[0].props {
-            config.set(k, v)?;
-        }
-        let session_config = SessionConfig::from(config);
-
-        let mut task_scalar_functions = HashMap::new();
-        let mut task_aggregate_functions = HashMap::new();
-        // TODO combine the functions from Executor's functions and TaskDefintion's function resources
-        for scalar_func in self.executor.scalar_functions.clone() {
-            task_scalar_functions.insert(scalar_func.0, scalar_func.1);
-        }
-        for agg_func in self.executor.aggregate_functions.clone() {
-            task_aggregate_functions.insert(agg_func.0, agg_func.1);
-        }
-
-        let session_id = curator_task_group[0].session_id.clone();
-        let runtime = self.executor.runtime.clone();
-        let task_context = Arc::new(TaskContext::new(
-            Some(task_identity.to_string()),
-            session_id,
-            session_config,
-            task_scalar_functions,
-            task_aggregate_functions,
-            runtime.clone(),
-        ));
-
-        let shuffle_output_partitioning = parse_protobuf_hash_partitioning(
-            curator_task_group[0].output_partitioning.as_ref(),
-            task_context.as_ref(),
-            query_stage_exec.schema().as_ref(),
-        )?;
-
-        let task_id = curator_task_group[0].task_id;
-        let job_id = &curator_task_group[0].job_id.clone();
-        let stage_id = curator_task_group[0].stage_id;
-
-        let part = PartitionId {
-            job_id: job_id.clone(),
-            stage_id,
-            // The scheduler should have coalesced the plan into a single partition
-            // group plan, so we always just execute the only partition
-            partition_id: 0,
-        };
-
-        info!("Start to execute shuffle write for task {}", task_identity);
-
-        let execution_result = self
-            .executor
-            .execute_query_stage(
-                task_id,
-                part.clone(),
-                query_stage_exec.clone(),
-                task_context,
-                shuffle_output_partitioning,
-            )
-            .await;
-        info!("Done with task {}", task_identity);
-        debug!("Statistics: {:?}", execution_result);
-
-        let plan_metrics = query_stage_exec.collect_plan_metrics();
-        let mut operator_metrics = plan_metrics
-            .into_iter()
-            .map(|m| m.try_into())
-            .collect::<Result<Vec<_>, BallistaError>>()?;
-        let executor_id = &self.executor.metadata.id;
-
-        let end_exec_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-
-        let task_execution_times = TaskExecutionTimes {
-            launch_time: curator_task_group[0].launch_time,
-            start_exec_time,
-            end_exec_time,
-        };
-
-        // Currently we need to send back a status for every partition in the group,
-        // but should only send the partition locations and operator metrics once
-        // so they are not double counted.
-        let task_status = match execution_result {
-            Ok(mut partition_locations) => curator_task_group
-                .into_iter()
-                .map(|task_def| {
-                    as_task_status(
-                        Ok(std::mem::take(&mut partition_locations)),
-                        executor_id.clone(),
-                        task_def.task_id,
-                        task_def.task_attempt_num,
-                        PartitionId {
-                            job_id: job_id.clone(),
-                            stage_id,
-                            partition_id: task_def.partition_id,
-                        },
-                        Some(std::mem::take(&mut operator_metrics)),
-                        task_execution_times.clone(),
-                    )
-                })
-                .collect(),
-            Err(err) => {
-                curator_task_group
-                    .into_iter()
-                    .map(|task_def| {
-                        as_task_status(
-                            // TODO we need to actually preserve the error since it is important!
-                            Err(BallistaError::Internal(format!(
-                                "task group failed: {err:?}"
-                            ))),
-                            executor_id.clone(),
-                            task_def.task_id,
-                            task_def.task_attempt_num,
-                            PartitionId {
-                                job_id: job_id.clone(),
-                                stage_id,
-                                partition_id: task_def.partition_id,
-                            },
-                            Some(std::mem::take(&mut operator_metrics)),
-                            task_execution_times.clone(),
-                        )
-                    })
-                    .collect()
-            }
-        };
-
-        let task_status_sender = self.executor_env.tx_task_status.clone();
-        task_status_sender
-            .send(CuratorTaskStatus {
-                scheduler_id,
-                task_status,
-            })
-            .await
-            .unwrap();
-        Ok(())
-    }
-
     async fn run_task(
         &self,
         task_identity: &str,
@@ -560,21 +403,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         let job_id = task.job_id;
         let stage_id = task.stage_id;
         let stage_attempt_num = task.stage_attempt_num;
-        let partition_id = task.partition_id;
-
-        let part = PartitionId {
-            job_id: job_id.clone(),
-            stage_id,
-            partition_id,
-        };
+        let partitions = task.partitions;
 
         info!("Start to execute shuffle write for task {}", task_identity);
 
         let execution_result = self
             .executor
             .execute_query_stage(
+                &job_id,
                 task_id,
-                part.clone(),
+                task_id,
+                &partitions,
                 query_stage_exec.clone(),
                 task_context,
                 shuffle_output_partitioning,
@@ -603,9 +442,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         let task_status = as_task_status(
             execution_result,
             executor_id.clone(),
+            job_id,
+            stage_id,
             task_id,
+            partitions,
             stage_attempt_num,
-            part,
             Some(operator_metrics),
             task_execution_times,
         );
@@ -673,27 +514,12 @@ struct TaskRunnerPool<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> 
 
 fn task_identity(task: &TaskDefinition) -> String {
     format!(
-        "TID {} {}/{}.{}/{}.{}",
+        "TID {} {}/{}.{}/{:?}",
         &task.task_id,
         &task.job_id,
         &task.stage_id,
         &task.stage_attempt_num,
-        &task.partition_id,
-        &task.task_attempt_num,
-    )
-}
-
-fn task_group_identity(task: &[TaskDefinition]) -> String {
-    let task_ids: Vec<usize> = task.iter().map(|t| t.task_id).collect();
-    let partitions: Vec<usize> = task.iter().map(|t| t.partition_id).collect();
-    format!(
-        "TGID {:?} {}/{}.{}/{:?}.{}",
-        task_ids,
-        &task[0].job_id,
-        &task[0].stage_id,
-        &task[0].stage_attempt_num,
-        partitions,
-        &task[0].task_attempt_num,
+        &task.partitions,
     )
 }
 
@@ -819,8 +645,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                     }
                 };
                 if let Some(mut task) = maybe_task {
-                    let grouped = task.group;
-
                     let server = executor_server.clone();
                     let plan = task.plan;
                     let curator_task = task.tasks[0].clone();
@@ -853,53 +677,30 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                     };
                     let scheduler_id = task.scheduler_id.clone();
 
-                    if grouped {
-                        let task_identity = task_group_identity(&task.tasks);
+                    for curator_task in task.tasks {
+                        let plan = plan.clone();
                         let scheduler_id = scheduler_id.clone();
+
+                        let task_identity = task_identity(&curator_task);
+                        info!("Received task {:?}", &task_identity);
+
                         let server = executor_server.clone();
-                        let task_group = std::mem::take(&mut task.tasks);
                         dedicated_executor.spawn(async move {
                             server
-                                .run_task_group(
+                                .run_task(
                                     &task_identity,
                                     scheduler_id,
-                                    task_group,
+                                    curator_task,
                                     plan,
                                 )
                                 .await
                                 .unwrap_or_else(|e| {
                                     error!(
-                                        "Fail to run the task group {:?} due to {:?}",
+                                        "Fail to run the task {:?} due to {:?}",
                                         task_identity, e
                                     );
                                 });
                         });
-                    } else {
-                        for curator_task in task.tasks {
-                            let plan = plan.clone();
-                            let scheduler_id = scheduler_id.clone();
-
-                            let task_identity = task_identity(&curator_task);
-                            info!("Received task {:?}", &task_identity);
-
-                            let server = executor_server.clone();
-                            dedicated_executor.spawn(async move {
-                                server
-                                    .run_task(
-                                        &task_identity,
-                                        scheduler_id,
-                                        curator_task,
-                                        plan,
-                                    )
-                                    .await
-                                    .unwrap_or_else(|e| {
-                                        error!(
-                                            "Fail to run the task {:?} due to {:?}",
-                                            task_identity, e
-                                        );
-                                    });
-                            });
-                        }
                     }
                 } else {
                     info!("Channel is closed and will exit the task receive loop");
@@ -934,41 +735,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
                     scheduler_id: scheduler_id.clone(),
                     plan,
                     tasks: vec![task_def],
-                    group: false,
                 })
                 .await
                 .unwrap();
         }
         Ok(Response::new(LaunchTaskResult { success: true }))
-    }
-
-    /// by this interface, it can reduce the deserialization cost for multiple tasks
-    /// belong to the same job stage running on the same one executor
-    async fn launch_multi_task(
-        &self,
-        request: Request<LaunchMultiTaskParams>,
-    ) -> Result<Response<LaunchMultiTaskResult>, Status> {
-        let LaunchMultiTaskParams {
-            multi_tasks,
-            scheduler_id,
-        } = request.into_inner();
-        let task_sender = self.executor_env.tx_task.clone();
-        for multi_task in multi_tasks {
-            let group = multi_task.execute_group;
-            let (multi_task, plan): (Vec<TaskDefinition>, Vec<u8>) = multi_task
-                .try_into()
-                .map_err(|e| Status::invalid_argument(format!("{e}")))?;
-            task_sender
-                .send(CuratorTaskDefinition {
-                    scheduler_id: scheduler_id.clone(),
-                    plan,
-                    tasks: multi_task,
-                    group,
-                })
-                .await
-                .unwrap();
-        }
-        Ok(Response::new(LaunchMultiTaskResult { success: true }))
     }
 
     async fn stop_executor(
@@ -1006,12 +777,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
         for task in task_infos {
             if let Err(e) = self
                 .executor
-                .cancel_task(
-                    task.task_id as usize,
-                    task.job_id,
-                    task.stage_id as usize,
-                    task.partition_id as usize,
-                )
+                .cancel_task(task.task_id as usize, task.job_id, task.stage_id as usize)
                 .await
             {
                 error!("Error cancelling task: {:?}", e);

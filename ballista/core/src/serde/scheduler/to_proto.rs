@@ -76,8 +76,10 @@ impl TryInto<protobuf::PartitionLocation> for PartitionLocation {
 
     fn try_into(self) -> Result<protobuf::PartitionLocation, Self::Error> {
         Ok(protobuf::PartitionLocation {
-            map_partition_id: self.map_partition_id as u32,
-            partition_id: Some(self.partition_id.into()),
+            job_id: self.job_id,
+            stage_id: self.stage_id as u32,
+            map_partitions: self.map_partitions.into_iter().map(|p| p as u32).collect(),
+            output_partition: self.output_partition as u32,
             executor_meta: Some(self.executor_meta.into()),
             partition_stats: Some(self.partition_stats.into()),
             path: self.path,
@@ -257,11 +259,10 @@ impl Into<protobuf::TaskDefinition> for TaskDefinition {
 
         protobuf::TaskDefinition {
             task_id: self.task_id as u32,
-            task_attempt_num: self.task_attempt_num as u32,
             job_id: self.job_id,
             stage_id: self.stage_id as u32,
             stage_attempt_num: self.stage_attempt_num as u32,
-            partition_id: self.partition_id as u32,
+            partitions: self.partitions.into_iter().map(|p| p as u32).collect(),
             plan: self.plan,
             output_partitioning: self.output_partitioning,
             session_id: self.session_id,

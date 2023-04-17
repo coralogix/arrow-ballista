@@ -288,9 +288,9 @@ fn send_fetch_partitions(
             let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
             if let Err(e) = response_sender_c.send(r).await {
                 warn!(
-                    job_id = p.partition_id.job_id,
-                    stage_id = p.partition_id.stage_id,
-                    partition_id = p.partition_id.partition_id,
+                    job_id = p.job_id,
+                    stage_id = p.stage_id,
+                    partition_id = p.output_partition,
                     "Fail to send response event to the channel due to {}",
                     e
                 );
@@ -309,9 +309,9 @@ fn send_fetch_partitions(
             // Block if the channel buffer is ful
             if let Err(e) = response_sender.send(r).await {
                 warn!(
-                    job_id = p.partition_id.job_id,
-                    stage_id = p.partition_id.stage_id,
-                    partition_id = p.partition_id.partition_id,
+                    job_id = p.job_id,
+                    stage_id = p.stage_id,
+                    partition_id = p.output_partition,
                     "Fail to send response event to the channel due to {}",
                     e
                 );
@@ -368,7 +368,6 @@ async fn fetch_partition_remote(
     location: &PartitionLocation,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
-    let partition_id = &location.partition_id;
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
     let host = metadata.host.as_str();
@@ -380,15 +379,24 @@ async fn fetch_partition_remote(
                 // map grpc connection error to partition fetch error.
                 BallistaError::GrpcConnectionError(msg) => BallistaError::FetchFailed(
                     metadata.id.clone(),
-                    partition_id.stage_id,
-                    partition_id.partition_id,
+                    location.stage_id,
+                    location.map_partitions.clone(),
                     msg,
                 ),
                 other => other,
             })?;
 
     ballista_client
-        .fetch_partition(&metadata.id, partition_id, &location.path, host, port)
+        .fetch_partition(
+            &metadata.id,
+            &location.job_id,
+            location.stage_id,
+            location.output_partition,
+            &location.map_partitions,
+            &location.path,
+            host,
+            port,
+        )
         .await
 }
 
@@ -397,14 +405,13 @@ async fn fetch_partition_local(
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let path = &location.path;
     let metadata = &location.executor_meta;
-    let partition_id = &location.partition_id;
 
     let reader = fetch_partition_local_inner(path).map_err(|e| {
         // return BallistaError::FetchFailed may let scheduler retry this task.
         BallistaError::FetchFailed(
             metadata.id.clone(),
-            partition_id.stage_id,
-            partition_id.partition_id,
+            location.stage_id,
+            location.map_partitions.clone(),
             e.to_string(),
         )
     })?;
@@ -528,12 +535,10 @@ mod tests {
         let mut partitions: Vec<PartitionLocation> = vec![];
         for partition_id in 0..4 {
             partitions.push(PartitionLocation {
-                map_partition_id: 0,
-                partition_id: PartitionId {
-                    job_id: job_id.to_string(),
-                    stage_id: 2,
-                    partition_id,
-                },
+                job_id: "".to_string(),
+                stage_id: 0,
+                map_partitions: vec![0],
+                output_partition: 0,
                 executor_meta: ExecutorMetadata {
                     id: "executor_1".to_string(),
                     host: "executor_1".to_string(),
@@ -581,6 +586,7 @@ mod tests {
         let input = ShuffleWriterExec::try_new(
             "local_file".to_owned(),
             1,
+            vec![0],
             create_test_data_plan().unwrap(),
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 1)),
@@ -650,12 +656,10 @@ mod tests {
     fn get_test_partition_locations(n: usize, path: String) -> Vec<PartitionLocation> {
         (0..n)
             .map(|partition_id| PartitionLocation {
-                map_partition_id: 0,
-                partition_id: PartitionId {
-                    job_id: "job".to_string(),
-                    stage_id: 1,
-                    partition_id,
-                },
+                job_id: "job".to_string(),
+                stage_id: 1,
+                output_partition: partition_id,
+                map_partitions: vec![0],
                 executor_meta: ExecutorMetadata {
                     id: format!("exec{partition_id}"),
                     host: "localhost".to_string(),

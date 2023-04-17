@@ -151,6 +151,11 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                 Ok(Arc::new(ShuffleWriterExec::try_new(
                     shuffle_writer.job_id.clone(),
                     shuffle_writer.stage_id as usize,
+                    shuffle_writer
+                        .partitions
+                        .iter()
+                        .map(|p| *p as usize)
+                        .collect(),
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
@@ -233,6 +238,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     protobuf::ShuffleWriterExecNode {
                         job_id: exec.job_id().to_string(),
                         stage_id: exec.stage_id() as u32,
+                        partitions: exec.partitions().iter().map(|p| *p as u32).collect(),
                         input: None,
                         output_partitioning,
                     },

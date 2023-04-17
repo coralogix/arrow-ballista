@@ -35,8 +35,8 @@ use crate::state::task_manager::TaskLauncher;
 use ballista_core::config::{BallistaConfig, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS};
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
-    task_status, FailedTask, JobStatus, MultiTaskDefinition, ShuffleWritePartition,
-    SuccessfulTask, TaskId, TaskStatus,
+    task_status, FailedTask, JobStatus, ShuffleWritePartition, SuccessfulTask,
+    TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::{
     ExecutorData, ExecutorMetadata, ExecutorSpecification,
@@ -60,6 +60,7 @@ use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
 use crate::state::execution_graph::{ExecutionGraph, TaskDescription};
 use ballista_core::utils::default_session_builder;
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
+use itertools::Itertools;
 use parking_lot::Mutex;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 
@@ -241,7 +242,7 @@ pub fn get_tpch_schema(table: &str) -> Schema {
 }
 
 pub trait TaskRunner: Send + Sync + 'static {
-    fn run(&self, executor_id: String, tasks: MultiTaskDefinition) -> Vec<TaskStatus>;
+    fn run(&self, executor_id: String, tasks: TaskDefinition) -> TaskStatus;
 }
 
 #[derive(Clone)]
@@ -251,7 +252,7 @@ pub struct TaskRunnerFn<F> {
 
 impl<F> TaskRunnerFn<F>
 where
-    F: Fn(String, MultiTaskDefinition) -> Vec<TaskStatus> + Send + Sync + 'static,
+    F: Fn(String, TaskDefinition) -> TaskStatus + Send + Sync + 'static,
 {
     pub fn new(f: F) -> Self {
         Self { f }
@@ -260,17 +261,15 @@ where
 
 impl<F> TaskRunner for TaskRunnerFn<F>
 where
-    F: Fn(String, MultiTaskDefinition) -> Vec<TaskStatus> + Send + Sync + 'static,
+    F: Fn(String, TaskDefinition) -> TaskStatus + Send + Sync + 'static,
 {
-    fn run(&self, executor_id: String, tasks: MultiTaskDefinition) -> Vec<TaskStatus> {
-        (self.f)(executor_id, tasks)
+    fn run(&self, executor_id: String, task: TaskDefinition) -> TaskStatus {
+        (self.f)(executor_id, task)
     }
 }
 
 pub fn default_task_runner() -> impl TaskRunner {
-    TaskRunnerFn::new(|executor_id: String, task: MultiTaskDefinition| {
-        let mut statuses = vec![];
-
+    TaskRunnerFn::new(|executor_id: String, task: TaskDefinition| {
         let partitions =
             if let Some(output_partitioning) = task.output_partitioning.as_ref() {
                 output_partitioning.partition_count as usize
@@ -280,7 +279,8 @@ pub fn default_task_runner() -> impl TaskRunner {
 
         let partitions: Vec<ShuffleWritePartition> = (0..partitions)
             .map(|i| ShuffleWritePartition {
-                partition_id: i as u64,
+                partitions: vec![],
+                output_partition: 0,
                 path: String::default(),
                 num_batches: 1,
                 num_rows: 1,
@@ -288,31 +288,22 @@ pub fn default_task_runner() -> impl TaskRunner {
             })
             .collect();
 
-        for TaskId {
-            task_id,
-            partition_id,
-            ..
-        } in task.task_ids
-        {
-            let timestamp = timestamp_millis();
-            statuses.push(TaskStatus {
-                task_id,
-                job_id: task.job_id.clone(),
-                stage_id: task.stage_id,
-                stage_attempt_num: task.stage_attempt_num,
-                partition_id,
-                launch_time: timestamp,
-                start_exec_time: timestamp,
-                end_exec_time: timestamp,
-                metrics: vec![],
-                status: Some(task_status::Status::Successful(SuccessfulTask {
-                    executor_id: executor_id.clone(),
-                    partitions: partitions.clone(),
-                })),
-            });
+        let timestamp = timestamp_millis();
+        TaskStatus {
+            task_id: task.task_id,
+            job_id: task.job_id.clone(),
+            stage_id: task.stage_id,
+            stage_attempt_num: task.stage_attempt_num,
+            partitions: task.partitions.clone(),
+            launch_time: timestamp,
+            start_exec_time: timestamp,
+            end_exec_time: timestamp,
+            metrics: vec![],
+            status: Some(task_status::Status::Successful(SuccessfulTask {
+                executor_id: executor_id.clone(),
+                partitions: partitions.clone(),
+            })),
         }
-
-        statuses
     })
 }
 
@@ -324,8 +315,8 @@ struct VirtualExecutor {
 }
 
 impl VirtualExecutor {
-    pub fn run_tasks(&self, tasks: MultiTaskDefinition) -> Vec<TaskStatus> {
-        self.runner.run(self.executor_id.clone(), tasks)
+    pub fn run_task(&self, task: TaskDefinition) -> TaskStatus {
+        self.runner.run(self.executor_id.clone(), task)
     }
 }
 
@@ -338,7 +329,7 @@ impl TaskLauncher for BlackholeTaskLauncher {
     async fn launch_tasks(
         &self,
         _executor: &ExecutorMetadata,
-        _tasks: Vec<MultiTaskDefinition>,
+        _tasks: Vec<TaskDefinition>,
         _executor_manager: &ExecutorManager,
     ) -> Result<()> {
         Ok(())
@@ -355,7 +346,7 @@ impl TaskLauncher for VirtualTaskLauncher {
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<MultiTaskDefinition>,
+        tasks: Vec<TaskDefinition>,
         _executor_manager: &ExecutorManager,
     ) -> Result<()> {
         let virtual_executor = self.executors.get(&executor.id).ok_or_else(|| {
@@ -367,7 +358,7 @@ impl TaskLauncher for VirtualTaskLauncher {
 
         let status = tasks
             .into_iter()
-            .flat_map(|t| virtual_executor.run_tasks(t))
+            .map(|t| virtual_executor.run_task(t))
             .collect();
 
         self.sender
@@ -999,7 +990,7 @@ pub fn mock_executor(executor_id: String) -> ExecutorMetadata {
 }
 
 pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStatus {
-    let mut partitions: Vec<protobuf::ShuffleWritePartition> = vec![];
+    let mut partitions: Vec<ShuffleWritePartition> = vec![];
 
     let num_partitions = task
         .output_partitioning
@@ -1007,13 +998,23 @@ pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStat
         .unwrap_or(1);
 
     for partition_id in 0..num_partitions {
-        partitions.push(protobuf::ShuffleWritePartition {
-            partition_id: partition_id as u64,
+        partitions.push(ShuffleWritePartition {
+            partitions: task
+                .partitions
+                .partitions
+                .iter()
+                .map(|p| *p as u32)
+                .collect(),
+            output_partition: partition_id as u32,
             path: format!(
                 "/{}/{}/{}",
-                task.partition.job_id,
-                task.partition.stage_id,
-                task.partition.partition_id
+                task.partitions.job_id,
+                task.partitions.stage_id,
+                task.partitions
+                    .partitions
+                    .iter()
+                    .map(|p| p.to_string())
+                    .join("_")
             ),
             num_batches: 1,
             num_rows: 1,
@@ -1022,12 +1023,17 @@ pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStat
     }
 
     // Complete the task
-    protobuf::TaskStatus {
+    TaskStatus {
         task_id: task.task_id as u32,
-        job_id: task.partition.job_id.clone(),
-        stage_id: task.partition.stage_id as u32,
+        job_id: task.partitions.job_id.clone(),
+        stage_id: task.partitions.stage_id as u32,
         stage_attempt_num: task.stage_attempt_num as u32,
-        partition_id: task.partition.partition_id as u32,
+        partitions: task
+            .partitions
+            .partitions
+            .iter()
+            .map(|p| *p as u32)
+            .collect(),
         launch_time: 0,
         start_exec_time: 0,
         end_exec_time: 0,
@@ -1048,13 +1054,23 @@ pub fn mock_failed_task(task: TaskDescription, failed_task: FailedTask) -> TaskS
         .unwrap_or(1);
 
     for partition_id in 0..num_partitions {
-        partitions.push(protobuf::ShuffleWritePartition {
-            partition_id: partition_id as u64,
+        partitions.push(ShuffleWritePartition {
+            partitions: task
+                .partitions
+                .partitions
+                .iter()
+                .map(|p| *p as u32)
+                .collect(),
+            output_partition: partition_id as u32,
             path: format!(
                 "/{}/{}/{}",
-                task.partition.job_id,
-                task.partition.stage_id,
-                task.partition.partition_id
+                task.partitions.job_id,
+                task.partitions.stage_id,
+                task.partitions
+                    .partitions
+                    .iter()
+                    .map(|p| p.to_string())
+                    .join("_")
             ),
             num_batches: 1,
             num_rows: 1,
@@ -1063,12 +1079,17 @@ pub fn mock_failed_task(task: TaskDescription, failed_task: FailedTask) -> TaskS
     }
 
     // Fail the task
-    protobuf::TaskStatus {
+    TaskStatus {
         task_id: task.task_id as u32,
-        job_id: task.partition.job_id.clone(),
-        stage_id: task.partition.stage_id as u32,
+        job_id: task.partitions.job_id.clone(),
+        stage_id: task.partitions.stage_id as u32,
         stage_attempt_num: task.stage_attempt_num as u32,
-        partition_id: task.partition.partition_id as u32,
+        partitions: task
+            .partitions
+            .partitions
+            .iter()
+            .map(|p| *p as u32)
+            .collect(),
         launch_time: 0,
         start_exec_time: 0,
         end_exec_time: 0,

@@ -29,8 +29,7 @@ use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, JobStatus, KeyValuePair, MultiTaskDefinition, TaskDefinition, TaskId,
-    TaskStatus,
+    self, JobStatus, KeyValuePair, TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -40,8 +39,10 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crossbeam_queue::SegQueue;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
+use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+use itertools::Itertools;
 use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -146,7 +147,7 @@ pub trait TaskLauncher: Send + Sync + 'static {
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<MultiTaskDefinition>,
+        tasks: Vec<TaskDefinition>,
         executor_manager: &ExecutorManager,
     ) -> Result<()>;
 }
@@ -166,30 +167,25 @@ impl TaskLauncher for DefaultTaskLauncher {
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<MultiTaskDefinition>,
+        tasks: Vec<TaskDefinition>,
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
         if log::max_level() >= log::Level::Info {
             let tasks_ids: Vec<String> = tasks
                 .iter()
                 .map(|task| {
-                    let task_ids: Vec<u32> = task
-                        .task_ids
-                        .iter()
-                        .map(|task_id| task_id.partition_id)
-                        .collect();
-                    format!("{}/{}/{:?}", task.job_id, task.stage_id, task_ids)
+                    format!("{}/{}/{:?}", task.job_id, task.stage_id, task.partitions)
                 })
                 .collect();
             info!(
-                "Launching multi task on executor {:?} for {:?}",
+                "Launching tasks on executor {:?} for {:?}",
                 executor.id, tasks_ids
             );
         }
         let mut client = executor_manager.get_client(&executor.id).await?;
         client
-            .launch_multi_task(protobuf::LaunchMultiTaskParams {
-                multi_tasks: tasks,
+            .launch_task(protobuf::LaunchTaskParams {
+                tasks,
                 scheduler_id: self.scheduler_id.clone(),
             })
             .await
@@ -494,7 +490,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             if let Some(job_info) = self.active_job_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
                 for reservation in free_reservations.iter().skip(assign_tasks) {
-                    if let Some(task) = graph.pop_next_task(&reservation.executor_id)? {
+                    if let Some(task) =
+                        graph.pop_next_task(&reservation.executor_id, 1)?
+                    {
                         assignments.push((reservation.executor_id.clone(), task));
                         assign_tasks += 1;
                     } else {
@@ -650,15 +648,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
     }
 
-    #[allow(dead_code)]
     pub async fn prepare_task_definition(
         &self,
         task: TaskDescription,
     ) -> Result<TaskDefinition> {
         debug!("Preparing task definition for {:?}", task);
 
-        let job_id = task.partition.job_id.clone();
-        let stage_id = task.partition.stage_id;
+        let job_id = task.partitions.job_id.clone();
+        let stage_id = task.partitions.stage_id;
 
         let props = self
             .state
@@ -676,33 +673,39 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let jobs = self.active_job_queue.jobs();
 
         if let Some(mut job_info) = jobs.get_mut(&job_id) {
-            let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id) {
-                plan.clone()
-            } else {
-                let mut plan_buf: Vec<u8> = vec![];
-                let plan_proto = U::try_from_physical_plan(
-                    task.plan,
-                    self.codec.physical_extension_codec(),
-                )?;
-                plan_proto.try_encode(&mut plan_buf)?;
+            println!("Preparing task {task:?}");
 
-                job_info
-                    .encoded_stage_plans
-                    .insert(stage_id, plan_buf.clone());
+            let optimizer = OptimizeTaskGroup::new(task.partitions.partitions.clone());
 
-                plan_buf
-            };
+            let group_plan =
+                optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
+
+            println!(
+                "{}",
+                DisplayableExecutionPlan::new(group_plan.as_ref()).indent()
+            );
+
+            let mut plan: Vec<u8> = vec![];
+            let plan_proto = U::try_from_physical_plan(
+                group_plan,
+                self.codec.physical_extension_codec(),
+            )?;
+            plan_proto.try_encode(&mut plan)?;
 
             let output_partitioning =
                 hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
 
             let task_definition = TaskDefinition {
                 task_id: task.task_id as u32,
-                task_attempt_num: task.task_attempt as u32,
                 job_id,
                 stage_id: stage_id as u32,
                 stage_attempt_num: task.stage_attempt_num as u32,
-                partition_id: task.partition.partition_id as u32,
+                partitions: task
+                    .partitions
+                    .partitions
+                    .iter()
+                    .map(|p| *p as u32)
+                    .collect(),
                 plan,
                 output_partitioning,
                 session_id: task.session_id,
@@ -718,200 +721,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     /// Launch the given tasks on the specified executor
-    pub(crate) async fn launch_multi_task(
+    pub(crate) async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<Vec<TaskDescription>>,
+        tasks: Vec<TaskDescription>,
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
-        let multi_tasks: Vec<_> = tasks
+        let tasks: Vec<_> = tasks
             .into_iter()
-            .map(|stage_tasks| self.prepare_task_group(stage_tasks))
+            .map(|stage_tasks| self.prepare_task_definition(stage_tasks))
             .collect();
-        let multi_tasks = try_join_all(multi_tasks).await;
+        let tasks = try_join_all(tasks).await;
 
         self.launcher
-            .launch_tasks(executor, multi_tasks?, executor_manager)
+            .launch_tasks(executor, tasks?, executor_manager)
             .await
-    }
-
-    async fn prepare_task_group(
-        &self,
-        tasks: Vec<TaskDescription>,
-    ) -> Result<MultiTaskDefinition> {
-        if let Some(task) = tasks.get(0) {
-            let session_id = task.session_id.clone();
-            let job_id = task.partition.job_id.clone();
-            let stage_id = task.partition.stage_id;
-            let stage_attempt_num = task.stage_attempt_num;
-
-            let props: Vec<_> = self
-                .state
-                .get_session(&session_id)
-                .await?
-                .state()
-                .config_options()
-                .entries()
-                .into_iter()
-                .filter_map(|ConfigEntry { key, value, .. }| {
-                    value.map(|value| KeyValuePair { key, value })
-                })
-                .collect();
-
-            if log::max_level() >= log::Level::Debug {
-                let task_ids: Vec<usize> = tasks
-                    .iter()
-                    .map(|task| task.partition.partition_id)
-                    .collect();
-                debug!("Preparing multi task definition for tasks {:?} belonging to job stage {}/{}", task_ids, job_id, stage_id);
-                trace!("With task details {:?}", tasks);
-            }
-
-            let jobs = self.active_job_queue.jobs();
-            if jobs.contains_key(&job_id) {
-                let partitions: Vec<usize> = tasks
-                    .iter()
-                    .map(|task| task.partition.partition_id)
-                    .collect();
-
-                let optimizer = OptimizeTaskGroup::new(partitions);
-
-                let group_plan =
-                    optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
-
-                let mut plan: Vec<u8> = vec![];
-                let plan_proto = U::try_from_physical_plan(
-                    group_plan,
-                    self.codec.physical_extension_codec(),
-                )?;
-                plan_proto.try_encode(&mut plan)?;
-
-                let output_partitioning =
-                    hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
-
-                let task_ids = tasks
-                    .iter()
-                    .map(|task| TaskId {
-                        task_id: task.task_id as u32,
-                        task_attempt_num: task.task_attempt as u32,
-                        partition_id: task.partition.partition_id as u32,
-                    })
-                    .collect();
-
-                let multi_task_definition = MultiTaskDefinition {
-                    task_ids,
-                    job_id,
-                    stage_id: stage_id as u32,
-                    stage_attempt_num: stage_attempt_num as u32,
-                    plan,
-                    output_partitioning,
-                    session_id,
-                    launch_time: timestamp_millis(),
-                    props,
-                    execute_group: true,
-                };
-
-                Ok(multi_task_definition)
-            } else {
-                Err(BallistaError::General(format!("Cannot prepare multi task definition for job {job_id} which is not in active cache")))
-            }
-        } else {
-            Err(BallistaError::General(
-                "Cannot prepare multi task definition for an empty vec".to_string(),
-            ))
-        }
-    }
-
-    #[allow(dead_code)]
-    /// Prepare a MultiTaskDefinition with multiple tasks belonging to the same job stage
-    async fn prepare_multi_task_definition(
-        &self,
-        tasks: Vec<TaskDescription>,
-    ) -> Result<MultiTaskDefinition> {
-        if let Some(task) = tasks.get(0) {
-            let session_id = task.session_id.clone();
-            let job_id = task.partition.job_id.clone();
-            let stage_id = task.partition.stage_id;
-            let stage_attempt_num = task.stage_attempt_num;
-
-            let props: Vec<_> = self
-                .state
-                .get_session(&session_id)
-                .await?
-                .state()
-                .config_options()
-                .entries()
-                .into_iter()
-                .filter_map(|ConfigEntry { key, value, .. }| {
-                    value.map(|value| KeyValuePair { key, value })
-                })
-                .collect();
-
-            if log::max_level() >= log::Level::Debug {
-                let task_ids: Vec<usize> = tasks
-                    .iter()
-                    .map(|task| task.partition.partition_id)
-                    .collect();
-                debug!("Preparing multi task definition for tasks {:?} belonging to job stage {}/{}", task_ids, job_id, stage_id);
-                trace!("With task details {:?}", tasks);
-            }
-
-            let jobs = self.active_job_queue.jobs();
-            if let Some(mut job_info) = jobs.get_mut(&job_id) {
-                let plan = if let Some(plan) = job_info.encoded_stage_plans.get(&stage_id)
-                {
-                    plan.clone()
-                } else {
-                    let mut plan_buf: Vec<u8> = vec![];
-                    let plan_proto = U::try_from_physical_plan(
-                        task.plan.clone(),
-                        self.codec.physical_extension_codec(),
-                    )?;
-                    plan_proto.try_encode(&mut plan_buf)?;
-
-                    job_info
-                        .encoded_stage_plans
-                        .insert(stage_id, plan_buf.clone());
-
-                    plan_buf
-                };
-                let output_partitioning =
-                    hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
-
-                let task_ids = tasks
-                    .iter()
-                    .map(|task| TaskId {
-                        task_id: task.task_id as u32,
-                        task_attempt_num: task.task_attempt as u32,
-                        partition_id: task.partition.partition_id as u32,
-                    })
-                    .collect();
-
-                let multi_task_definition = MultiTaskDefinition {
-                    task_ids,
-                    job_id,
-                    stage_id: stage_id as u32,
-                    stage_attempt_num: stage_attempt_num as u32,
-                    plan,
-                    output_partitioning,
-                    session_id,
-                    launch_time: SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap()
-                        .as_millis() as u64,
-                    props,
-                    execute_group: false,
-                };
-
-                Ok(multi_task_definition)
-            } else {
-                Err(BallistaError::General(format!("Cannot prepare multi task definition for job {job_id} which is not in active cache")))
-            }
-        } else {
-            Err(BallistaError::General(
-                "Cannot prepare multi task definition for an empty vec".to_string(),
-            ))
-        }
     }
 
     /// Get the `ExecutionGraph` for the given job ID from cache
