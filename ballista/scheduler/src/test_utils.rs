@@ -300,8 +300,8 @@ pub fn default_task_runner() -> impl TaskRunner {
             end_exec_time: timestamp,
             metrics: vec![],
             status: Some(task_status::Status::Successful(SuccessfulTask {
-                executor_id: executor_id,
-                partitions: partitions,
+                executor_id,
+                partitions,
             })),
         }
     })

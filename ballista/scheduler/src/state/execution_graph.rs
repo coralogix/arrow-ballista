@@ -420,17 +420,17 @@ impl ExecutionGraph {
                                             if running_stage.task_failures
                                                 < max_task_failures
                                             {
-                                                // TODO add new struct to track all the failed task infos
                                                 // The failure TaskInfo is ignored and set to None here
                                                 running_stage.reset_task_info(
                                                     partitions
                                                         .iter()
                                                         .map(|p| *p as usize),
                                                 );
+                                                running_stage.task_failures += 1;
                                             } else {
                                                 let error_msg = format!(
-                        "Task {} in Stage {} failed {} times, fail the stage, most recent failure reason: {:?}",
-                        task_status.task_id, stage_id, max_task_failures, failed_task.error
+                        "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
+                        stage_id, max_task_failures, failed_task.error
                     );
                                                 error!("{}", error_msg);
                                                 failed_stages.insert(stage_id, error_msg);
@@ -846,7 +846,7 @@ impl ExecutionGraph {
     pub fn pop_next_task(
         &mut self,
         executor_id: &str,
-        mut num_tasks: usize,
+        num_tasks: usize,
     ) -> Result<Option<TaskDescription>> {
         if matches!(
             self.status,
@@ -1917,7 +1917,6 @@ mod test {
         Ok(())
     }
 
-    #[ignore]
     #[tokio::test]
     async fn test_max_task_failed_count() -> Result<()> {
         let executor1 = mock_executor("executor-id1".to_string());
@@ -1987,12 +1986,23 @@ mod test {
                     ..
                 }
             ),
-            "Expected job status to be Failed"
+            "Expected job status to be Failed but was {:?}",
+            agg_graph.status
         );
 
         let failure_reason = format!("{:?}", agg_graph.status);
-        assert!(failure_reason.contains("Task 1 in Stage 2 failed 4 times, fail the stage, most recent failure reason"));
-        assert!(failure_reason.contains("IOError"));
+        assert!(
+            failure_reason.contains(
+                "Stage 2 had 4 task failures, fail the stage, most recent failure reason"
+            ),
+            "Unexpected failure reason {}",
+            failure_reason
+        );
+        assert!(
+            failure_reason.contains("IOError"),
+            "Unexpected failure reason {}",
+            failure_reason
+        );
         assert!(!agg_graph.is_successful());
 
         Ok(())

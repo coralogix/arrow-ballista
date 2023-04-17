@@ -130,6 +130,7 @@ impl Executor {
     /// Execute one partition of a query stage and persist the result to disk in IPC format. On
     /// success, return a RecordBatch containing metadata about the results, including path
     /// and statistics.
+    #[allow(clippy::too_many_arguments)]
     pub async fn execute_query_stage(
         &self,
         job_id: &str,

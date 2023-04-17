@@ -604,6 +604,7 @@ mod test {
                 .await
                 .pop_next_task(&executor_data.executor_id, 1)?
                 .unwrap();
+
             let mut partitions: Vec<ShuffleWritePartition> = vec![];
             for partition_id in 0..4 {
                 partitions.push(ShuffleWritePartition {

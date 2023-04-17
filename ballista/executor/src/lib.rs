@@ -47,6 +47,7 @@ pub struct TaskExecutionTimes {
     end_exec_time: u64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn as_task_status(
     execution_result: ballista_core::error::Result<Vec<ShuffleWritePartition>>,
     executor_id: String,

@@ -27,8 +27,6 @@ use crate::serde::protobuf::failed_task::FailedReason;
 use crate::serde::protobuf::{ExecutionError, FailedTask, FetchPartitionError, IoError};
 use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
-use futures::future::Aborted;
-use futures::StreamExt;
 use sqlparser::parser;
 
 pub type Result<T> = result::Result<T, BallistaError>;
@@ -43,11 +41,6 @@ pub enum BallistaError {
     DataFusionError(DataFusionError),
     SqlError(parser::ParserError),
     IoError(io::Error),
-    // ReqwestError(reqwest::Error),
-    // HttpError(http::Error),
-    // KubeAPIError(kube::error::Error),
-    // KubeAPIRequestError(k8s_openapi::RequestError),
-    // KubeAPIResponseError(k8s_openapi::ResponseError),
     TonicError(tonic::transport::Error),
     GrpcError(tonic::Status),
     GrpcConnectionError(String),
@@ -114,36 +107,6 @@ impl From<io::Error> for BallistaError {
     }
 }
 
-// impl From<reqwest::Error> for BallistaError {
-//     fn from(e: reqwest::Error) -> Self {
-//         BallistaError::ReqwestError(e)
-//     }
-// }
-//
-// impl From<http::Error> for BallistaError {
-//     fn from(e: http::Error) -> Self {
-//         BallistaError::HttpError(e)
-//     }
-// }
-
-// impl From<kube::error::Error> for BallistaError {
-//     fn from(e: kube::error::Error) -> Self {
-//         BallistaError::KubeAPIError(e)
-//     }
-// }
-
-// impl From<k8s_openapi::RequestError> for BallistaError {
-//     fn from(e: k8s_openapi::RequestError) -> Self {
-//         BallistaError::KubeAPIRequestError(e)
-//     }
-// }
-
-// impl From<k8s_openapi::ResponseError> for BallistaError {
-//     fn from(e: k8s_openapi::ResponseError) -> Self {
-//         BallistaError::KubeAPIResponseError(e)
-//     }
-// }
-
 impl From<tonic::transport::Error> for BallistaError {
     fn from(e: tonic::transport::Error) -> Self {
         BallistaError::TonicError(e)
@@ -175,7 +138,7 @@ impl From<datafusion_proto::logical_plan::to_proto::Error> for BallistaError {
 }
 
 impl From<futures::future::Aborted> for BallistaError {
-    fn from(_: Aborted) -> Self {
+    fn from(_: futures::future::Aborted) -> Self {
         BallistaError::Cancelled
     }
 }
@@ -193,15 +156,6 @@ impl Display for BallistaError {
             }
             BallistaError::SqlError(ref desc) => write!(f, "SQL error: {desc:?}"),
             BallistaError::IoError(ref desc) => write!(f, "IO error: {desc}"),
-            // BallistaError::ReqwestError(ref desc) => write!(f, "Reqwest error: {}", desc),
-            // BallistaError::HttpError(ref desc) => write!(f, "HTTP error: {}", desc),
-            // BallistaError::KubeAPIError(ref desc) => write!(f, "Kube API error: {}", desc),
-            // BallistaError::KubeAPIRequestError(ref desc) => {
-            //     write!(f, "KubeAPI request error: {}", desc)
-            // }
-            // BallistaError::KubeAPIResponseError(ref desc) => {
-            //     write!(f, "KubeAPI response error: {}", desc)
-            // }
             BallistaError::TonicError(desc) => write!(f, "Tonic error: {desc}"),
             BallistaError::GrpcError(desc) => write!(f, "Grpc error: {desc}"),
             BallistaError::GrpcConnectionError(desc) => {

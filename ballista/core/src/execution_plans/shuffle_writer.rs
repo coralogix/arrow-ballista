@@ -535,7 +535,6 @@ mod tests {
         Ok(())
     }
 
-    #[ignore]
     #[tokio::test]
     // number of rows in each partition is a function of the hash output, so don't test here
     #[cfg(not(feature = "force_hash_collisions"))]

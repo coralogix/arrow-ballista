@@ -74,6 +74,7 @@ impl BallistaClient {
     }
 
     /// Fetch a partition from an executor
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_partition(
         &mut self,
         executor_id: &str,

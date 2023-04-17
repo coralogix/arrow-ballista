@@ -39,10 +39,10 @@ use datafusion::physical_plan::ExecutionPlan;
 
 use crossbeam_queue::SegQueue;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
-use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
+use itertools::Itertools;
 use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -242,6 +242,7 @@ struct JobInfoCache {
     // Cache for active execution graphs curated by this scheduler
     execution_graph: Arc<RwLock<ExecutionGraph>>,
     // Cache for encoded execution stage plan to avoid duplicated encoding for multiple tasks
+    #[allow(dead_code)]
     encoded_stage_plans: HashMap<usize, Vec<u8>>,
     // Number of current pending tasks for this job
     pending_tasks: Arc<AtomicUsize>,
@@ -474,13 +475,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         Vec<ExecutorReservation>,
         usize,
     )> {
-        // Reinitialize the free reservations.
-        let free_reservations: Vec<ExecutorReservation> = reservations
-            .iter()
-            .map(|reservation| {
-                ExecutorReservation::new_free(reservation.executor_id.clone())
-            })
-            .collect();
+        let num_reservations = reservations.len();
+
+        let mut free_reservations: HashMap<&String, Vec<&ExecutorReservation>> =
+            reservations
+                .iter()
+                .group_by(|res| &res.executor_id)
+                .into_iter()
+                .map(|(executor_id, group)| (executor_id, group.collect()))
+                .collect();
 
         let mut assignments: Vec<(String, TaskDescription)> = vec![];
         let mut pending_tasks = 0usize;
@@ -489,17 +492,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         for _ in 0..self.get_active_job_count() {
             if let Some(job_info) = self.active_job_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
-                for reservation in free_reservations.iter().skip(assign_tasks) {
-                    if let Some(task) =
-                        graph.pop_next_task(&reservation.executor_id, 1)?
-                    {
-                        assignments.push((reservation.executor_id.clone(), task));
-                        assign_tasks += 1;
+                for (exec_id, slots) in free_reservations.iter_mut() {
+                    if let Some(task) = graph.pop_next_task(exec_id, slots.len())? {
+                        assign_tasks += task.concurrency();
+                        slots.truncate(slots.len() - task.concurrency());
+                        assignments.push(((*exec_id).clone(), task));
                     } else {
                         break;
                     }
                 }
-                if assign_tasks >= free_reservations.len() {
+                if assign_tasks >= num_reservations {
                     pending_tasks += graph.available_tasks();
                     break;
                 }
@@ -509,9 +511,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
 
         let mut unassigned = vec![];
-        for reservation in free_reservations.iter().skip(assign_tasks) {
-            unassigned.push(reservation.clone());
+        for (_, slots) in free_reservations {
+            unassigned.extend(slots.into_iter().cloned());
         }
+
         Ok((assignments, unassigned, pending_tasks))
     }
 
@@ -673,17 +676,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let jobs = self.active_job_queue.jobs();
 
         if let Some(_job_info) = jobs.get_mut(&job_id) {
-            println!("Preparing task {task:?}");
-
             let optimizer = OptimizeTaskGroup::new(task.partitions.partitions.clone());
 
             let group_plan =
                 optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
-
-            println!(
-                "{}",
-                DisplayableExecutionPlan::new(group_plan.as_ref()).indent()
-            );
 
             let mut plan: Vec<u8> = vec![];
             let plan_proto = U::try_from_physical_plan(
