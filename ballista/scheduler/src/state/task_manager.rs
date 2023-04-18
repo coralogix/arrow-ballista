@@ -493,6 +493,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             if let Some(job_info) = self.active_job_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
                 for (exec_id, slots) in free_reservations.iter_mut() {
+                    if slots.is_empty() {
+                        continue;
+                    }
+
                     if let Some(task) = graph.pop_next_task(exec_id, slots.len())? {
                         assign_tasks += task.concurrency();
                         slots.truncate(slots.len() - task.concurrency());
@@ -501,6 +505,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         break;
                     }
                 }
+
                 if assign_tasks >= num_reservations {
                     pending_tasks += graph.available_tasks();
                     break;
