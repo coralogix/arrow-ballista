@@ -20,10 +20,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use ballista_core::tracing::TraceExtension;
 use log::{debug, error, info};
 
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::event_loop::{EventAction, EventSender};
+use tracing::{Span, info_span, Instrument, instrument};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::metrics::SchedulerMetricsCollector;
 use crate::scheduler_server::timestamp_millis;
@@ -87,12 +90,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         info!("Stopping QueryStageScheduler")
     }
 
+    #[instrument(skip_all, field(event_name))]
     async fn on_receive(
         &self,
         event: QueryStageSchedulerEvent,
         tx_event: &mpsc::Sender<QueryStageSchedulerEvent>,
         _rx_event: &mpsc::Receiver<QueryStageSchedulerEvent>,
     ) -> Result<()> {
+        let span = Span::current();
         let tx_event = EventSender::new(tx_event.clone());
         match event {
             QueryStageSchedulerEvent::JobQueued {
@@ -102,6 +107,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 plan,
                 queued_at,
             } => {
+                
+                if let Some(trace_extension) = session_ctx.state().config_options().extensions.get::<TraceExtension>() {
+                    span.set_parent(trace_extension.into());
+                    span.record("event_name", "JobQueued");
+                }
                 info!("Job {} queued with name {:?}", job_id, job_name);
 
                 self.state
@@ -112,13 +122,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 let state = self.state.clone();
                 tokio::spawn(async move {
                     let event = if let Err(e) = state
-                        .submit_job(&job_id, &job_name, session_ctx, &plan, queued_at)
+                        .submit_job(&job_id, &job_name, session_ctx.clone(), &plan, queued_at)
                         .await
                     {
                         let fail_message = format!("Error planning job {job_id}: {e:?}");
                         error!("{}", &fail_message);
                         QueryStageSchedulerEvent::JobPlanningFailed {
                             job_id,
+                            session_ctx,
                             fail_message,
                             queued_at,
                             failed_at: timestamp_millis(),
@@ -126,6 +137,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     } else {
                         QueryStageSchedulerEvent::JobSubmitted {
                             job_id,
+                            session_ctx,
                             queued_at,
                             submitted_at: timestamp_millis(),
                             resubmit: false,
@@ -134,14 +146,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     if let Err(e) = tx_event.post_event(event).await {
                         error!("Fail to send event due to {}", e);
                     }
-                });
+                }.instrument(span.clone()));
             }
             QueryStageSchedulerEvent::JobSubmitted {
                 job_id,
+                session_ctx,
                 queued_at,
                 submitted_at,
                 resubmit,
             } => {
+                if let Some(trace_extension) = session_ctx.state().config_options().extensions.get::<TraceExtension>() {
+                    span.set_parent(trace_extension.into());
+                    span.record("event_name", "JobSubmitted");
+                }
+
                 if !resubmit {
                     self.metrics_collector.record_submitted(
                         &job_id,
@@ -184,6 +202,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                             if let Err(e) = tx_event
                                 .post_event(QueryStageSchedulerEvent::JobSubmitted {
                                     job_id,
+                                    session_ctx,
                                     queued_at,
                                     submitted_at,
                                     resubmit: true,
@@ -210,10 +229,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             }
             QueryStageSchedulerEvent::JobPlanningFailed {
                 job_id,
+                session_ctx,
                 fail_message,
                 queued_at,
                 failed_at,
             } => {
+                if let Some(trace_extension) = session_ctx.state().config_options().extensions.get::<TraceExtension>() {
+                    span.set_parent(trace_extension.into());
+                    span.record("event_name", "JobPlanningFailed");
+                }
+
                 self.metrics_collector
                     .record_failed(&job_id, queued_at, failed_at);
 
@@ -368,6 +393,7 @@ mod tests {
     use ballista_core::event_loop::EventAction;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::logical_expr::{col, sum, LogicalPlan};
+    use datafusion::prelude::SessionContext;
     use datafusion::test_util::scan_empty_with_partitions;
     use std::sync::Arc;
     use std::time::Duration;
@@ -399,6 +425,7 @@ mod tests {
 
         let event = QueryStageSchedulerEvent::JobSubmitted {
             job_id: "job-id".to_string(),
+            session_ctx: Arc::new(SessionContext::new()),
             queued_at: 0,
             submitted_at: 0,
             resubmit: false,
