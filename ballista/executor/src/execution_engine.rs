@@ -123,10 +123,6 @@ impl QueryStageExecutor for DefaultQueryStageExec {
         self.shuffle_writer.schema()
     }
 
-    fn schema(&self) -> SchemaRef {
-        self.shuffle_writer.schema()
-    }
-
     fn collect_plan_metrics(&self) -> Vec<MetricsSet> {
         utils::collect_plan_metrics(self.shuffle_writer.children()[0].as_ref())
     }
