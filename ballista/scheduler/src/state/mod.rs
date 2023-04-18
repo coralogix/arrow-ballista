@@ -169,7 +169,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             .get_executor_metadata(executor_id)
             .await?;
 
-        let total_num_tasks = tasks_status.len();
+        // each task can consume multiple slots, so ensure here that we count each task partition
+        let total_num_tasks = tasks_status
+            .iter()
+            .map(|status| status.partitions.len())
+            .sum::<usize>();
         let reservations = (0..total_num_tasks)
             .map(|_| ExecutorReservation::new_free(executor_id.to_owned()))
             .collect();
