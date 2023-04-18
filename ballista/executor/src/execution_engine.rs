@@ -22,11 +22,11 @@ use ballista_core::serde::protobuf::ShuffleWritePartition;
 use ballista_core::utils;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
+use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::ExecutionPlan;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
-use datafusion::physical_plan::display::DisplayableExecutionPlan;
 
 /// Execution engine extension point
 
@@ -102,7 +102,8 @@ impl DefaultQueryStageExec {
 
 impl Display for DefaultQueryStageExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let metrics = DisplayableExecutionPlan::with_metrics(&self.shuffle_writer).indent();
+        let metrics =
+            DisplayableExecutionPlan::with_metrics(&self.shuffle_writer).indent();
         write!(f, "{metrics}")
     }
 }
