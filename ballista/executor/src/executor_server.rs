@@ -310,7 +310,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         let task = curator_task;
         let task_identity = task_identity(&task);
         let task_props = task.props;
-        let mut config = ConfigOptions::new();
+        let mut config =
+            ConfigOptions::new().with_extensions(self.default_extensions.clone());
         for (k, v) in task_props {
             config.set(&k, &v)?;
         }
