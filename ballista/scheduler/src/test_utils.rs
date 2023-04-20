@@ -242,7 +242,7 @@ pub fn get_tpch_schema(table: &str) -> Schema {
 }
 
 pub trait TaskRunner: Send + Sync + 'static {
-    fn run(&self, executor_id: String, tasks: TaskDefinition) -> TaskStatus;
+    fn run(&self, executor_id: String, tasks: TaskDescription) -> TaskStatus;
 }
 
 #[derive(Clone)]
@@ -252,7 +252,7 @@ pub struct TaskRunnerFn<F> {
 
 impl<F> TaskRunnerFn<F>
 where
-    F: Fn(String, TaskDefinition) -> TaskStatus + Send + Sync + 'static,
+    F: Fn(String, TaskDescription) -> TaskStatus + Send + Sync + 'static,
 {
     pub fn new(f: F) -> Self {
         Self { f }
@@ -261,18 +261,18 @@ where
 
 impl<F> TaskRunner for TaskRunnerFn<F>
 where
-    F: Fn(String, TaskDefinition) -> TaskStatus + Send + Sync + 'static,
+    F: Fn(String, TaskDescription) -> TaskStatus + Send + Sync + 'static,
 {
-    fn run(&self, executor_id: String, task: TaskDefinition) -> TaskStatus {
+    fn run(&self, executor_id: String, task: TaskDescription) -> TaskStatus {
         (self.f)(executor_id, task)
     }
 }
 
 pub fn default_task_runner() -> impl TaskRunner {
-    TaskRunnerFn::new(|executor_id: String, task: TaskDefinition| {
+    TaskRunnerFn::new(|executor_id: String, task: TaskDescription| {
         let partitions =
             if let Some(output_partitioning) = task.output_partitioning.as_ref() {
-                output_partitioning.partition_count as usize
+                output_partitioning.partition_count()
             } else {
                 1
             };
@@ -290,11 +290,16 @@ pub fn default_task_runner() -> impl TaskRunner {
 
         let timestamp = timestamp_millis();
         TaskStatus {
-            task_id: task.task_id,
-            job_id: task.job_id.clone(),
-            stage_id: task.stage_id,
-            stage_attempt_num: task.stage_attempt_num,
-            partitions: task.partitions,
+            task_id: task.task_id as u32,
+            job_id: task.partitions.job_id,
+            stage_id: task.partitions.stage_id as u32,
+            stage_attempt_num: task.stage_attempt_num as u32,
+            partitions: task
+                .partitions
+                .partitions
+                .iter()
+                .map(|p| *p as u32)
+                .collect(),
             launch_time: timestamp,
             start_exec_time: timestamp,
             end_exec_time: timestamp,
@@ -315,7 +320,7 @@ struct VirtualExecutor {
 }
 
 impl VirtualExecutor {
-    pub fn run_task(&self, task: TaskDefinition) -> TaskStatus {
+    pub fn run_task(&self, task: TaskDescription) -> TaskStatus {
         self.runner.run(self.executor_id.clone(), task)
     }
 }
@@ -325,11 +330,19 @@ impl VirtualExecutor {
 pub struct BlackholeTaskLauncher {}
 
 #[async_trait]
-impl TaskLauncher for BlackholeTaskLauncher {
+impl TaskLauncher<LogicalPlanNode, PhysicalPlanNode> for BlackholeTaskLauncher {
+    fn prepare_task_definition(
+        &self,
+        _ctx: Arc<SessionContext>,
+        _task: TaskDescription,
+    ) -> Result<TaskDefinition> {
+        Err(BallistaError::NotImplemented(String::default()))
+    }
+
     async fn launch_tasks(
         &self,
         _executor: &ExecutorMetadata,
-        _tasks: Vec<TaskDefinition>,
+        _tasks: Vec<TaskDescription>,
         _executor_manager: &ExecutorManager,
     ) -> Result<()> {
         Ok(())
@@ -342,11 +355,19 @@ pub struct VirtualTaskLauncher {
 }
 
 #[async_trait::async_trait]
-impl TaskLauncher for VirtualTaskLauncher {
+impl TaskLauncher<LogicalPlanNode, PhysicalPlanNode> for VirtualTaskLauncher {
+    fn prepare_task_definition(
+        &self,
+        _ctx: Arc<SessionContext>,
+        _task: TaskDescription,
+    ) -> Result<TaskDefinition> {
+        Err(BallistaError::NotImplemented(String::default()))
+    }
+
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDefinition>,
+        tasks: Vec<TaskDescription>,
         _executor_manager: &ExecutorManager,
     ) -> Result<()> {
         let virtual_executor = self.executors.get(&executor.id).ok_or_else(|| {

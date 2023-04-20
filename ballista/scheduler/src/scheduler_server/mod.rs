@@ -115,7 +115,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
-        task_launcher: Arc<dyn TaskLauncher>,
+        task_launcher: Arc<dyn TaskLauncher<T, U>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -419,7 +419,7 @@ mod test {
 
     use ballista_core::serde::protobuf::{
         failed_task, job_status, task_status, ExecutionError, FailedTask, JobStatus,
-        ShuffleWritePartition, SuccessfulJob, SuccessfulTask, TaskDefinition, TaskStatus,
+        ShuffleWritePartition, SuccessfulJob, SuccessfulTask, TaskStatus,
     };
     use ballista_core::serde::scheduler::{
         ExecutorData, ExecutorMetadata, ExecutorSpecification,
@@ -427,6 +427,7 @@ mod test {
     use ballista_core::serde::BallistaCodec;
 
     use crate::scheduler_server::{timestamp_millis, SchedulerServer};
+    use crate::state::execution_graph::TaskDescription;
 
     use crate::test_utils::{
         assert_completed_event, assert_failed_event, assert_no_submitted_event,
@@ -599,14 +600,19 @@ mod test {
         let plan = test_plan();
 
         let runner = Arc::new(TaskRunnerFn::new(
-            |_executor_id: String, task: TaskDefinition| {
+            |_executor_id: String, task: TaskDescription| {
                 let timestamp = timestamp_millis();
                 TaskStatus {
-                    task_id: task.task_id,
-                    job_id: task.job_id.clone(),
-                    stage_id: task.stage_id,
-                    stage_attempt_num: task.stage_attempt_num,
-                    partitions: task.partitions,
+                    task_id: task.task_id as u32,
+                    job_id: task.partitions.job_id,
+                    stage_id: task.partitions.stage_id as u32,
+                    stage_attempt_num: task.stage_attempt_num as u32,
+                    partitions: task
+                        .partitions
+                        .partitions
+                        .iter()
+                        .map(|p| *p as u32)
+                        .collect(),
                     launch_time: timestamp,
                     start_exec_time: timestamp,
                     end_exec_time: timestamp,

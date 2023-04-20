@@ -136,7 +136,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
         config: SchedulerConfig,
-        dispatcher: Arc<dyn TaskLauncher>,
+        dispatcher: Arc<dyn TaskLauncher<T, U>>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -145,7 +145,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             ),
             task_manager: TaskManager::with_launcher(
                 cluster.job_state(),
-                codec.clone(),
                 scheduler_name,
                 dispatcher,
             ),

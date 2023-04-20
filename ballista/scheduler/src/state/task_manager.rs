@@ -42,8 +42,8 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
+use datafusion::prelude::SessionContext;
 use itertools::Itertools;
-use log::{debug, error, info, warn};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
@@ -51,6 +51,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use tracing::{debug, error, info, warn};
 
 use tokio::sync::{watch, RwLock, RwLockWriteGuard};
 
@@ -143,38 +144,115 @@ pub const TASK_MAX_FAILURES: usize = 4;
 pub const STAGE_MAX_FAILURES: usize = 4;
 
 #[async_trait::async_trait]
-pub trait TaskLauncher: Send + Sync + 'static {
+pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>:
+    Send + Sync + 'static
+{
+    fn prepare_task_definition(
+        &self,
+        ctx: Arc<SessionContext>,
+        task: TaskDescription,
+    ) -> Result<TaskDefinition>;
+
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDefinition>,
+        tasks: Vec<TaskDescription>,
         executor_manager: &ExecutorManager,
     ) -> Result<()>;
 }
 
-struct DefaultTaskLauncher {
+struct DefaultTaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
     scheduler_id: String,
+    state: Arc<dyn JobState>,
+    codec: BallistaCodec<T, U>,
 }
 
-impl DefaultTaskLauncher {
-    pub fn new(scheduler_id: String) -> Self {
-        Self { scheduler_id }
+impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> DefaultTaskLauncher<T, U> {
+    pub fn new(
+        scheduler_id: String,
+        state: Arc<dyn JobState>,
+        codec: BallistaCodec<T, U>,
+    ) -> Self {
+        Self {
+            scheduler_id,
+            state,
+            codec,
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl TaskLauncher for DefaultTaskLauncher {
+impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U>
+    for DefaultTaskLauncher<T, U>
+{
+    fn prepare_task_definition(
+        &self,
+        ctx: Arc<SessionContext>,
+        task: TaskDescription,
+    ) -> Result<TaskDefinition> {
+        let job_id = task.partitions.job_id.clone();
+        let stage_id = task.partitions.stage_id;
+
+        debug!(job_id, stage_id, "Preparing task definition for {:?}", task);
+
+        let props = ctx
+            .state()
+            .config_options()
+            .entries()
+            .into_iter()
+            .filter_map(|ConfigEntry { key, value, .. }| {
+                value.map(|value| KeyValuePair { key, value })
+            })
+            .collect();
+
+        let optimizer = OptimizeTaskGroup::new(task.partitions.partitions.clone());
+
+        let group_plan =
+            optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
+
+        let mut plan: Vec<u8> = vec![];
+        let plan_proto =
+            U::try_from_physical_plan(group_plan, self.codec.physical_extension_codec())?;
+        plan_proto.try_encode(&mut plan)?;
+
+        let output_partitioning =
+            hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
+
+        Ok(TaskDefinition {
+            task_id: task.task_id as u32,
+            job_id,
+            stage_id: stage_id as u32,
+            stage_attempt_num: task.stage_attempt_num as u32,
+            partitions: task
+                .partitions
+                .partitions
+                .iter()
+                .map(|p| *p as u32)
+                .collect(),
+            plan,
+            output_partitioning,
+            session_id: task.session_id,
+            launch_time: timestamp_millis(),
+            props,
+        })
+    }
+
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDefinition>,
+        tasks: Vec<TaskDescription>,
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
         if log::max_level() >= log::Level::Info {
             let tasks_ids: Vec<String> = tasks
                 .iter()
                 .map(|task| {
-                    format!("{}/{}/{:?}", task.job_id, task.stage_id, task.partitions)
+                    format!(
+                        "{}/{}/{:?}",
+                        task.partitions.job_id,
+                        task.partitions.stage_id,
+                        task.partitions.partitions
+                    )
                 })
                 .collect();
             info!(
@@ -182,10 +260,18 @@ impl TaskLauncher for DefaultTaskLauncher {
                 executor.id, tasks_ids
             );
         }
+
+        let tasks = tasks.into_iter().map(|task_def| async {
+            let ctx = self.state.get_session(&task_def.session_id).await?;
+            self.prepare_task_definition(ctx, task_def)
+        });
+
+        let tasks: Result<Vec<TaskDefinition>> = try_join_all(tasks).await;
+
         let mut client = executor_manager.get_client(&executor.id).await?;
         client
             .launch_task(protobuf::LaunchTaskParams {
-                tasks,
+                tasks: tasks?,
                 scheduler_id: self.scheduler_id.clone(),
             })
             .await
@@ -195,6 +281,7 @@ impl TaskLauncher for DefaultTaskLauncher {
                     executor.id, e
                 ))
             })?;
+
         Ok(())
     }
 }
@@ -202,11 +289,10 @@ impl TaskLauncher for DefaultTaskLauncher {
 #[derive(Clone)]
 pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
     state: Arc<dyn JobState>,
-    codec: BallistaCodec<T, U>,
     scheduler_id: String,
     // Cache for active jobs curated by this scheduler
     active_job_queue: Arc<ActiveJobQueue>,
-    launcher: Arc<dyn TaskLauncher>,
+    launcher: Arc<dyn TaskLauncher<T, U>>,
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
 }
@@ -284,26 +370,22 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
     ) -> Self {
-        Self::with_launcher(
-            state,
-            codec,
-            scheduler_id.clone(),
-            Arc::new(DefaultTaskLauncher::new(scheduler_id)),
-        )
+        let launcher =
+            DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
+
+        Self::with_launcher(state, scheduler_id, Arc::new(launcher))
     }
 
     #[allow(dead_code)]
     pub(crate) fn with_launcher(
         state: Arc<dyn JobState>,
-        codec: BallistaCodec<T, U>,
         scheduler_id: String,
-        launcher: Arc<dyn TaskLauncher>,
+        launcher: Arc<dyn TaskLauncher<T, U>>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
         Self {
             state,
-            codec,
             scheduler_id,
             active_job_queue: Arc::new(ActiveJobQueue::default()),
             launcher,
@@ -660,65 +742,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         &self,
         task: TaskDescription,
     ) -> Result<TaskDefinition> {
-        debug!("Preparing task definition for {:?}", task);
-
-        let job_id = task.partitions.job_id.clone();
-        let stage_id = task.partitions.stage_id;
-
-        let props = self
-            .state
-            .get_session(&task.session_id)
-            .await?
-            .state()
-            .config_options()
-            .entries()
-            .into_iter()
-            .filter_map(|ConfigEntry { key, value, .. }| {
-                value.map(|value| KeyValuePair { key, value })
-            })
-            .collect();
-
-        let jobs = self.active_job_queue.jobs();
-
-        if let Some(_job_info) = jobs.get_mut(&job_id) {
-            let optimizer = OptimizeTaskGroup::new(task.partitions.partitions.clone());
-
-            let group_plan =
-                optimizer.optimize(task.plan.clone(), &ConfigOptions::default())?;
-
-            let mut plan: Vec<u8> = vec![];
-            let plan_proto = U::try_from_physical_plan(
-                group_plan,
-                self.codec.physical_extension_codec(),
-            )?;
-            plan_proto.try_encode(&mut plan)?;
-
-            let output_partitioning =
-                hash_partitioning_to_proto(task.output_partitioning.as_ref())?;
-
-            let task_definition = TaskDefinition {
-                task_id: task.task_id as u32,
-                job_id,
-                stage_id: stage_id as u32,
-                stage_attempt_num: task.stage_attempt_num as u32,
-                partitions: task
-                    .partitions
-                    .partitions
-                    .iter()
-                    .map(|p| *p as u32)
-                    .collect(),
-                plan,
-                output_partitioning,
-                session_id: task.session_id,
-                launch_time: timestamp_millis(),
-                props,
-            };
-            Ok(task_definition)
-        } else {
-            Err(BallistaError::General(format!(
-                "Cannot prepare task definition for job {job_id} which is not in active cache"
-            )))
-        }
+        let ctx = self.state.get_session(&task.session_id).await?;
+        self.launcher.prepare_task_definition(ctx, task)
     }
 
     /// Launch the given tasks on the specified executor
@@ -728,14 +753,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         tasks: Vec<TaskDescription>,
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
-        let tasks: Vec<_> = tasks
-            .into_iter()
-            .map(|stage_tasks| self.prepare_task_definition(stage_tasks))
-            .collect();
-        let tasks = try_join_all(tasks).await;
-
         self.launcher
-            .launch_tasks(executor, tasks?, executor_manager)
+            .launch_tasks(executor, tasks, executor_manager)
             .await
     }
 
