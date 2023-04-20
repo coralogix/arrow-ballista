@@ -375,17 +375,6 @@ pub struct PartitionLocation {
     #[prost(string, tag = "5")]
     pub path: ::prost::alloc::string::String,
 }
-/// Unique identifier for a materialized partition of data
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PartitionId {
-    #[prost(string, tag = "1")]
-    pub job_id: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "2")]
-    pub stage_id: u32,
-    #[prost(uint32, tag = "4")]
-    pub partition_id: u32,
-}
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PartitionStats {

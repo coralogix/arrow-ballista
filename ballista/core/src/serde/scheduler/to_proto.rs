@@ -17,6 +17,7 @@
 
 use datafusion::error::DataFusionError;
 use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
+use datafusion::physical_plan::Partitioning;
 use std::convert::TryInto;
 
 use crate::error::BallistaError;
@@ -25,10 +26,9 @@ use crate::serde::protobuf;
 use datafusion_proto::protobuf as datafusion_protobuf;
 
 use crate::serde::scheduler::{
-    Action, ExecutorData, ExecutorMetadata, ExecutorSpecification, PartitionId,
-    PartitionLocation, PartitionStats, TaskDefinition,
+    Action, ExecutorData, ExecutorMetadata, ExecutorSpecification, PartitionLocation,
+    PartitionStats, TaskDefinition,
 };
-use datafusion::physical_plan::Partitioning;
 use protobuf::{
     action::ActionType, operator_metric, KeyValuePair, NamedCount, NamedGauge, NamedTime,
 };
@@ -56,17 +56,6 @@ impl TryInto<protobuf::Action> for Action {
                 })),
                 settings: vec![],
             }),
-        }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<protobuf::PartitionId> for PartitionId {
-    fn into(self) -> protobuf::PartitionId {
-        protobuf::PartitionId {
-            job_id: self.job_id,
-            stage_id: self.stage_id as u32,
-            partition_id: self.partition_id as u32,
         }
     }
 }

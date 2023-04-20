@@ -27,8 +27,8 @@ use std::time::Duration;
 
 use crate::error::BallistaError;
 use crate::serde::scheduler::{
-    Action, ExecutorData, ExecutorMetadata, ExecutorSpecification, PartitionId,
-    PartitionLocation, PartitionStats, TaskDefinition,
+    Action, ExecutorData, ExecutorMetadata, ExecutorSpecification, PartitionLocation,
+    PartitionStats, TaskDefinition,
 };
 
 use crate::serde::protobuf;
@@ -53,17 +53,6 @@ impl TryInto<Action> for protobuf::Action {
                 "scheduler::from_proto(Action) invalid or missing action".to_owned(),
             )),
         }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<PartitionId> for protobuf::PartitionId {
-    fn into(self) -> PartitionId {
-        PartitionId::new(
-            &self.job_id,
-            self.stage_id as usize,
-            self.partition_id as usize,
-        )
     }
 }
 

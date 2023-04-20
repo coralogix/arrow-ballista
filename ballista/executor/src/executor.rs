@@ -225,7 +225,6 @@ mod test {
     use datafusion::execution::context::TaskContext;
 
     use crate::execution_engine::DefaultQueryStageExec;
-    use ballista_core::serde::scheduler::PartitionId;
     use datafusion::error::DataFusionError;
     use datafusion::physical_expr::PhysicalSortExpr;
     use datafusion::physical_plan::{
@@ -354,11 +353,6 @@ mod test {
         // Spawn our non-terminating task on a separate fiber.
         let executor_clone = executor.clone();
         tokio::task::spawn(async move {
-            let _part = PartitionId {
-                job_id: "job-id".to_owned(),
-                stage_id: 1,
-                partition_id: 0,
-            };
             let task_result = executor_clone
                 .execute_query_stage(
                     "job-id",
