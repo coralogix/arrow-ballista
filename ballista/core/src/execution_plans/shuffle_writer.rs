@@ -20,10 +20,12 @@
 //! partition is re-partitioned and streamed to disk in Arrow IPC format. Future stages of the query
 //! will use the ShuffleReaderExec to read these results.
 
+use ahash::RandomState;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 
 use std::any::Any;
 use std::future::Future;
+use std::hash::Hash;
 use std::iter::Iterator;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -183,6 +185,9 @@ impl ShuffleWriterExec {
 
         let partitions = self.partitions.clone();
 
+        // add unique id for output
+        let id = uuid::Uuid::new_v4();
+
         async move {
             let now = Instant::now();
             let mut stream = plan.execute(0, context)?;
@@ -190,7 +195,7 @@ impl ShuffleWriterExec {
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
-                    path.push(&partitions.iter().map(|p| p.to_string()).join("_"));
+                    path.push(id.to_string());
                     std::fs::create_dir_all(&path)?;
                     path.push("data.arrow");
                     let path = path.to_str().unwrap();
@@ -259,16 +264,10 @@ impl ShuffleWriterExec {
                                     }
                                     None => {
                                         let mut path = path.clone();
-                                        path.push(&format!("{output_partition}"));
+                                        path.push(output_partition.to_string());
                                         std::fs::create_dir_all(&path)?;
 
-                                        path.push(format!(
-                                            "data-{}.arrow",
-                                            partitions
-                                                .iter()
-                                                .map(|p| p.to_string())
-                                                .join("_")
-                                        ));
+                                        path.push(format!("data-{}.arrow", id));
                                         debug!("Writing results to {:?}", path);
 
                                         let mut writer = IPCWriter::new(
