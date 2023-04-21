@@ -20,12 +20,10 @@
 //! partition is re-partitioned and streamed to disk in Arrow IPC format. Future stages of the query
 //! will use the ShuffleReaderExec to read these results.
 
-use ahash::RandomState;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 
 use std::any::Any;
 use std::future::Future;
-use std::hash::Hash;
 use std::iter::Iterator;
 use std::path::PathBuf;
 use std::sync::Arc;
