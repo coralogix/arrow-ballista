@@ -183,7 +183,7 @@ impl ShuffleWriterExec {
         let partitions = self.partitions.clone();
 
         // add unique id for output
-        let id = uuid::Uuid::new_v4();
+        let shuffle_id = uuid::Uuid::new_v4();
 
         async move {
             let now = Instant::now();
@@ -192,9 +192,12 @@ impl ShuffleWriterExec {
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
+                    path.push(shuffle_id.to_string());
+                    debug!("Creating dir {:?}", path);
+
                     std::fs::create_dir_all(&path)?;
-                    path.push(id.to_string());
-                    path.push(".arrow");
+
+                    path.push("data.arrow");
                     let path = path.to_str().unwrap();
                     debug!("Writing results to {}", path);
 
@@ -264,7 +267,7 @@ impl ShuffleWriterExec {
                                         path.push(output_partition.to_string());
                                         std::fs::create_dir_all(&path)?;
 
-                                        path.push(format!("{}.arrow", id));
+                                        path.push(format!("{}.arrow", shuffle_id));
                                         debug!("Writing results to {:?}", path);
 
                                         let mut writer = IPCWriter::new(
