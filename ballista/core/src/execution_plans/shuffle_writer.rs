@@ -192,9 +192,9 @@ impl ShuffleWriterExec {
             match output_partitioning {
                 None => {
                     let timer = write_metrics.write_time.timer();
-                    path.push(id.to_string());
                     std::fs::create_dir_all(&path)?;
-                    path.push("data.arrow");
+                    path.push(id.to_string());
+                    path.push(".arrow");
                     let path = path.to_str().unwrap();
                     debug!("Writing results to {}", path);
 
@@ -264,7 +264,7 @@ impl ShuffleWriterExec {
                                         path.push(output_partition.to_string());
                                         std::fs::create_dir_all(&path)?;
 
-                                        path.push(format!("data-{}.arrow", id));
+                                        path.push(format!("{}.arrow", id));
                                         debug!("Writing results to {:?}", path);
 
                                         let mut writer = IPCWriter::new(
