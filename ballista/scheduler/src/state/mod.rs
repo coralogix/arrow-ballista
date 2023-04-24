@@ -43,6 +43,8 @@ use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 use log::{debug, error, info};
 use prost::Message;
+use std::sync::atomic::AtomicU64;
+use tokio::sync::RwLock;
 
 pub mod execution_graph;
 pub mod execution_graph_dot;
@@ -85,6 +87,19 @@ pub fn encode_protobuf<T: Message + Default>(msg: &T) -> Result<Vec<u8>> {
     Ok(value)
 }
 
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub enum StatisticsType {
+    Bytes,
+    Rows,
+}
+
+#[derive(Clone, Hash, Eq, PartialEq)]
+pub struct StatisticsKey {
+    pub job_id: String,
+    pub stage_id: u32,
+    pub statistics_type: StatisticsType,
+}
+
 #[derive(Clone)]
 pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
     pub executor_manager: ExecutorManager,
@@ -92,6 +107,7 @@ pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPl
     pub session_manager: SessionManager,
     pub codec: BallistaCodec<T, U>,
     pub config: SchedulerConfig,
+    pub statistics: Arc<RwLock<HashMap<StatisticsKey, AtomicU64>>>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T, U> {
@@ -127,6 +143,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
+            statistics: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -151,6 +168,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
+            statistics: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

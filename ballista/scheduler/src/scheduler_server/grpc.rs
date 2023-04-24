@@ -19,6 +19,8 @@ use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
 use ballista_core::serde::protobuf::execute_query_params::{OptionalSessionId, Query};
 use datafusion::config::Extensions;
 use std::convert::TryInto;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use ballista_core::serde::protobuf::executor_registration::OptionalHost;
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
@@ -28,6 +30,7 @@ use ballista_core::serde::protobuf::{
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
     PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
+    ShortCircuitCommand, ShortCircuitUpdate, ShortCircuitValueType,
     UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -36,7 +39,7 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::file_format::FileFormat;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
-use futures::TryStreamExt;
+use futures::{Stream, TryStreamExt};
 use log::{debug, error, info, trace, warn};
 use object_store::{local::LocalFileSystem, path::Path, ObjectStore};
 
@@ -44,17 +47,23 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::state::{StatisticsKey, StatisticsType};
 use datafusion::prelude::SessionContext;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 
 use crate::scheduler_server::SchedulerServer;
 use crate::state::executor_manager::ExecutorReservation;
+use futures::stream;
+use futures::StreamExt;
 
 #[tonic::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
     for SchedulerServer<T, U>
 {
+    type SendShortCircuitUpdateStream =
+        Pin<Box<dyn Stream<Item = Result<ShortCircuitCommand, Status>> + Send + 'static>>;
+
     async fn poll_work(
         &self,
         request: Request<PollWorkParams>,
@@ -550,6 +559,71 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 Status::internal(msg)
             })?;
         Ok(Response::new(CleanJobDataResult {}))
+    }
+
+    async fn send_short_circuit_update(
+        &self,
+        s: tonic::Request<Streaming<ShortCircuitUpdate>>,
+    ) -> std::result::Result<Response<Self::SendShortCircuitUpdateStream>, tonic::Status>
+    {
+        let stats = self.state.statistics.clone();
+
+        let stream = s
+            .into_inner()
+            .map(|f| stream::iter(f.ok()))
+            .flatten()
+            .map(move |f| {
+                (f, stats.clone()) // WTF
+            })
+            .then(|(message, statistics)| async move {
+                // Maybe we have to keep track by partition
+                // so if a partition dies and restarts the count can still be correct
+                // Maybe keep a set of registered partitions and counts and if a
+                // new request for the same partition comes in delete the count from the overall count
+
+                let statistics_type = match message.value_type() {
+                    ShortCircuitValueType::StatisticTypeRowCountUnspecified => {
+                        StatisticsType::Rows
+                    }
+                    ShortCircuitValueType::StatisticTypeByteCount => {
+                        StatisticsType::Bytes
+                    }
+                };
+
+                let key = StatisticsKey {
+                    job_id: message.job_id.clone(),
+                    stage_id: message.stage_id,
+                    statistics_type,
+                };
+
+                let old_value = if let Some(arc) = statistics.read().await.get(&key) {
+                    arc.fetch_add(message.value, Ordering::AcqRel)
+                } else {
+                    let inner = AtomicU64::new(0);
+                    statistics.write().await.insert(key, inner);
+                    0
+                };
+
+                let new_value = old_value + message.value;
+
+                let command: Option<Result<ShortCircuitCommand, Status>> =
+                    if new_value > 100 {
+                        // TODO: Introspect execution plan to find limit (if it even exists)
+                        Some(Ok(ShortCircuitCommand {
+                            job_id: message.job_id,
+                            stage_id: message.stage_id,
+                        }))
+                    } else {
+                        None
+                    };
+
+                command
+            })
+            .flat_map(stream::iter);
+
+        Ok(Response::new(
+            Box::pin(stream) as Self::SendShortCircuitUpdateStream
+        ))
     }
 }
 
