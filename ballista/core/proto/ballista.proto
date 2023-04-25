@@ -950,8 +950,6 @@ service SchedulerGrpc {
 service ExecutorGrpc {
   rpc LaunchTask (LaunchTaskParams) returns (LaunchTaskResult) {}
 
-  rpc LaunchMultiTask (LaunchMultiTaskParams) returns (LaunchMultiTaskResult) {}
-
   rpc StopExecutor(StopExecutorParams) returns (StopExecutorResult) {}
 
   rpc CancelTasks(CancelTasksParams) returns (CancelTasksResult) {}
