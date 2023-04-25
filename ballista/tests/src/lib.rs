@@ -97,7 +97,7 @@ mod tests {
         )
         .await;
 
-        let test_table = Arc::new(TestTable::new(1));
+        let test_table = Arc::new(TestTable::new(2));
 
         let reference: TableReference = "test_table".into();
         let schema = DFSchema::try_from_qualified_schema(
@@ -147,18 +147,29 @@ mod tests {
 
         let partitions = successful_job.partition_location;
 
-        assert_eq!(partitions.len(), 1);
+        assert_eq!(partitions.len(), 2);
 
-        let partition = &partitions[0];
+        let partition1 = &partitions[0];
+        let partition2 = &partitions[1];
 
-        let num_rows = partition
+        let num_rows1 = partition1
             .partition_stats
             .clone()
             .context("Get partition stats")
             .unwrap()
             .num_rows;
 
-        assert!(num_rows == 1001);
+        let num_rows2 = partition2
+            .partition_stats
+            .clone()
+            .context("Get partition stats")
+            .unwrap()
+            .num_rows;
+
+        println!("num_rows1: {}", num_rows1);
+        println!("num_rows2: {}", num_rows2);
+
+        assert!(num_rows1 + num_rows2 == 2000);
 
         shutdown_not.notify_shutdown.send(()).unwrap();
 

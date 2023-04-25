@@ -1,5 +1,7 @@
 use crate::proto;
 use crate::test_table::TestTable;
+use ballista_executor::global_limit_daemon::GlobalLimitDaemon;
+use ballista_executor::global_limit_stream::GlobalLimitStream;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -10,10 +12,12 @@ use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::memory::MemoryStream;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::Partitioning;
+use datafusion::physical_plan::RecordBatchStream;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::physical_plan::Statistics;
 use std::any::Any;
 use std::convert::TryFrom;
+use std::pin::Pin;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -69,7 +73,7 @@ impl ExecutionPlan for TestTableExec {
         &self,
         // Each partition behaves exactly the same
         _partition: usize,
-        _context: Arc<TaskContext>,
+        context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let record_batch = RecordBatch::try_new(
             self.schema(),
@@ -83,6 +87,19 @@ impl ExecutionPlan for TestTableExec {
         }
 
         let stream = MemoryStream::try_new(data, self.schema(), self.projection.clone())?;
+
+        if let Some(daemon) = context
+            .session_config()
+            .get_extension::<GlobalLimitDaemon>()
+        {
+            if let Some(task_id) = context.task_id() {
+                let config = daemon.register_limit(task_id.clone())?;
+                let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
+                let limited_steam = GlobalLimitStream::new(boxed, config, task_id);
+                println!("##### RUNNING WITH LIMIT ####");
+                return Ok(Box::pin(limited_steam));
+            }
+        }
 
         Ok(Box::pin(stream))
     }
