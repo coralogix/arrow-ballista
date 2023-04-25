@@ -825,7 +825,7 @@ message FailedJob {
   message FetchFailed {
     string executor_id = 1;
     uint32 map_stage_id = 2;
-    uint32 map_partition_id = 3;
+    repeated uint32 map_partition_id = 3;
     string message = 4;
   }
   message Cancelled {}
@@ -949,6 +949,8 @@ service SchedulerGrpc {
 
 service ExecutorGrpc {
   rpc LaunchTask (LaunchTaskParams) returns (LaunchTaskResult) {}
+
+  rpc LaunchMultiTask (LaunchMultiTaskParams) returns (LaunchMultiTaskResult) {}
 
   rpc StopExecutor(StopExecutorParams) returns (StopExecutorResult) {}
 

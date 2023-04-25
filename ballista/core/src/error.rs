@@ -34,7 +34,6 @@ use crate::serde::protobuf::{
 use crate::serde::protobuf::{ExecutionError, FailedTask, FetchPartitionError, IoError};
 use datafusion::arrow::error::ArrowError;
 use datafusion::error::DataFusionError;
-use futures::future::Aborted;
 use itertools::Itertools;
 use sqlparser::parser::{self, ParserError};
 
@@ -354,13 +353,13 @@ impl From<&DataFusionError> for failed_job::datafusion_error::Error {
                     },
                 ),
             DataFusionError::SchemaError(err) => match err {
-                datafusion::common::SchemaError::AmbiguousReference { qualifier, name } => {
+                datafusion::common::SchemaError::AmbiguousReference { field } => {
                     datafusion_error::Error::SchemaError(
                             failed_job::datafusion_error::SchemaError {
                                 error: Some(schema_error::Error::AmbiguousReference(
                                     schema_error::AmbiguousReference {
-                                        qualifier: qualifier.clone(),
-                                        name: name.clone()
+                                        qualifier: field.relation.as_ref().map(|r| r.to_string()),
+                                        name: field.name
                                     },
                                 )),
                             },
@@ -371,7 +370,7 @@ impl From<&DataFusionError> for failed_job::datafusion_error::Error {
                             failed_job::datafusion_error::SchemaError {
                                 error: Some(schema_error::Error::DuplicateQualifiedField(
                                     schema_error::DuplicateQualifiedField {
-                                        qualifier: qualifier.clone(),
+                                        qualifier: qualifier.as_ref().to_string(),
                                         name: name.clone()
                                     },
                                 )),
@@ -587,7 +586,7 @@ impl From<&BallistaError> for failed_job::Error {
             ) => failed_job::Error::FetchFailed(failed_job::FetchFailed {
                 executor_id: executor_id.clone(),
                 map_stage_id: *map_stage_id as u32,
-                map_partition_id: *map_partition_id as u32,
+                map_partition_id: map_partition_id.clone(),
                 message: message.clone(),
             }),
             BallistaError::Cancelled => {
