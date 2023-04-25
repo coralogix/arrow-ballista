@@ -359,7 +359,7 @@ impl From<&DataFusionError> for failed_job::datafusion_error::Error {
                                 error: Some(schema_error::Error::AmbiguousReference(
                                     schema_error::AmbiguousReference {
                                         qualifier: field.relation.as_ref().map(|r| r.to_string()),
-                                        name: field.name
+                                        name: field.name.clone()
                                     },
                                 )),
                             },
@@ -586,7 +586,10 @@ impl From<&BallistaError> for failed_job::Error {
             ) => failed_job::Error::FetchFailed(failed_job::FetchFailed {
                 executor_id: executor_id.clone(),
                 map_stage_id: *map_stage_id as u32,
-                map_partition_id: map_partition_id.clone(),
+                map_partition_id: map_partition_id
+                    .iter()
+                    .map(|i| *i as u32)
+                    .collect_vec(),
                 message: message.clone(),
             }),
             BallistaError::Cancelled => {

@@ -1606,8 +1606,8 @@ pub mod failed_job {
         pub executor_id: ::prost::alloc::string::String,
         #[prost(uint32, tag = "2")]
         pub map_stage_id: u32,
-        #[prost(uint32, tag = "3")]
-        pub map_partition_id: u32,
+        #[prost(uint32, repeated, tag = "3")]
+        pub map_partition_id: ::prost::alloc::vec::Vec<u32>,
         #[prost(string, tag = "4")]
         pub message: ::prost::alloc::string::String,
     }
