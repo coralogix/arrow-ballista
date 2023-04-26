@@ -60,7 +60,7 @@ use crate::executor::Executor;
 use crate::shutdown::ShutdownNotifier;
 use crate::{as_task_status, TaskExecutionTimes};
 
-type ServerHandle = JoinHandle<Result<(), BallistaError>>;
+pub type ServerHandle = JoinHandle<Result<(), BallistaError>>;
 type SchedulerClients = Arc<DashMap<String, SchedulerGrpcClient<Channel>>>;
 
 /// Wrap TaskDefinition with its curator scheduler id for task update to its specific curator scheduler later
@@ -108,6 +108,7 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     let server = {
         let executor_meta = executor.metadata.clone();
         let addr = format!("{}:{}", bind_host, executor_meta.grpc_port);
+        println!("Executor listening on {}", addr);
         let addr = addr.parse().unwrap();
 
         info!(

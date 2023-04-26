@@ -1,0 +1,9 @@
+syntax = "proto3";
+
+import "logical_plan.proto";
+
+message TestTableExec {
+	TestTable table = 1;
+	optional uint64 limit = 2;
+	repeated uint64 projection = 3;
+}

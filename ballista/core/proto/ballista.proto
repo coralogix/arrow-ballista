@@ -921,6 +921,24 @@ message RunningTaskInfo {
   uint32 stage_id = 3;
 }
 
+message ShortCircuitUpdate {
+   uint32 task_id = 1;
+   string job_id = 2;
+   uint32 stage_id = 3;
+   ShortCircuitValueType value_type = 4;
+   uint64 value = 5;
+ }
+
+ message ShortCircuitCommand {
+   string job_id = 1;
+   uint32 stage_id = 2;
+ }
+
+ enum ShortCircuitValueType {
+   STATISTIC_TYPE_ROW_COUNT_UNSPECIFIED = 0;
+   STATISTIC_TYPE_BYTE_COUNT = 1;
+ }
+
 service SchedulerGrpc {
   // Executors must poll the scheduler for heartbeat and to receive tasks
   rpc PollWork(PollWorkParams) returns (PollWorkResult) {}
@@ -945,6 +963,8 @@ service SchedulerGrpc {
   rpc CancelJob(CancelJobParams) returns (CancelJobResult) {}
 
   rpc CleanJobData(CleanJobDataParams) returns (CleanJobDataResult) {}
+
+  rpc SendShortCircuitUpdate(stream ShortCircuitUpdate) returns (stream ShortCircuitCommand) {}
 }
 
 service ExecutorGrpc {
