@@ -5,10 +5,11 @@ use std::task::{Context, Poll};
 
 use arrow::datatypes::SchemaRef;
 use arrow::record_batch::RecordBatch;
-use datafusion::error::{DataFusionError, Result};
+use datafusion::error::Result;
 use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
 use tokio::sync::mpsc::Sender;
+use tracing::warn;
 
 #[derive(Debug)]
 pub struct GlobalLimitConfig {
@@ -20,6 +21,8 @@ pub struct GlobalLimitStream {
     pub inner: Pin<Box<dyn RecordBatchStream + Send>>,
     pub config: GlobalLimitConfig,
     pub task_id: String,
+    buffered_row_count: u64,
+    buffered_byte_size: u64,
 }
 
 impl GlobalLimitStream {
@@ -32,10 +35,13 @@ impl GlobalLimitStream {
             inner,
             config,
             task_id,
+            buffered_row_count: 0,
+            buffered_byte_size: 0,
         }
     }
 }
 
+#[derive(Debug)]
 pub struct GlobalLimitUpdate {
     pub task_id: String,
     pub num_rows: u64,
@@ -62,18 +68,21 @@ impl Stream for GlobalLimitStream {
         let poll = self.inner.poll_next_unpin(cx);
 
         if let Poll::Ready(Some(Ok(record_batch))) = &poll {
+            let num_rows = record_batch.num_rows() as u64;
+            let num_bytes = record_batch.get_array_memory_size() as u64;
             let status_update = GlobalLimitUpdate {
                 task_id: self.task_id.clone(),
-                num_rows: record_batch.num_rows() as u64,
-                num_bytes: record_batch.get_array_memory_size() as u64,
+                num_rows,
+                num_bytes,
             };
 
             if let Err(e) = self.config.send_update.try_send(status_update) {
-                // Fail or log warning?
-                return Poll::Ready(Some(Err(DataFusionError::Execution(format!(
-                    "Failed to send global limit status update: {}",
-                    e
-                )))));
+                if self.buffered_byte_size + self.buffered_row_count == 0 {
+                    warn!("Stream could not send global limit update to daemon, it might be running very fast! ({:?})", e);
+                }
+
+                self.buffered_byte_size += num_rows;
+                self.buffered_row_count += num_bytes;
             }
         }
 

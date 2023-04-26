@@ -921,22 +921,22 @@ message RunningTaskInfo {
   uint32 stage_id = 3;
 }
 
+message ShortCircuitRegister {
+  string task_identity = 1;
+  optional uint64 row_count_limit = 2;
+  optional uint64 byte_count_limit = 3;
+}
+
+message ShortCircuitRegisterResult {}
+
 message ShortCircuitUpdate {
-   uint32 task_id = 1;
-   string job_id = 2;
-   uint32 stage_id = 3;
-   ShortCircuitValueType value_type = 4;
-   uint64 value = 5;
+   string task_identity = 1;
+   uint64 row_count = 5;
+   uint64 byte_count = 6;
  }
 
  message ShortCircuitCommand {
-   string job_id = 1;
-   uint32 stage_id = 2;
- }
-
- enum ShortCircuitValueType {
-   STATISTIC_TYPE_ROW_COUNT_UNSPECIFIED = 0;
-   STATISTIC_TYPE_BYTE_COUNT = 1;
+   bool short_circuit = 1;
  }
 
 service SchedulerGrpc {
@@ -964,7 +964,9 @@ service SchedulerGrpc {
 
   rpc CleanJobData(CleanJobDataParams) returns (CleanJobDataResult) {}
 
-  rpc SendShortCircuitUpdate(stream ShortCircuitUpdate) returns (stream ShortCircuitCommand) {}
+  rpc RegisterShortCircuit(ShortCircuitRegister) returns (ShortCircuitRegisterResult) {}
+
+  rpc SendShortCircuitUpdate(ShortCircuitUpdate) returns (ShortCircuitCommand) {}
 }
 
 service ExecutorGrpc {

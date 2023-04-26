@@ -22,11 +22,11 @@ use ballista_core::serde::protobuf::{
     scheduler_grpc_client::SchedulerGrpcClient, PollWorkParams, PollWorkResult,
     TaskDefinition, TaskStatus,
 };
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
-use crate::global_limit_daemon::GlobalLimitDaemon;
+use crate::global_limit::global_limit_daemon::GlobalLimitDaemon;
 use crate::{as_task_status, TaskExecutionTimes};
 use ballista_core::error::BallistaError;
 use ballista_core::serde::scheduler::ExecutorSpecification;
@@ -71,7 +71,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     let dedicated_executor =
         DedicatedExecutor::new("task_runner", executor_specification.task_slots as usize);
 
-    let global_limit_daemon = Arc::new(GlobalLimitDaemon::new());
+    let global_limit_daemon = Arc::new(GlobalLimitDaemon::new(1000));
 
     loop {
         // Wait for task slots to be available before asking for new work
@@ -97,6 +97,8 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             })
             .await;
 
+        let scheduler_mutex = Arc::new(Mutex::new(scheduler.clone()));
+
         match poll_work_result {
             Ok(result) => {
                 let tasks = result.into_inner().tasks;
@@ -109,11 +111,27 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     let permit =
                         available_task_slots.clone().acquire_owned().await.unwrap();
 
+                    let task_id = &task.task_id;
+                    let job_id = &task.job_id;
+                    let stage_id = &task.stage_id;
+                    let stage_attempt_num = &task.stage_attempt_num;
+                    let partitions = &task.partitions;
+
+                    let task_identity = format!("TID {task_id} {job_id}/{stage_id}.{stage_attempt_num}/{partitions:?}");
+
+                    global_limit_daemon
+                        .register_scheduler(
+                            task_identity.clone(),
+                            scheduler_mutex.clone(),
+                        )
+                        .await;
+
                     match run_received_task(
                         executor.clone(),
                         permit,
                         task_status_sender,
                         task,
+                        task_identity,
                         &codec,
                         &dedicated_executor,
                         default_extensions.clone(),
@@ -152,11 +170,13 @@ pub(crate) fn any_to_string(any: &Box<dyn Any + Send>) -> String {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     executor: Arc<Executor>,
     permit: OwnedSemaphorePermit,
     task_status_sender: Sender<TaskStatus>,
     task: TaskDefinition,
+    task_identity: String,
     codec: &BallistaCodec<T, U>,
     dedicated_executor: &DedicatedExecutor,
     extensions: Extensions,
@@ -172,8 +192,6 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_millis() as u64;
-    let task_identity =
-        format!("TID {task_id} {job_id}/{stage_id}.{stage_attempt_num}/{partitions:?}");
     info!("Received task {}", task_identity);
 
     let mut task_props = HashMap::new();

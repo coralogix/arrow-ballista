@@ -16,15 +16,17 @@ use crate::test_table_exec::TestTableExec;
 pub(crate) struct TestTable {
     pub parallelism: usize,
     pub schema: SchemaRef,
+    pub global_limit: Option<u64>,
 }
 
 impl TestTable {
-    pub(crate) fn new(parallelism: usize) -> Self {
+    pub(crate) fn new(parallelism: usize, global_limit: Option<u64>) -> Self {
         let schema =
             SchemaRef::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         Self {
             parallelism,
             schema,
+            global_limit,
         }
     }
 }
@@ -56,13 +58,14 @@ impl TableProvider for TestTable {
             Arc::new(self.clone()),
             limit,
             projection.cloned(),
+            self.global_limit,
         )))
     }
 }
 
 impl From<proto::TestTable> for TestTable {
     fn from(proto: proto::TestTable) -> Self {
-        Self::new(proto.parallelism as usize)
+        Self::new(proto.parallelism as usize, proto.global_limit)
     }
 }
 
@@ -70,6 +73,7 @@ impl From<TestTable> for proto::TestTable {
     fn from(table: TestTable) -> Self {
         Self {
             parallelism: table.parallelism as u64,
+            global_limit: table.global_limit,
         }
     }
 }

@@ -878,25 +878,21 @@ pub struct FailedJob {
 }
 /// Nested message and enum types in `FailedJob`.
 pub mod failed_job {
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct NotImplemented {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct General {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Internal {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ArrowError {
         #[prost(
@@ -907,94 +903,77 @@ pub mod failed_job {
     }
     /// Nested message and enum types in `ArrowError`.
     pub mod arrow_error {
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct NotYetImplemented {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ExternalError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct CastError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct MemoryError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ParseError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct SchemaError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ComputeError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct DivideByZero {}
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct CsvError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct JsonError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct IoError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct InvalidArgumentError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ParquetError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct CDataInterface {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct DictionaryKeyOverflowError {}
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct RunEndIndexOverflowError {}
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Error {
             #[prost(message, tag = "1")]
@@ -1033,7 +1012,6 @@ pub mod failed_job {
             SqlError(super::SqlError),
         }
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct ParserError {
         #[prost(oneof = "parser_error::Error", tags = "1, 2, 3")]
@@ -1041,22 +1019,18 @@ pub mod failed_job {
     }
     /// Nested message and enum types in `ParserError`.
     pub mod parser_error {
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct TokenizerError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ParserError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct RecursionLimitExceeded {}
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Error {
             #[prost(message, tag = "1")]
@@ -1067,7 +1041,6 @@ pub mod failed_job {
             RecursionLimitExceeded(RecursionLimitExceeded),
         }
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct DatafusionError {
         #[prost(
@@ -1078,7 +1051,6 @@ pub mod failed_job {
     }
     /// Nested message and enum types in `DatafusionError`.
     pub mod datafusion_error {
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ParquetError {
             #[prost(oneof = "parquet_error::Error", tags = "1, 2, 3, 4, 5, 6")]
@@ -1086,31 +1058,26 @@ pub mod failed_job {
         }
         /// Nested message and enum types in `ParquetError`.
         pub mod parquet_error {
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct General {
                 #[prost(string, tag = "1")]
                 pub message: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct NotYetImplemented {
                 #[prost(string, tag = "1")]
                 pub message: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct Eof {
                 #[prost(string, tag = "1")]
                 pub message: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct ArrowError {
                 #[prost(string, tag = "1")]
                 pub message: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct IndexOutOfBound {
                 #[prost(uint32, tag = "1")]
@@ -1118,13 +1085,11 @@ pub mod failed_job {
                 #[prost(uint32, tag = "2")]
                 pub bound: u32,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct External {
                 #[prost(string, tag = "1")]
                 pub message: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Oneof)]
             pub enum Error {
                 #[prost(message, tag = "1")]
@@ -1141,7 +1106,6 @@ pub mod failed_job {
                 External(External),
             }
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct SchemaError {
             #[prost(oneof = "schema_error::Error", tags = "1, 2, 3, 4")]
@@ -1149,7 +1113,6 @@ pub mod failed_job {
         }
         /// Nested message and enum types in `SchemaError`.
         pub mod schema_error {
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct AmbiguousReference {
                 #[prost(string, optional, tag = "1")]
@@ -1157,7 +1120,6 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub name: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct DuplicateQualifiedField {
                 #[prost(string, tag = "1")]
@@ -1165,13 +1127,11 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub name: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct DuplicateUnqualifiedField {
                 #[prost(string, tag = "1")]
                 pub name: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct FieldNotFound {
                 #[prost(string, tag = "1")]
@@ -1181,7 +1141,6 @@ pub mod failed_job {
                     ::prost::alloc::string::String,
                 >,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Oneof)]
             pub enum Error {
                 #[prost(message, tag = "1")]
@@ -1194,13 +1153,11 @@ pub mod failed_job {
                 FieldNotFound(FieldNotFound),
             }
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct AvroError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ObjectStore {
             #[prost(oneof = "object_store::Error", tags = "1, 2, 3, 4, 5, 6, 7, 8")]
@@ -1208,7 +1165,6 @@ pub mod failed_job {
         }
         /// Nested message and enum types in `ObjectStore`.
         pub mod object_store {
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct Generic {
                 #[prost(string, tag = "1")]
@@ -1216,7 +1172,6 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct NotFound {
                 #[prost(string, tag = "1")]
@@ -1224,25 +1179,21 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct InvalidPath {
                 #[prost(string, tag = "1")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct JoinError {
                 #[prost(string, tag = "1")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct NotSupported {
                 #[prost(string, tag = "1")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct AlreadyExists {
                 #[prost(string, tag = "1")]
@@ -1250,10 +1201,8 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub source: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct NotImplemented {}
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Message)]
             pub struct UnknownConfigurationKey {
                 #[prost(string, tag = "1")]
@@ -1261,7 +1210,6 @@ pub mod failed_job {
                 #[prost(string, tag = "2")]
                 pub key: ::prost::alloc::string::String,
             }
-            #[allow(clippy::derive_partial_eq_without_eq)]
             #[derive(Clone, PartialEq, ::prost::Oneof)]
             pub enum Error {
                 #[prost(message, tag = "1")]
@@ -1282,55 +1230,46 @@ pub mod failed_job {
                 UnknownConfigurationKey(UnknownConfigurationKey),
             }
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct IoError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct NotImplemented {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Internal {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Plan {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Execution {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct ResourcesExhausted {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct External {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct JitError {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Context {
             #[prost(string, tag = "1")]
@@ -1340,13 +1279,11 @@ pub mod failed_job {
                 ::prost::alloc::boxed::Box<super::DatafusionError>,
             >,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Message)]
         pub struct Substrait {
             #[prost(string, tag = "1")]
             pub message: ::prost::alloc::string::String,
         }
-        #[allow(clippy::derive_partial_eq_without_eq)]
         #[derive(Clone, PartialEq, ::prost::Oneof)]
         pub enum Error {
             #[prost(message, tag = "1")]
@@ -1385,25 +1322,21 @@ pub mod failed_job {
             ParserError(super::ParserError),
         }
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct SqlError {
         #[prost(message, optional, tag = "1")]
         pub error: ::core::option::Option<ParserError>,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct IoError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TonicError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GrpcError {
         #[prost(string, tag = "1")]
@@ -1470,50 +1403,23 @@ pub mod failed_job {
                     Code::Unauthenticated => "UNAUTHENTICATED",
                 }
             }
-            /// Creates an enum from field names used in the ProtoBuf definition.
-            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-                match value {
-                    "Ok" => Some(Self::Ok),
-                    "CANCELLED" => Some(Self::Cancelled),
-                    "UNKNOWN" => Some(Self::Unknown),
-                    "InvalidArgument" => Some(Self::InvalidArgument),
-                    "DEADLINEEXCEEDED" => Some(Self::Deadlineexceeded),
-                    "NOTFOUND" => Some(Self::Notfound),
-                    "ALREADYEXISTS" => Some(Self::Alreadyexists),
-                    "PERMISSIONDENIED" => Some(Self::Permissiondenied),
-                    "RESOURCEEXHAUSTED" => Some(Self::Resourceexhausted),
-                    "FAILEDPRECONDITION" => Some(Self::Failedprecondition),
-                    "ABORTED" => Some(Self::Aborted),
-                    "OUTOFRANGE" => Some(Self::Outofrange),
-                    "UNIMPLEMENTED" => Some(Self::Unimplemented),
-                    "INTERNAL" => Some(Self::Internal),
-                    "UNAVAILABLE" => Some(Self::Unavailable),
-                    "DATALOSS" => Some(Self::Dataloss),
-                    "UNAUTHENTICATED" => Some(Self::Unauthenticated),
-                    _ => None,
-                }
-            }
         }
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GrpcConnectionError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct TokioError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct GrpcActionError {
         #[prost(string, tag = "1")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct FetchFailed {
         #[prost(string, tag = "1")]
@@ -1525,10 +1431,8 @@ pub mod failed_job {
         #[prost(string, tag = "4")]
         pub message: ::prost::alloc::string::String,
     }
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct Cancelled {}
-    #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Oneof)]
     pub enum Error {
         #[prost(message, tag = "5")]
@@ -1664,44 +1568,29 @@ pub struct RunningTaskInfo {
     pub stage_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShortCircuitRegister {
+    #[prost(string, tag = "1")]
+    pub task_identity: ::prost::alloc::string::String,
+    #[prost(uint64, optional, tag = "2")]
+    pub row_count_limit: ::core::option::Option<u64>,
+    #[prost(uint64, optional, tag = "3")]
+    pub byte_count_limit: ::core::option::Option<u64>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShortCircuitRegisterResult {}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShortCircuitUpdate {
-    #[prost(uint32, tag = "1")]
-    pub task_id: u32,
-    #[prost(string, tag = "2")]
-    pub job_id: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "3")]
-    pub stage_id: u32,
-    #[prost(enumeration = "ShortCircuitValueType", tag = "4")]
-    pub value_type: i32,
+    #[prost(string, tag = "1")]
+    pub task_identity: ::prost::alloc::string::String,
     #[prost(uint64, tag = "5")]
-    pub value: u64,
+    pub row_count: u64,
+    #[prost(uint64, tag = "6")]
+    pub byte_count: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShortCircuitCommand {
-    #[prost(string, tag = "1")]
-    pub job_id: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "2")]
-    pub stage_id: u32,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum ShortCircuitValueType {
-    StatisticTypeRowCountUnspecified = 0,
-    StatisticTypeByteCount = 1,
-}
-impl ShortCircuitValueType {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            ShortCircuitValueType::StatisticTypeRowCountUnspecified => {
-                "STATISTIC_TYPE_ROW_COUNT_UNSPECIFIED"
-            }
-            ShortCircuitValueType::StatisticTypeByteCount => "STATISTIC_TYPE_BYTE_COUNT",
-        }
-    }
+    #[prost(bool, tag = "1")]
+    pub short_circuit: bool,
 }
 /// Generated client implementations.
 pub mod scheduler_grpc_client {
@@ -1966,15 +1855,29 @@ pub mod scheduler_grpc_client {
             );
             self.inner.unary(request.into_request(), path, codec).await
         }
+        pub async fn register_short_circuit(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ShortCircuitRegister>,
+        ) -> Result<tonic::Response<super::ShortCircuitRegisterResult>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/ballista.protobuf.SchedulerGrpc/RegisterShortCircuit",
+            );
+            self.inner.unary(request.into_request(), path, codec).await
+        }
         pub async fn send_short_circuit_update(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<
-                Message = super::ShortCircuitUpdate,
-            >,
-        ) -> Result<
-            tonic::Response<tonic::codec::Streaming<super::ShortCircuitCommand>>,
-            tonic::Status,
-        > {
+            request: impl tonic::IntoRequest<super::ShortCircuitUpdate>,
+        ) -> Result<tonic::Response<super::ShortCircuitCommand>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -1988,7 +1891,7 @@ pub mod scheduler_grpc_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/ballista.protobuf.SchedulerGrpc/SendShortCircuitUpdate",
             );
-            self.inner.streaming(request.into_streaming_request(), path, codec).await
+            self.inner.unary(request.into_request(), path, codec).await
         }
     }
 }
@@ -2190,16 +2093,14 @@ pub mod scheduler_grpc_server {
             &self,
             request: tonic::Request<super::CleanJobDataParams>,
         ) -> Result<tonic::Response<super::CleanJobDataResult>, tonic::Status>;
-        /// Server streaming response type for the SendShortCircuitUpdate method.
-        type SendShortCircuitUpdateStream: futures_core::Stream<
-                Item = Result<super::ShortCircuitCommand, tonic::Status>,
-            >
-            + Send
-            + 'static;
+        async fn register_short_circuit(
+            &self,
+            request: tonic::Request<super::ShortCircuitRegister>,
+        ) -> Result<tonic::Response<super::ShortCircuitRegisterResult>, tonic::Status>;
         async fn send_short_circuit_update(
             &self,
-            request: tonic::Request<tonic::Streaming<super::ShortCircuitUpdate>>,
-        ) -> Result<tonic::Response<Self::SendShortCircuitUpdateStream>, tonic::Status>;
+            request: tonic::Request<super::ShortCircuitUpdate>,
+        ) -> Result<tonic::Response<super::ShortCircuitCommand>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct SchedulerGrpcServer<T: SchedulerGrpc> {
@@ -2656,24 +2557,61 @@ pub mod scheduler_grpc_server {
                     };
                     Box::pin(fut)
                 }
+                "/ballista.protobuf.SchedulerGrpc/RegisterShortCircuit" => {
+                    #[allow(non_camel_case_types)]
+                    struct RegisterShortCircuitSvc<T: SchedulerGrpc>(pub Arc<T>);
+                    impl<
+                        T: SchedulerGrpc,
+                    > tonic::server::UnaryService<super::ShortCircuitRegister>
+                    for RegisterShortCircuitSvc<T> {
+                        type Response = super::ShortCircuitRegisterResult;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ShortCircuitRegister>,
+                        ) -> Self::Future {
+                            let inner = self.0.clone();
+                            let fut = async move {
+                                (*inner).register_short_circuit(request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let inner = inner.0;
+                        let method = RegisterShortCircuitSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 "/ballista.protobuf.SchedulerGrpc/SendShortCircuitUpdate" => {
                     #[allow(non_camel_case_types)]
                     struct SendShortCircuitUpdateSvc<T: SchedulerGrpc>(pub Arc<T>);
                     impl<
                         T: SchedulerGrpc,
-                    > tonic::server::StreamingService<super::ShortCircuitUpdate>
+                    > tonic::server::UnaryService<super::ShortCircuitUpdate>
                     for SendShortCircuitUpdateSvc<T> {
                         type Response = super::ShortCircuitCommand;
-                        type ResponseStream = T::SendShortCircuitUpdateStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::ResponseStream>,
+                            tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<
-                                tonic::Streaming<super::ShortCircuitUpdate>,
-                            >,
+                            request: tonic::Request<super::ShortCircuitUpdate>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move {
@@ -2694,7 +2632,7 @@ pub mod scheduler_grpc_server {
                                 accept_compression_encodings,
                                 send_compression_encodings,
                             );
-                        let res = grpc.streaming(method, req).await;
+                        let res = grpc.unary(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

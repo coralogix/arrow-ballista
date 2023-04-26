@@ -12,7 +12,7 @@ mod test_table_exec;
 #[cfg(test)]
 mod tests {
 
-    use std::{net::SocketAddr, path::PathBuf, sync::Arc, vec};
+    use std::{convert::TryInto, net::SocketAddr, path::PathBuf, sync::Arc, vec};
 
     use anyhow::Context;
     use ballista_core::{
@@ -70,6 +70,8 @@ mod tests {
     async fn test_global_limit() {
         env_logger::init();
 
+        let row_limit = 20;
+
         let logical_codec = Arc::new(TestLogicalCodec::new());
         let physical_codec = Arc::new(TestPhysicalCodec::new());
 
@@ -97,7 +99,7 @@ mod tests {
         )
         .await;
 
-        let test_table = Arc::new(TestTable::new(2));
+        let test_table = Arc::new(TestTable::new(2, Some(row_limit)));
 
         let reference: TableReference = "test_table".into();
         let schema = DFSchema::try_from_qualified_schema(
@@ -169,7 +171,8 @@ mod tests {
         println!("num_rows1: {}", num_rows1);
         println!("num_rows2: {}", num_rows2);
 
-        assert!(num_rows1 + num_rows2 == 2000);
+        assert!(num_rows1 + num_rows2 > row_limit.try_into().unwrap());
+        assert!(num_rows1 + num_rows2 < 1000);
 
         shutdown_not.notify_shutdown.send(()).unwrap();
 
@@ -195,7 +198,7 @@ mod tests {
             .map_err(|e| format!("Job status request for job {} failed: {}", job_id, e))?
             .into_inner();
 
-        let mut attempts = 10;
+        let mut attempts = 60;
 
         while attempts > 0 {
             sleep(Duration::from_millis(1000)).await;

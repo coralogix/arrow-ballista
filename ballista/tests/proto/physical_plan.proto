@@ -6,4 +6,5 @@ message TestTableExec {
 	TestTable table = 1;
 	optional uint64 limit = 2;
 	repeated uint64 projection = 3;
+	optional uint64 global_limit = 4;
 }

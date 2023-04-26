@@ -1,7 +1,8 @@
 use crate::proto;
 use crate::test_table::TestTable;
-use ballista_executor::global_limit_daemon::GlobalLimitDaemon;
-use ballista_executor::global_limit_stream::GlobalLimitStream;
+use ballista_executor::global_limit::global_limit_daemon::GlobalLimitDaemon;
+use ballista_executor::global_limit::global_limit_stream::GlobalLimitStream;
+use ballista_scheduler::scheduler_server::timestamp_millis;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -9,22 +10,26 @@ use datafusion::error::DataFusionError;
 use datafusion::error::Result;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_expr::PhysicalSortExpr;
-use datafusion::physical_plan::memory::MemoryStream;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::Partitioning;
 use datafusion::physical_plan::RecordBatchStream;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::physical_plan::Statistics;
+use futures::task::WakerRef;
+use futures::Stream;
 use std::any::Any;
 use std::convert::TryFrom;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TestTableExec {
     pub(crate) table: Arc<TestTable>,
     pub(crate) limit: Option<usize>,
     pub(crate) projection: Option<Vec<usize>>,
+    pub(crate) global_limit: Option<u64>,
 }
 
 impl TestTableExec {
@@ -32,11 +37,13 @@ impl TestTableExec {
         table: Arc<TestTable>,
         limit: Option<usize>,
         projection: Option<Vec<usize>>,
+        global_limit: Option<u64>,
     ) -> Self {
         Self {
             table,
             limit,
             projection,
+            global_limit,
         }
     }
 }
@@ -80,23 +87,22 @@ impl ExecutionPlan for TestTableExec {
             vec![Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5]))],
         )?;
 
-        let mut data = vec![record_batch; self.limit.unwrap_or(1000) / 5];
-
-        if let Some(limit) = self.limit {
-            data.truncate(limit);
-        }
-
-        let stream = MemoryStream::try_new(data, self.schema(), self.projection.clone())?;
+        let stream = TestDataStream {
+            batch: record_batch,
+            schema: self.schema(),
+            last_sent: 0,
+            delay_ms: 100,
+        };
 
         if let Some(daemon) = context
             .session_config()
             .get_extension::<GlobalLimitDaemon>()
         {
             if let Some(task_id) = context.task_id() {
-                let config = daemon.register_limit(task_id.clone())?;
+                let config =
+                    daemon.register_limit(task_id.clone(), self.global_limit, None)?;
                 let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
                 let limited_steam = GlobalLimitStream::new(boxed, config, task_id);
-                println!("##### RUNNING WITH LIMIT ####");
                 return Ok(Box::pin(limited_steam));
             }
         }
@@ -115,6 +121,7 @@ impl TryFrom<proto::TestTableExec> for TestTableExec {
     fn try_from(value: proto::TestTableExec) -> Result<Self> {
         let table = Arc::new(TestTable::from(value.table.unwrap()));
         let limit = value.limit.map(|x| x as usize);
+        let global_limit = value.global_limit;
         let projection = value
             .projection
             .into_iter()
@@ -131,6 +138,7 @@ impl TryFrom<proto::TestTableExec> for TestTableExec {
             table,
             limit,
             projection: projection_opt,
+            global_limit,
         })
     }
 }
@@ -146,6 +154,46 @@ impl From<TestTableExec> for proto::TestTableExec {
                 .into_iter()
                 .map(|x| x as u64)
                 .collect(),
+            global_limit: value.global_limit,
         }
+    }
+}
+
+struct TestDataStream {
+    batch: RecordBatch,
+    schema: SchemaRef,
+    last_sent: u64,
+    delay_ms: u64,
+}
+
+impl Stream for TestDataStream {
+    type Item = Result<RecordBatch>;
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let current_time = timestamp_millis();
+
+        if self.last_sent + self.delay_ms > current_time {
+            let waker = WakerRef::new(cx.waker()).clone();
+
+            let sleep_for = self.last_sent + self.delay_ms - current_time;
+
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(sleep_for)).await;
+                waker.wake_by_ref();
+            });
+
+            return Poll::Pending;
+        }
+
+        let mut self_mut = self.get_mut();
+
+        self_mut.last_sent = current_time;
+
+        Poll::Ready(Some(Ok(self_mut.batch.clone())))
+    }
+}
+
+impl RecordBatchStream for TestDataStream {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 }
