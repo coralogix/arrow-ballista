@@ -26,6 +26,7 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
+use crate::global_limit_daemon::GlobalLimitDaemon;
 use crate::{as_task_status, TaskExecutionTimes};
 use ballista_core::error::BallistaError;
 use ballista_core::serde::scheduler::ExecutorSpecification;
@@ -69,6 +70,8 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
     let dedicated_executor =
         DedicatedExecutor::new("task_runner", executor_specification.task_slots as usize);
+
+    let global_limit_daemon = Arc::new(GlobalLimitDaemon::new());
 
     loop {
         // Wait for task slots to be available before asking for new work
@@ -114,6 +117,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         &codec,
                         &dedicated_executor,
                         default_extensions.clone(),
+                        global_limit_daemon.clone(),
                     )
                     .await
                     {
@@ -156,6 +160,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     codec: &BallistaCodec<T, U>,
     dedicated_executor: &DedicatedExecutor,
     extensions: Extensions,
+    global_limit: Arc<GlobalLimitDaemon>,
 ) -> Result<(), BallistaError> {
     let task_id = task.task_id;
     let job_id = task.job_id;
@@ -180,7 +185,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     for (k, v) in task_props {
         config.set(&k, &v)?;
     }
-    let session_config = SessionConfig::from(config);
+    let session_config = SessionConfig::from(config).with_extension(global_limit);
 
     let mut task_scalar_functions = HashMap::new();
     let mut task_aggregate_functions = HashMap::new();

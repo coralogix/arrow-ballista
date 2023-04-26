@@ -25,6 +25,7 @@ datafusion-proto.workspace = true
 tonic = "0.8"
 prost = "0.11"
 prost-types = "0.11"
+env_logger = "0.10"
 
 [build-dependencies]
 rustc_version = "0.4.0"

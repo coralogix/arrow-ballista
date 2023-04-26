@@ -18,16 +18,17 @@ mod tests {
     use ballista_core::{
         serde::{
             protobuf::{
-                execute_query_params::Query, executor_resource::Resource,
-                scheduler_grpc_client::SchedulerGrpcClient, ExecuteQueryParams,
-                ExecutorRegistration, ExecutorResource, ExecutorSpecification,
-                GetJobStatusParams,
+                execute_query_params::Query, executor_registration::OptionalHost,
+                executor_resource::Resource, scheduler_grpc_client::SchedulerGrpcClient,
+                ExecuteQueryParams, ExecutorRegistration, ExecutorResource,
+                ExecutorSpecification, GetJobStatusParams, JobStatus, SuccessfulJob,
             },
             BallistaCodec,
         },
         utils::create_grpc_client_connection,
     };
     use ballista_executor::{
+        execution_loop,
         executor::Executor,
         executor_server::{self, ServerHandle},
         metrics::LoggingMetricsCollector,
@@ -47,13 +48,18 @@ mod tests {
         physical_plan::PhysicalExtensionCodec,
         protobuf::LogicalPlanNode,
     };
-    use tokio::sync::mpsc;
+    use tokio::{
+        sync::mpsc,
+        time::{sleep, Duration},
+    };
     use tonic::transport::Channel;
 
     use crate::{
         test_logical_codec::TestLogicalCodec, test_physical_codec::TestPhysicalCodec,
         test_table::TestTable,
     };
+
+    use ballista_core::serde::protobuf::job_status::Status;
 
     lazy_static::lazy_static! {
         pub static ref WORKSPACE_DIR: PathBuf =
@@ -62,18 +68,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_global_limit() {
+        env_logger::init();
+
         let logical_codec = Arc::new(TestLogicalCodec::new());
         let physical_codec = Arc::new(TestPhysicalCodec::new());
 
         let scheduler_socket =
             start_scheduler_local(logical_codec.clone(), physical_codec.clone()).await;
 
-        // Wait for scheduler to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
         let scheduler_url = format!("http://localhost:{}", scheduler_socket.port());
-
-        println!("### SCHEDULER URL: {}", scheduler_url);
 
         let connection = create_grpc_client_connection(scheduler_url.clone())
             .await
@@ -84,12 +87,17 @@ mod tests {
 
         let codec = BallistaCodec::new(logical_codec.clone(), physical_codec.clone());
 
-        let executors = start_executors_local(2, scheduler_client.clone(), codec).await;
+        let shutdown_not = Arc::new(ShutdownNotifier::new());
 
-        // Wait for executors to start
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        let executors = start_executors_local(
+            2,
+            scheduler_client.clone(),
+            codec,
+            shutdown_not.clone(),
+        )
+        .await;
 
-        let test_table = Arc::new(TestTable::new(1));
+        let test_table = Arc::new(TestTable::new(2));
 
         let reference: TableReference = "test_table".into();
         let schema = DFSchema::try_from_qualified_schema(
@@ -131,23 +139,104 @@ mod tests {
             .context("Executing query")
             .unwrap();
 
-        println!("### RESULT: {:?}", result);
+        let job_id = result.into_inner().job_id;
 
-        // sleep
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-
-        let x = scheduler_client
-            .get_job_status(GetJobStatusParams {
-                job_id: result.into_inner().job_id,
-            })
+        let successful_job = await_job_completion(&mut scheduler_client, &job_id)
             .await
             .unwrap();
 
-        println!("### STATUS: {:?}", x);
+        let partitions = successful_job.partition_location;
 
-        for ex in executors {
-            ex.abort();
+        assert_eq!(partitions.len(), 2);
+
+        let partition1 = &partitions[0];
+        let partition2 = &partitions[1];
+
+        let num_rows1 = partition1
+            .partition_stats
+            .clone()
+            .context("Get partition stats")
+            .unwrap()
+            .num_rows;
+
+        let num_rows2 = partition2
+            .partition_stats
+            .clone()
+            .context("Get partition stats")
+            .unwrap()
+            .num_rows;
+
+        println!("num_rows1: {}", num_rows1);
+        println!("num_rows2: {}", num_rows2);
+
+        assert!(num_rows1 + num_rows2 == 2000);
+
+        shutdown_not.notify_shutdown.send(()).unwrap();
+
+        for (_, handle) in executors {
+            handle
+                .await
+                .context("Waiting for executor to shutdown")
+                .unwrap()
+                .context("Waiting for executor to shutdown 2")
+                .unwrap();
         }
+    }
+
+    async fn await_job_completion(
+        scheduler_client: &mut SchedulerGrpcClient<Channel>,
+        job_id: &str,
+    ) -> Result<SuccessfulJob, String> {
+        let mut job_status = scheduler_client
+            .get_job_status(GetJobStatusParams {
+                job_id: job_id.to_owned(),
+            })
+            .await
+            .map_err(|e| format!("Job status request for job {} failed: {}", job_id, e))?
+            .into_inner();
+
+        let mut attempts = 10;
+
+        while attempts > 0 {
+            sleep(Duration::from_millis(1000)).await;
+
+            if let Some(JobStatus {
+                job_id: _,
+                job_name: _,
+                status: Some(status),
+            }) = &job_status.status
+            {
+                match status {
+                    Status::Failed(failed_job) => {
+                        return Err(format!(
+                            "Job {} failed: {:?}",
+                            job_id, failed_job.error
+                        ));
+                    }
+                    Status::Successful(s) => {
+                        return Ok(s.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            attempts -= 1;
+
+            job_status = scheduler_client
+                .get_job_status(GetJobStatusParams {
+                    job_id: job_id.to_owned(),
+                })
+                .await
+                .map_err(|e| {
+                    format!("Job status request for job {} failed: {}", job_id, e)
+                })?
+                .into_inner();
+        }
+
+        Err(format!(
+            "Job {} did not complete, last status: {:?}",
+            job_id, job_status.status
+        ))
     }
 
     async fn start_scheduler_local(
@@ -164,7 +253,8 @@ mod tests {
         n: usize,
         scheduler: SchedulerGrpcClient<Channel>,
         codec: BallistaCodec,
-    ) -> Vec<ServerHandle> {
+        shutdown_not: Arc<ShutdownNotifier>,
+    ) -> Vec<(String, ServerHandle)> {
         let work_dir = "/tmp";
         let cfg = RuntimeConfig::new();
         let runtime = Arc::new(RuntimeEnv::new(cfg).unwrap());
@@ -178,12 +268,15 @@ mod tests {
                 }],
             };
 
+            let port = 50051 + i as u32;
+            let grpc_port = (50052 + n + i) as u32;
+
             let metadata = ExecutorRegistration {
                 id: format!("executor-{}", i),
-                port: 50051 + i as u32,
-                grpc_port: (50052 + n + i) as u32,
+                port,
+                grpc_port,
                 specification: Some(specification),
-                optional_host: None,
+                optional_host: Some(OptionalHost::Host("localhost".to_owned())),
             };
 
             let metrics_collector = Arc::new(LoggingMetricsCollector {});
@@ -203,12 +296,12 @@ mod tests {
 
             let stop_send = mpsc::channel(1).0;
 
-            let shutdown_not = Arc::new(ShutdownNotifier::new());
+            let executor = Arc::new(executor);
 
             let handle = executor_server::startup(
                 scheduler.clone(),
                 "0.0.0.0".to_owned(),
-                Arc::new(executor),
+                executor.clone(),
                 codec.clone(),
                 stop_send,
                 shutdown_not.as_ref(),
@@ -218,7 +311,15 @@ mod tests {
             .context(format!("Starting executor {}", i))
             .unwrap();
 
-            handles.push(handle);
+            handles.push((format!("executor {} process", i), handle));
+
+            // Don't save the handle as this one cannot be interrupted and just has to be dropped
+            tokio::spawn(execution_loop::poll_loop(
+                scheduler.clone(),
+                executor,
+                codec.clone(),
+                Extensions::default(),
+            ));
         }
 
         handles
