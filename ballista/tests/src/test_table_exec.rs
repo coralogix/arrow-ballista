@@ -1,7 +1,7 @@
 use crate::proto;
 use crate::test_table::TestTable;
-use ballista_executor::global_limit::global_limit_daemon::GlobalLimitDaemon;
-use ballista_executor::global_limit::global_limit_stream::GlobalLimitStream;
+use ballista_executor::short_circuit::short_circuit_client::ShortCircuitClient;
+use ballista_executor::short_circuit::short_circuit_stream::ShortCircuitStream;
 use ballista_scheduler::scheduler_server::timestamp_millis;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::datatypes::SchemaRef;
@@ -96,13 +96,13 @@ impl ExecutionPlan for TestTableExec {
 
         if let Some(daemon) = context
             .session_config()
-            .get_extension::<GlobalLimitDaemon>()
+            .get_extension::<ShortCircuitClient>()
         {
             if let Some(task_id) = context.task_id() {
                 let config =
                     daemon.register_limit(task_id.clone(), self.global_limit, None)?;
                 let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
-                let limited_steam = GlobalLimitStream::new(boxed, config, task_id);
+                let limited_steam = ShortCircuitStream::new(boxed, config, task_id);
                 return Ok(Box::pin(limited_steam));
             }
         }

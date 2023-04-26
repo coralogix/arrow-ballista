@@ -12,23 +12,23 @@ use tokio::sync::mpsc::Sender;
 use tracing::warn;
 
 #[derive(Debug)]
-pub struct GlobalLimitConfig {
-    pub send_update: Sender<GlobalLimitUpdate>,
+pub struct ShortCircuitConfig {
+    pub send_update: Sender<ShortCircuitUpdate>,
     pub short_circuit: Arc<AtomicBool>,
 }
 
-pub struct GlobalLimitStream {
+pub struct ShortCircuitStream {
     pub inner: Pin<Box<dyn RecordBatchStream + Send>>,
-    pub config: GlobalLimitConfig,
+    pub config: ShortCircuitConfig,
     pub task_id: String,
     buffered_row_count: u64,
     buffered_byte_size: u64,
 }
 
-impl GlobalLimitStream {
+impl ShortCircuitStream {
     pub fn new(
         inner: Pin<Box<dyn RecordBatchStream + Send>>,
-        config: GlobalLimitConfig,
+        config: ShortCircuitConfig,
         task_id: String,
     ) -> Self {
         Self {
@@ -42,19 +42,19 @@ impl GlobalLimitStream {
 }
 
 #[derive(Debug)]
-pub struct GlobalLimitUpdate {
+pub struct ShortCircuitUpdate {
     pub task_id: String,
     pub num_rows: u64,
     pub num_bytes: u64,
 }
 
-impl RecordBatchStream for GlobalLimitStream {
+impl RecordBatchStream for ShortCircuitStream {
     fn schema(&self) -> SchemaRef {
         self.inner.schema()
     }
 }
 
-impl Stream for GlobalLimitStream {
+impl Stream for ShortCircuitStream {
     type Item = Result<RecordBatch>;
 
     fn poll_next(
@@ -70,7 +70,7 @@ impl Stream for GlobalLimitStream {
         if let Poll::Ready(Some(Ok(record_batch))) = &poll {
             let num_rows = record_batch.num_rows() as u64;
             let num_bytes = record_batch.get_array_memory_size() as u64;
-            let status_update = GlobalLimitUpdate {
+            let status_update = ShortCircuitUpdate {
                 task_id: self.task_id.clone(),
                 num_rows,
                 num_bytes,
@@ -78,7 +78,7 @@ impl Stream for GlobalLimitStream {
 
             if let Err(e) = self.config.send_update.try_send(status_update) {
                 if self.buffered_byte_size + self.buffered_row_count == 0 {
-                    warn!("Stream could not send global limit update to daemon, it might be running very fast! ({:?})", e);
+                    warn!("Stream could not send short circuit update to daemon, it might be running very fast! ({:?})", e);
                 }
 
                 self.buffered_byte_size += num_rows;

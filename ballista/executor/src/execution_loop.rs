@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::serde::protobuf::task_status::Status;
 use datafusion::config::{ConfigOptions, Extensions};
 use datafusion::physical_plan::ExecutionPlan;
 
@@ -26,7 +27,7 @@ use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
-use crate::global_limit::global_limit_daemon::GlobalLimitDaemon;
+use crate::short_circuit::short_circuit_client::ShortCircuitClient;
 use crate::{as_task_status, TaskExecutionTimes};
 use ballista_core::error::BallistaError;
 use ballista_core::serde::scheduler::ExecutorSpecification;
@@ -71,7 +72,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     let dedicated_executor =
         DedicatedExecutor::new("task_runner", executor_specification.task_slots as usize);
 
-    let global_limit_daemon = Arc::new(GlobalLimitDaemon::new(1000));
+    let short_circuit_client = Arc::new(ShortCircuitClient::new(1000));
 
     loop {
         // Wait for task slots to be available before asking for new work
@@ -84,7 +85,8 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         let mut active_job = false;
 
         let task_status: Vec<TaskStatus> =
-            sample_tasks_status(&mut task_status_receiver).await;
+            sample_tasks_status(&mut task_status_receiver, short_circuit_client.clone())
+                .await;
 
         let poll_work_result: anyhow::Result<
             tonic::Response<PollWorkResult>,
@@ -117,9 +119,15 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     let stage_attempt_num = &task.stage_attempt_num;
                     let partitions = &task.partitions;
 
-                    let task_identity = format!("TID {task_id} {job_id}/{stage_id}.{stage_attempt_num}/{partitions:?}");
+                    let task_identity = create_task_identity(
+                        task_id,
+                        job_id,
+                        stage_id,
+                        stage_attempt_num,
+                        partitions,
+                    );
 
-                    global_limit_daemon
+                    short_circuit_client
                         .register_scheduler(
                             task_identity.clone(),
                             scheduler_mutex.clone(),
@@ -135,7 +143,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         &codec,
                         &dedicated_executor,
                         default_extensions.clone(),
-                        global_limit_daemon.clone(),
+                        short_circuit_client.clone(),
                     )
                     .await
                     {
@@ -170,6 +178,16 @@ pub(crate) fn any_to_string(any: &Box<dyn Any + Send>) -> String {
     }
 }
 
+fn create_task_identity(
+    task_id: &u32,
+    job_id: &str,
+    stage_id: &u32,
+    stage_attempt_num: &u32,
+    partitions: &Vec<u32>,
+) -> String {
+    format!("TID {task_id} {job_id}/{stage_id}.{stage_attempt_num}/{partitions:?}")
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     executor: Arc<Executor>,
@@ -180,7 +198,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     codec: &BallistaCodec<T, U>,
     dedicated_executor: &DedicatedExecutor,
     extensions: Extensions,
-    global_limit: Arc<GlobalLimitDaemon>,
+    short_circuit_client: Arc<ShortCircuitClient>,
 ) -> Result<(), BallistaError> {
     let task_id = task.task_id;
     let job_id = task.job_id;
@@ -203,7 +221,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     for (k, v) in task_props {
         config.set(&k, &v)?;
     }
-    let session_config = SessionConfig::from(config).with_extension(global_limit);
+    let session_config = SessionConfig::from(config).with_extension(short_circuit_client);
 
     let mut task_scalar_functions = HashMap::new();
     let mut task_aggregate_functions = HashMap::new();
@@ -313,12 +331,35 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 
 async fn sample_tasks_status(
     task_status_receiver: &mut Receiver<TaskStatus>,
+    short_circuit_client: Arc<ShortCircuitClient>,
 ) -> Vec<TaskStatus> {
     let mut task_status: Vec<TaskStatus> = vec![];
 
     loop {
-        match task_status_receiver.try_recv() {
+        let recv = task_status_receiver.try_recv();
+
+        match recv {
             anyhow::Result::Ok(status) => {
+                // If there is a status and it is not running
+                if status
+                    .status
+                    .iter()
+                    .any(|s| !matches!(s, Status::Running(_)))
+                {
+                    let task_identity = create_task_identity(
+                        &status.task_id,
+                        &status.job_id,
+                        &status.stage_id,
+                        &status.stage_attempt_num,
+                        &status.partitions,
+                    );
+
+                    info!("Unregistering scheduler lookup for task {}", task_identity);
+                    short_circuit_client
+                        .unregister_scheduler(&task_identity)
+                        .await;
+                }
+
                 task_status.push(status);
             }
             Err(TryRecvError::Empty) => {

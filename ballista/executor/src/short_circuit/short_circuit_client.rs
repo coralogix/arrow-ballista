@@ -1,5 +1,6 @@
 use ballista_core::serde::protobuf::{
-    scheduler_grpc_client::SchedulerGrpcClient, ShortCircuitRegister, ShortCircuitUpdate,
+    scheduler_grpc_client::SchedulerGrpcClient, ShortCircuitRegisterRequest,
+    ShortCircuitUpdateRequest,
 };
 use std::{
     collections::HashMap,
@@ -17,18 +18,21 @@ use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tonic::transport::Channel;
 use tracing::{info, warn};
 
-use crate::global_limit::global_limit_stream::{GlobalLimitConfig, GlobalLimitUpdate};
+use crate::short_circuit::short_circuit_stream::{
+    ShortCircuitConfig, ShortCircuitUpdate,
+};
 use datafusion::error::{DataFusionError, Result};
 
-type SchedulerLookup = Arc<RwLock<HashMap<String, Arc<Mutex<SchedulerGrpcClient<Channel>>>>>>;
+type SchedulerLookup =
+    Arc<RwLock<HashMap<String, Arc<Mutex<SchedulerGrpcClient<Channel>>>>>>;
 
-pub struct GlobalLimitDaemon {
-    create_sender: Sender<RegisterGlobalLimit>,
-    updates_sender: Sender<GlobalLimitUpdate>,
+pub struct ShortCircuitClient {
+    create_sender: Sender<RegisterShortCircuit>,
+    updates_sender: Sender<ShortCircuitUpdate>,
     scheduler_lookup: SchedulerLookup,
 }
 
-struct GlobalLimitState {
+struct ShortCircuitTaskState {
     short_circuit: Arc<AtomicBool>,
     buffered_num_rows: u64,
     buffered_num_bytes: u64,
@@ -36,7 +40,7 @@ struct GlobalLimitState {
 }
 
 #[derive(Debug)]
-struct RegisterGlobalLimit {
+struct RegisterShortCircuit {
     task_id: String,
     short_circuit: Arc<AtomicBool>,
     row_count_limit: Option<u64>,
@@ -45,11 +49,11 @@ struct RegisterGlobalLimit {
 
 #[derive(Debug)]
 enum DaemonUpdate {
-    Create(RegisterGlobalLimit),
-    Update(GlobalLimitUpdate),
+    Create(RegisterShortCircuit),
+    Update(ShortCircuitUpdate),
 }
 
-impl GlobalLimitDaemon {
+impl ShortCircuitClient {
     pub fn new(send_interval_ms: u64) -> Self {
         let (create_sender, create_receiver) = channel(99);
         let (updates_sender, updates_receiver) = channel(99);
@@ -71,8 +75,8 @@ impl GlobalLimitDaemon {
     }
 
     async fn run_daemon(
-        create_receiver: Receiver<RegisterGlobalLimit>,
-        updates_receiver: Receiver<GlobalLimitUpdate>,
+        create_receiver: Receiver<RegisterShortCircuit>,
+        updates_receiver: Receiver<ShortCircuitUpdate>,
         scheduler_lookup: SchedulerLookup,
         send_interval_ms: u64,
     ) {
@@ -90,7 +94,7 @@ impl GlobalLimitDaemon {
             match combined_received {
                 DaemonUpdate::Create(create) => {
                     let task_id = create.task_id.clone();
-                    let config = GlobalLimitState {
+                    let config = ShortCircuitTaskState {
                         short_circuit: create.short_circuit,
                         buffered_num_rows: 0,
                         buffered_num_bytes: 0,
@@ -101,7 +105,7 @@ impl GlobalLimitDaemon {
 
                     if let Some(scheduler) = scheduler_lookup.read().await.get(&task_id) {
                         let mut scheduler = scheduler.lock().await;
-                        let register = ShortCircuitRegister {
+                        let register = ShortCircuitRegisterRequest {
                             task_identity: task_id.clone(),
                             row_count_limit: create.row_count_limit,
                             byte_count_limit: create.bytes_count_limit,
@@ -125,7 +129,7 @@ impl GlobalLimitDaemon {
                                 state.buffered_num_rows += update.num_rows;
                                 state.buffered_num_bytes += update.num_bytes;
                             } else {
-                                let update = ShortCircuitUpdate {
+                                let update = ShortCircuitUpdateRequest {
                                     task_identity: task_id.clone(),
                                     row_count: update.num_rows + state.buffered_num_rows,
                                     byte_count: update.num_bytes
@@ -176,10 +180,10 @@ impl GlobalLimitDaemon {
         task_id: String,
         row_count_limit: Option<u64>,
         bytes_count_limit: Option<u64>,
-    ) -> Result<GlobalLimitConfig> {
+    ) -> Result<ShortCircuitConfig> {
         let short_circuit = Arc::new(AtomicBool::new(false));
 
-        let create = RegisterGlobalLimit {
+        let create = RegisterShortCircuit {
             task_id,
             short_circuit: short_circuit.clone(),
             row_count_limit,
@@ -188,12 +192,12 @@ impl GlobalLimitDaemon {
 
         self.create_sender.try_send(create).map_err(|e| {
             DataFusionError::Execution(format!(
-                "Failed to send create to global limit daemon: {}",
+                "Failed to send register request to short circuit daemon: {}",
                 e
             ))
         })?;
 
-        Ok(GlobalLimitConfig {
+        Ok(ShortCircuitConfig {
             send_update: self.updates_sender.clone(),
             short_circuit,
         })
@@ -206,5 +210,24 @@ impl GlobalLimitDaemon {
     ) {
         let mut scheduler_lookup = self.scheduler_lookup.write().await;
         scheduler_lookup.insert(task_id, scheduler);
+    }
+
+    pub async fn unregister_scheduler(&self, task_id: &String) {
+        let mut scheduler_lookup = self.scheduler_lookup.write().await;
+        scheduler_lookup.remove(task_id);
+    }
+}
+
+struct Registration {
+    client: Arc<ShortCircuitClient>,
+    task_id: String,
+}
+impl Drop for Registration {
+    fn drop(&mut self) {
+        let client = self.client.clone();
+        let task_id = self.task_id.clone();
+        tokio::spawn(async move {
+            client.unregister_scheduler(&task_id).await;
+        });
     }
 }

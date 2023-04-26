@@ -1568,7 +1568,7 @@ pub struct RunningTaskInfo {
     pub stage_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitRegister {
+pub struct ShortCircuitRegisterRequest {
     #[prost(string, tag = "1")]
     pub task_identity: ::prost::alloc::string::String,
     #[prost(uint64, optional, tag = "2")]
@@ -1577,9 +1577,9 @@ pub struct ShortCircuitRegister {
     pub byte_count_limit: ::core::option::Option<u64>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitRegisterResult {}
+pub struct ShortCircuitRegisterResponse {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitUpdate {
+pub struct ShortCircuitUpdateRequest {
     #[prost(string, tag = "1")]
     pub task_identity: ::prost::alloc::string::String,
     #[prost(uint64, tag = "5")]
@@ -1588,7 +1588,7 @@ pub struct ShortCircuitUpdate {
     pub byte_count: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitCommand {
+pub struct ShortCircuitUpdateResponse {
     #[prost(bool, tag = "1")]
     pub short_circuit: bool,
 }
@@ -1857,8 +1857,11 @@ pub mod scheduler_grpc_client {
         }
         pub async fn register_short_circuit(
             &mut self,
-            request: impl tonic::IntoRequest<super::ShortCircuitRegister>,
-        ) -> Result<tonic::Response<super::ShortCircuitRegisterResult>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::ShortCircuitRegisterRequest>,
+        ) -> Result<
+            tonic::Response<super::ShortCircuitRegisterResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -1876,8 +1879,8 @@ pub mod scheduler_grpc_client {
         }
         pub async fn send_short_circuit_update(
             &mut self,
-            request: impl tonic::IntoRequest<super::ShortCircuitUpdate>,
-        ) -> Result<tonic::Response<super::ShortCircuitCommand>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::ShortCircuitUpdateRequest>,
+        ) -> Result<tonic::Response<super::ShortCircuitUpdateResponse>, tonic::Status> {
             self.inner
                 .ready()
                 .await
@@ -2095,12 +2098,12 @@ pub mod scheduler_grpc_server {
         ) -> Result<tonic::Response<super::CleanJobDataResult>, tonic::Status>;
         async fn register_short_circuit(
             &self,
-            request: tonic::Request<super::ShortCircuitRegister>,
-        ) -> Result<tonic::Response<super::ShortCircuitRegisterResult>, tonic::Status>;
+            request: tonic::Request<super::ShortCircuitRegisterRequest>,
+        ) -> Result<tonic::Response<super::ShortCircuitRegisterResponse>, tonic::Status>;
         async fn send_short_circuit_update(
             &self,
-            request: tonic::Request<super::ShortCircuitUpdate>,
-        ) -> Result<tonic::Response<super::ShortCircuitCommand>, tonic::Status>;
+            request: tonic::Request<super::ShortCircuitUpdateRequest>,
+        ) -> Result<tonic::Response<super::ShortCircuitUpdateResponse>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct SchedulerGrpcServer<T: SchedulerGrpc> {
@@ -2562,16 +2565,16 @@ pub mod scheduler_grpc_server {
                     struct RegisterShortCircuitSvc<T: SchedulerGrpc>(pub Arc<T>);
                     impl<
                         T: SchedulerGrpc,
-                    > tonic::server::UnaryService<super::ShortCircuitRegister>
+                    > tonic::server::UnaryService<super::ShortCircuitRegisterRequest>
                     for RegisterShortCircuitSvc<T> {
-                        type Response = super::ShortCircuitRegisterResult;
+                        type Response = super::ShortCircuitRegisterResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ShortCircuitRegister>,
+                            request: tonic::Request<super::ShortCircuitRegisterRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move {
@@ -2602,16 +2605,16 @@ pub mod scheduler_grpc_server {
                     struct SendShortCircuitUpdateSvc<T: SchedulerGrpc>(pub Arc<T>);
                     impl<
                         T: SchedulerGrpc,
-                    > tonic::server::UnaryService<super::ShortCircuitUpdate>
+                    > tonic::server::UnaryService<super::ShortCircuitUpdateRequest>
                     for SendShortCircuitUpdateSvc<T> {
-                        type Response = super::ShortCircuitCommand;
+                        type Response = super::ShortCircuitUpdateResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::ShortCircuitUpdate>,
+                            request: tonic::Request<super::ShortCircuitUpdateRequest>,
                         ) -> Self::Future {
                             let inner = self.0.clone();
                             let fut = async move {

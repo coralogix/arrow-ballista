@@ -10,7 +10,7 @@ use tracing::{info, warn};
 
 use crate::scheduler_server::timestamp_millis;
 
-pub struct GlobalLimitDaemon {
+pub struct ShortCircuitController {
     state: Arc<RwLock<HashMap<String, State>>>,
 }
 
@@ -37,7 +37,7 @@ impl TaskIdentity {
     }
 }
 
-impl Default for GlobalLimitDaemon {
+impl Default for ShortCircuitController {
     fn default() -> Self {
         let state = Arc::new(RwLock::new(HashMap::new()));
 
@@ -47,7 +47,7 @@ impl Default for GlobalLimitDaemon {
     }
 }
 
-impl GlobalLimitDaemon {
+impl ShortCircuitController {
     async fn run_daemon(state: Arc<RwLock<HashMap<String, State>>>) {
         loop {
             sleep(Duration::from_secs(1)).await;
@@ -143,8 +143,7 @@ impl GlobalLimitDaemon {
     fn parse_task_identity(task_identity: String) -> Result<TaskIdentity, String> {
         // Ballista uses the same task identity format consistently, but it has to use the String defined by Datafusion.
         // So we need to parse it here.
-        let regex =
-            Regex::new(r"TID (\d+) ([^/]*)/(\d+)\.(\d+)/\[([\d,\s]+)\]").unwrap();
+        let regex = Regex::new(r"TID (\d+) ([^/]*)/(\d+)\.(\d+)/\[([\d,\s]+)\]").unwrap();
         let captures = regex
             .captures(&task_identity)
             .ok_or_else(|| format!("Invalid task identity: {}", task_identity))?;

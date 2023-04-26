@@ -24,8 +24,8 @@ pub mod executor;
 pub mod executor_process;
 pub mod executor_server;
 pub mod flight_service;
-pub mod global_limit;
 pub mod metrics;
+pub mod short_circuit;
 pub mod shutdown;
 pub mod terminate;
 

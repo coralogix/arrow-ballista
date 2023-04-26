@@ -28,8 +28,8 @@ use ballista_core::serde::protobuf::{
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
     PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
-    ShortCircuitCommand, ShortCircuitRegister, ShortCircuitRegisterResult,
-    ShortCircuitUpdate, UpdateTaskStatusParams, UpdateTaskStatusResult,
+    ShortCircuitRegisterRequest, ShortCircuitRegisterResponse, ShortCircuitUpdateRequest,
+    ShortCircuitUpdateResponse, UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -555,39 +555,39 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
     async fn register_short_circuit(
         &self,
-        request: Request<ShortCircuitRegister>,
-    ) -> Result<Response<ShortCircuitRegisterResult>, Status> {
-        let ShortCircuitRegister {
+        request: Request<ShortCircuitRegisterRequest>,
+    ) -> Result<Response<ShortCircuitRegisterResponse>, Status> {
+        let ShortCircuitRegisterRequest {
             task_identity,
             row_count_limit,
             byte_count_limit,
         } = request.into_inner();
 
-        self.global_limit_daemon
+        self.short_circuit_controller
             .register_short_circuit(task_identity, row_count_limit, byte_count_limit)
             .await
             .map_err(Status::internal)?;
 
-        Ok(Response::new(ShortCircuitRegisterResult {}))
+        Ok(Response::new(ShortCircuitRegisterResponse {}))
     }
 
     async fn send_short_circuit_update(
         &self,
-        request: Request<ShortCircuitUpdate>,
-    ) -> Result<Response<ShortCircuitCommand>, Status> {
-        let ShortCircuitUpdate {
+        request: Request<ShortCircuitUpdateRequest>,
+    ) -> Result<Response<ShortCircuitUpdateResponse>, Status> {
+        let ShortCircuitUpdateRequest {
             task_identity,
             row_count,
             byte_count,
         } = request.into_inner();
 
         let short_circuit = self
-            .global_limit_daemon
+            .short_circuit_controller
             .update(task_identity, row_count, byte_count)
             .await
             .map_err(Status::internal)?;
 
-        Ok(Response::new(ShortCircuitCommand { short_circuit }))
+        Ok(Response::new(ShortCircuitUpdateResponse { short_circuit }))
     }
 }
 
