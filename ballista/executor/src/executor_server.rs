@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 
 use log::{debug, error, info, warn};
 use tonic::transport::Channel;
@@ -57,6 +57,7 @@ use tokio::task::JoinHandle;
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::execution_engine::QueryStageExecutor;
 use crate::executor::Executor;
+use crate::short_circuit::short_circuit_client::ShortCircuitClient;
 use crate::shutdown::ShutdownNotifier;
 use crate::{as_task_status, TaskExecutionTimes};
 
@@ -187,6 +188,7 @@ pub struct ExecutorServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPl
     scheduler_to_register: SchedulerGrpcClient<Channel>,
     schedulers: SchedulerClients,
     default_extensions: Extensions,
+    short_circuit_client: Arc<ShortCircuitClient>,
 }
 
 #[derive(Clone)]
@@ -213,6 +215,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         codec: BallistaCodec<T, U>,
         default_extensions: Extensions,
     ) -> Self {
+        let short_circuit_client = Arc::new(ShortCircuitClient::new(1000));
         Self {
             _start_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -224,6 +227,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             scheduler_to_register,
             schedulers: Default::default(),
             default_extensions,
+            short_circuit_client,
         }
     }
 
@@ -316,7 +320,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         for (k, v) in task_props {
             config.set(&k, &v)?;
         }
-        let session_config = SessionConfig::from(config);
+        let session_config =
+            SessionConfig::from(config).with_extension(self.short_circuit_client.clone());
 
         let mut task_scalar_functions = HashMap::new();
         let mut task_aggregate_functions = HashMap::new();
@@ -372,7 +377,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         for (k, v) in task_props {
             config.set(&k, &v)?;
         }
-        let session_config = SessionConfig::from(config);
+        let session_config =
+            SessionConfig::from(config).with_extension(self.short_circuit_client.clone());
+
+        let scheduler = Arc::new(Mutex::new(
+            self.get_scheduler_client(scheduler_id.as_str()).await?,
+        ));
+
+        self.short_circuit_client
+            .register_scheduler(task_identity.to_owned(), scheduler)
+            .await;
 
         let mut task_scalar_functions = HashMap::new();
         let mut task_aggregate_functions = HashMap::new();
@@ -452,6 +466,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             Some(operator_metrics),
             task_execution_times,
         );
+
+        self.short_circuit_client
+            .unregister_scheduler(task_identity)
+            .await;
 
         let task_status_sender = self.executor_env.tx_task_status.clone();
         task_status_sender

@@ -212,7 +212,7 @@ impl ShortCircuitClient {
         scheduler_lookup.insert(task_id, scheduler);
     }
 
-    pub async fn unregister_scheduler(&self, task_id: &String) {
+    pub async fn unregister_scheduler(&self, task_id: &str) {
         let mut scheduler_lookup = self.scheduler_lookup.write().await;
         scheduler_lookup.remove(task_id);
     }
