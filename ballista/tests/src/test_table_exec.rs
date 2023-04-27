@@ -29,7 +29,7 @@ pub(crate) struct TestTableExec {
     pub(crate) table: Arc<TestTable>,
     pub(crate) limit: Option<usize>,
     pub(crate) projection: Option<Vec<usize>>,
-    pub(crate) global_limit: Option<u64>,
+    pub(crate) global_limit: u64,
 }
 
 impl TestTableExec {
@@ -37,7 +37,7 @@ impl TestTableExec {
         table: Arc<TestTable>,
         limit: Option<usize>,
         projection: Option<Vec<usize>>,
-        global_limit: Option<u64>,
+        global_limit: u64,
     ) -> Self {
         Self {
             table,
@@ -99,8 +99,11 @@ impl ExecutionPlan for TestTableExec {
             .get_extension::<ShortCircuitClient>()
         {
             if let Some(task_id) = context.task_id() {
-                let config =
-                    daemon.register_limit(task_id.clone(), self.global_limit, None)?;
+                let config = daemon.register_limit(
+                    task_id.clone(),
+                    Some(self.global_limit),
+                    None,
+                )?;
                 let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
                 let limited_steam = ShortCircuitStream::new(boxed, config, task_id);
                 return Ok(Box::pin(limited_steam));

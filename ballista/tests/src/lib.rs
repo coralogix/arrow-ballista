@@ -99,7 +99,7 @@ mod tests {
         )
         .await;
 
-        let test_table = Arc::new(TestTable::new(2, Some(row_limit)));
+        let test_table = Arc::new(TestTable::new(2, row_limit));
 
         let reference: TableReference = "test_table".into();
         let schema = DFSchema::try_from_qualified_schema(

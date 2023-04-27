@@ -16,11 +16,11 @@ use crate::test_table_exec::TestTableExec;
 pub(crate) struct TestTable {
     pub parallelism: usize,
     pub schema: SchemaRef,
-    pub global_limit: Option<u64>,
+    pub global_limit: u64,
 }
 
 impl TestTable {
-    pub(crate) fn new(parallelism: usize, global_limit: Option<u64>) -> Self {
+    pub(crate) fn new(parallelism: usize, global_limit: u64) -> Self {
         let schema =
             SchemaRef::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         Self {
