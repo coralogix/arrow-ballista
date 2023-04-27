@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use prost_build::Config;
+
 fn main() -> Result<(), String> {
     use std::io::Write;
 
@@ -21,8 +23,13 @@ fn main() -> Result<(), String> {
         println!("cargo:rerun-if-changed=proto/logical_plan.proto");
         println!("cargo:rerun-if-changed=proto/physical_plan.proto");
 
+        let mut config = Config::new();
+
+        config.protoc_arg("--experimental_allow_proto3_optional");
+
         tonic_build::configure()
-            .compile(
+            .compile_with_config(
+                config,
                 &["proto/logical_plan.proto", "proto/physical_plan.proto"],
                 &["proto"],
             )
