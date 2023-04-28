@@ -354,7 +354,6 @@ async fn sample_tasks_status(
                         &status.partitions,
                     );
 
-                    info!("Unregistering scheduler lookup for task {}", task_identity);
                     short_circuit_client
                         .unregister_scheduler(&task_identity)
                         .await;

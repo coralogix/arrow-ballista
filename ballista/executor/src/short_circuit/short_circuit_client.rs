@@ -122,6 +122,7 @@ impl ShortCircuitClient {
 
                     if let Some(scheduler) = scheduler_lookup.read().await.get(&task_id) {
                         let mut scheduler = scheduler.lock().await;
+                        let mut delete_state = false;
                         if let Some(state) = state_per_task.get_mut(&task_id) {
                             if state.last_sent + send_interval_ms
                                 > Self::timestamp_millis()
@@ -153,14 +154,24 @@ impl ShortCircuitClient {
                                                 "Short circuit triggered for task {}",
                                                 task_id
                                             );
+
                                             state
                                                 .short_circuit
                                                 .store(short_circuit, Ordering::SeqCst);
+
+                                            // Delete state if short circuit is triggered
+                                            // The short circuit atomic bool is wrapped in an Arc
+                                            // so it will remain readable by the stream
+                                            delete_state = true;
                                         }
                                     }
                                 }
                                 state.last_sent = Self::timestamp_millis();
                             }
+                        }
+
+                        if delete_state {
+                            state_per_task.remove(&task_id);
                         }
                     }
                 }
@@ -208,11 +219,13 @@ impl ShortCircuitClient {
         task_id: String,
         scheduler: Arc<Mutex<SchedulerGrpcClient<Channel>>>,
     ) {
+        info!("Registering scheduler lookup for task {}", task_id);
         let mut scheduler_lookup = self.scheduler_lookup.write().await;
         scheduler_lookup.insert(task_id, scheduler);
     }
 
     pub async fn unregister_scheduler(&self, task_id: &str) {
+        info!("Unregistering scheduler lookup for task {}", task_id);
         let mut scheduler_lookup = self.scheduler_lookup.write().await;
         scheduler_lookup.remove(task_id);
     }

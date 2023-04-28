@@ -109,7 +109,6 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     let server = {
         let executor_meta = executor.metadata.clone();
         let addr = format!("{}:{}", bind_host, executor_meta.grpc_port);
-        println!("Executor listening on {}", addr);
         let addr = addr.parse().unwrap();
 
         info!(
