@@ -26,6 +26,9 @@ use std::time::Instant;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
+use crate::short_circuit;
+use crate::short_circuit::plan_visitor::PlanVisitor;
+use crate::short_circuit::short_circuit_controller::ShortCircuitController;
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use crate::state::session_manager::SessionManager;
 use crate::state::task_manager::{TaskLauncher, TaskManager};
@@ -92,6 +95,7 @@ pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPl
     pub session_manager: SessionManager,
     pub codec: BallistaCodec<T, U>,
     pub config: SchedulerConfig,
+    pub short_circuit_controller: Arc<ShortCircuitController>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T, U> {
@@ -100,11 +104,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
     ) -> Self {
+        use crate::short_circuit::plan_visitor::DefaultPlanVisitor;
+
         SchedulerState::new(
             cluster,
             codec,
             "localhost:50050".to_owned(),
             SchedulerConfig::default(),
+            Arc::new(DefaultPlanVisitor::default())
         )
     }
 
@@ -113,6 +120,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
         config: SchedulerConfig,
+        plan_visitor: Arc<dyn PlanVisitor>
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -127,6 +135,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
+            short_circuit_controller: Arc::new(ShortCircuitController::new(plan_visitor))
         }
     }
 
@@ -151,6 +160,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
+            short_circuit_controller: Arc::new(ShortCircuitController::default())
         }
     }
 
@@ -351,10 +361,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         })?;
 
         let plan = session_ctx.state().create_physical_plan(plan).await?;
+
         debug!(
             "Physical plan: {}",
             DisplayableExecutionPlan::new(plan.as_ref()).indent()
         );
+
+        self.short_circuit_controller.register(job_id, plan.clone()).await;
 
         self.task_manager
             .submit_job(job_id, job_name, &session_ctx.session_id(), plan, queued_at)
@@ -368,11 +381,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     }
 
     /// Spawn a delayed future to clean up job data on both Scheduler and Executors
-    pub(crate) fn clean_up_successful_job(&self, job_id: String) {
+    pub(crate) async fn clean_up_successful_job(&self, job_id: String) {
         self.executor_manager.clean_up_job_data_delayed(
             job_id.clone(),
             self.config.finished_job_data_clean_up_interval_seconds,
         );
+        self.short_circuit_controller.unregister(&job_id).await;
         self.task_manager.clean_up_job_delayed(
             job_id,
             self.config.finished_job_state_clean_up_interval_seconds,
@@ -380,8 +394,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     }
 
     /// Spawn a delayed future to clean up job data on both Scheduler and Executors
-    pub(crate) fn clean_up_failed_job(&self, job_id: String) {
+    pub(crate) async fn clean_up_failed_job(&self, job_id: String) {
         self.executor_manager.clean_up_job_data(job_id.clone());
+        self.short_circuit_controller.unregister(&job_id).await;
         self.task_manager.clean_up_job_delayed(
             job_id,
             self.config.finished_job_state_clean_up_interval_seconds,

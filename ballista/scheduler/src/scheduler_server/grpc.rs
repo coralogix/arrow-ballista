@@ -28,8 +28,8 @@ use ballista_core::serde::protobuf::{
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
     PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
-    ShortCircuitRegisterRequest, ShortCircuitRegisterResponse, ShortCircuitUpdateRequest,
-    ShortCircuitUpdateResponse, UpdateTaskStatusParams, UpdateTaskStatusResult,
+    ShortCircuitCommand, ShortCircuitUpdateRequest, ShortCircuitUpdateResponse,
+    UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -553,47 +553,35 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         Ok(Response::new(CleanJobDataResult {}))
     }
 
-    async fn register_short_circuit(
-        &self,
-        request: Request<ShortCircuitRegisterRequest>,
-    ) -> Result<Response<ShortCircuitRegisterResponse>, Status> {
-        let ShortCircuitRegisterRequest {
-            task_identity,
-            row_count_limit,
-            byte_count_limit,
-        } = request.into_inner();
-
-        self.short_circuit_controller
-            .register_short_circuit(task_identity, row_count_limit, byte_count_limit)
-            .await
-            .map_err(Status::internal)?;
-
-        Ok(Response::new(ShortCircuitRegisterResponse {}))
-    }
-
     async fn send_short_circuit_update(
         &self,
         request: Request<ShortCircuitUpdateRequest>,
     ) -> Result<Response<ShortCircuitUpdateResponse>, Status> {
-        let ShortCircuitUpdateRequest {
-            task_identity,
-            row_count,
-            byte_count,
-        } = request.into_inner();
+        let ShortCircuitUpdateRequest { updates } = request.into_inner();
 
-        let short_circuit = self
-            .short_circuit_controller
-            .update(task_identity, row_count, byte_count)
-            .await
-            .map_err(Status::internal)?;
+        let mut commands = vec![];
 
-        Ok(Response::new(ShortCircuitUpdateResponse { short_circuit }))
+        for update in updates {
+            let short_circuit = self
+                .state
+                .short_circuit_controller
+                .update(update.id.clone(), update.partition as usize, update.count)
+                .await
+                .map_err(Status::internal)?;
+
+            if short_circuit {
+                commands.push(ShortCircuitCommand { id: update.id });
+            }
+        }
+
+        Ok(Response::new(ShortCircuitUpdateResponse { commands }))
     }
 }
 
 #[cfg(all(test, feature = "sled"))]
 mod test {
 
+    use std::sync::Arc;
     use std::time::Duration;
 
     use datafusion_proto::protobuf::LogicalPlanNode;
@@ -602,6 +590,7 @@ mod test {
 
     use crate::config::SchedulerConfig;
     use crate::metrics::default_metrics_collector;
+    use crate::short_circuit::plan_visitor::DefaultPlanVisitor;
     use ballista_core::error::BallistaError;
     use ballista_core::serde::protobuf::{
         executor_registration::OptionalHost, executor_status, ExecutorRegistration,
@@ -629,6 +618,7 @@ mod test {
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                Arc::new(DefaultPlanVisitor::default()),
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -715,6 +705,7 @@ mod test {
                 BallistaCodec::default(),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
+                Arc::new(DefaultPlanVisitor::default()),
             );
         scheduler.init().await?;
 
@@ -803,6 +794,7 @@ mod test {
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                Arc::new(DefaultPlanVisitor::default()),
             );
         scheduler.init().await?;
 
@@ -855,6 +847,7 @@ mod test {
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                Arc::new(DefaultPlanVisitor::default()),
             );
         scheduler.init().await?;
 

@@ -1568,29 +1568,28 @@ pub struct RunningTaskInfo {
     pub stage_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitRegisterRequest {
-    #[prost(string, tag = "1")]
-    pub task_identity: ::prost::alloc::string::String,
-    #[prost(uint64, optional, tag = "2")]
-    pub row_count_limit: ::core::option::Option<u64>,
-    #[prost(uint64, optional, tag = "3")]
-    pub byte_count_limit: ::core::option::Option<u64>,
+pub struct ShortCircuitUpdateRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub updates: ::prost::alloc::vec::Vec<ShortCircuitUpdate>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitRegisterResponse {}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ShortCircuitUpdateRequest {
+pub struct ShortCircuitUpdate {
     #[prost(string, tag = "1")]
-    pub task_identity: ::prost::alloc::string::String,
-    #[prost(uint64, tag = "5")]
-    pub row_count: u64,
-    #[prost(uint64, tag = "6")]
-    pub byte_count: u64,
+    pub id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub partition: u32,
+    #[prost(uint64, tag = "3")]
+    pub count: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ShortCircuitUpdateResponse {
-    #[prost(bool, tag = "1")]
-    pub short_circuit: bool,
+    #[prost(message, repeated, tag = "1")]
+    pub commands: ::prost::alloc::vec::Vec<ShortCircuitCommand>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ShortCircuitCommand {
+    #[prost(string, tag = "1")]
+    pub id: ::prost::alloc::string::String,
 }
 /// Generated client implementations.
 pub mod scheduler_grpc_client {
@@ -1855,28 +1854,6 @@ pub mod scheduler_grpc_client {
             );
             self.inner.unary(request.into_request(), path, codec).await
         }
-        pub async fn register_short_circuit(
-            &mut self,
-            request: impl tonic::IntoRequest<super::ShortCircuitRegisterRequest>,
-        ) -> Result<
-            tonic::Response<super::ShortCircuitRegisterResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/ballista.protobuf.SchedulerGrpc/RegisterShortCircuit",
-            );
-            self.inner.unary(request.into_request(), path, codec).await
-        }
         pub async fn send_short_circuit_update(
             &mut self,
             request: impl tonic::IntoRequest<super::ShortCircuitUpdateRequest>,
@@ -2096,10 +2073,6 @@ pub mod scheduler_grpc_server {
             &self,
             request: tonic::Request<super::CleanJobDataParams>,
         ) -> Result<tonic::Response<super::CleanJobDataResult>, tonic::Status>;
-        async fn register_short_circuit(
-            &self,
-            request: tonic::Request<super::ShortCircuitRegisterRequest>,
-        ) -> Result<tonic::Response<super::ShortCircuitRegisterResponse>, tonic::Status>;
         async fn send_short_circuit_update(
             &self,
             request: tonic::Request<super::ShortCircuitUpdateRequest>,
@@ -2549,46 +2522,6 @@ pub mod scheduler_grpc_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = CleanJobDataSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/ballista.protobuf.SchedulerGrpc/RegisterShortCircuit" => {
-                    #[allow(non_camel_case_types)]
-                    struct RegisterShortCircuitSvc<T: SchedulerGrpc>(pub Arc<T>);
-                    impl<
-                        T: SchedulerGrpc,
-                    > tonic::server::UnaryService<super::ShortCircuitRegisterRequest>
-                    for RegisterShortCircuitSvc<T> {
-                        type Response = super::ShortCircuitRegisterResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<super::ShortCircuitRegisterRequest>,
-                        ) -> Self::Future {
-                            let inner = self.0.clone();
-                            let fut = async move {
-                                (*inner).register_short_circuit(request).await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = RegisterShortCircuitSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

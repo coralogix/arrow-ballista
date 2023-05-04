@@ -1,246 +1,234 @@
-use ballista_core::serde::protobuf::{
-    scheduler_grpc_client::SchedulerGrpcClient, ShortCircuitRegisterRequest,
-    ShortCircuitUpdateRequest,
+use ballista_core::{
+    error::BallistaError,
+    serde::protobuf::{self, ShortCircuitUpdateRequest},
 };
 use std::{
     collections::HashMap,
+    convert::TryInto,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::SystemTime,
+    time::Duration,
 };
-use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
-    Mutex, RwLock,
-};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::{wrappers::ReceiverStream, StreamExt};
-use tonic::transport::Channel;
-use tracing::{info, warn};
+use tracing::warn;
 
-use crate::short_circuit::short_circuit_stream::{
-    ShortCircuitConfig, ShortCircuitUpdate,
+use crate::{
+    scheduler_client::SchedulerClientRegistry,
+    short_circuit::short_circuit_stream::ShortCircuitUpdate,
 };
 use datafusion::error::{DataFusionError, Result};
 
-type SchedulerLookup =
-    Arc<RwLock<HashMap<String, Arc<Mutex<SchedulerGrpcClient<Channel>>>>>>;
+use super::short_circuit_stream::ShortCircuitConfig;
 
 pub struct ShortCircuitClient {
-    create_sender: Sender<RegisterShortCircuit>,
-    updates_sender: Sender<ShortCircuitUpdate>,
-    scheduler_lookup: SchedulerLookup,
+    updates_sender: Sender<Update>,
+}
+
+struct SchedulerRegistration {
+    task_id: String,
+    scheduler_id: String,
+}
+
+struct SchedulerUnregistration {
+    task_id: String,
+}
+
+struct ShortCircuitRegister {
+    task_id: String,
+    short_circuit: Arc<AtomicBool>,
+}
+
+enum Update {
+    ShortCircuitRegister(ShortCircuitRegister),
+    ShortCircuit(ShortCircuitUpdate),
+    SchedulerRegistration(SchedulerRegistration),
+    SchedulerUnregistration(SchedulerUnregistration),
 }
 
 struct ShortCircuitTaskState {
     short_circuit: Arc<AtomicBool>,
-    buffered_num_rows: u64,
-    buffered_num_bytes: u64,
-    last_sent: u64,
-}
-
-#[derive(Debug)]
-struct RegisterShortCircuit {
-    task_id: String,
-    short_circuit: Arc<AtomicBool>,
-    row_count_limit: Option<u64>,
-    bytes_count_limit: Option<u64>,
-}
-
-#[derive(Debug)]
-enum DaemonUpdate {
-    Create(RegisterShortCircuit),
-    Update(ShortCircuitUpdate),
 }
 
 impl ShortCircuitClient {
-    pub fn new(send_interval_ms: u64) -> Self {
-        let (create_sender, create_receiver) = channel(99);
+    pub fn new(
+        send_interval_ms: u64,
+        get_scheduler: Arc<dyn SchedulerClientRegistry>,
+    ) -> Self {
         let (updates_sender, updates_receiver) = channel(99);
 
-        let scheduler_lookup = Arc::new(RwLock::new(HashMap::new()));
-
         tokio::spawn(Self::run_daemon(
-            create_receiver,
             updates_receiver,
-            scheduler_lookup.clone(),
             send_interval_ms,
+            get_scheduler,
         ));
 
-        Self {
-            create_sender,
-            updates_sender,
-            scheduler_lookup,
-        }
+        Self { updates_sender }
     }
 
     async fn run_daemon(
-        create_receiver: Receiver<RegisterShortCircuit>,
-        updates_receiver: Receiver<ShortCircuitUpdate>,
-        scheduler_lookup: SchedulerLookup,
+        updates_receiver: Receiver<Update>,
         send_interval_ms: u64,
+        get_scheduler: Arc<dyn SchedulerClientRegistry>,
     ) {
         let mut state_per_task = HashMap::new();
 
-        let create_stream =
-            ReceiverStream::new(create_receiver).map(DaemonUpdate::Create);
+        let mut scheduler_ids = HashMap::new();
 
-        let updates_stream =
-            ReceiverStream::new(updates_receiver).map(DaemonUpdate::Update);
+        let updates_stream = ReceiverStream::new(updates_receiver)
+            .chunks_timeout(100, Duration::from_millis(send_interval_ms));
 
-        let mut combined_stream = create_stream.merge(updates_stream);
+        tokio::pin!(updates_stream);
 
-        while let Some(combined_received) = combined_stream.next().await {
-            match combined_received {
-                DaemonUpdate::Create(create) => {
-                    let task_id = create.task_id.clone();
-                    let config = ShortCircuitTaskState {
-                        short_circuit: create.short_circuit,
-                        buffered_num_rows: 0,
-                        buffered_num_bytes: 0,
-                        last_sent: 0,
-                    };
+        while let Some(combined_received) = updates_stream.next().await {
+            let mut updates_per_scheduler = HashMap::new();
 
-                    state_per_task.insert(task_id.clone(), config);
-
-                    if let Some(scheduler) = scheduler_lookup.read().await.get(&task_id) {
-                        let mut scheduler = scheduler.lock().await;
-                        let register = ShortCircuitRegisterRequest {
-                            task_identity: task_id.clone(),
-                            row_count_limit: create.row_count_limit,
-                            byte_count_limit: create.bytes_count_limit,
+            for update in combined_received {
+                match update {
+                    Update::ShortCircuitRegister(register) => {
+                        let state = ShortCircuitTaskState {
+                            short_circuit: register.short_circuit,
                         };
 
-                        info!("Registering short circuit: {:?}", register);
-                        if let Err(e) = scheduler.register_short_circuit(register).await {
-                            warn!("Failed to register short circuit: {:?}", e);
-                        }
+                        state_per_task.insert(register.task_id, state);
+                    }
+                    Update::ShortCircuit(update) => {
+                        let scheduler_id: &String = match scheduler_ids
+                            .get(&update.task_id)
+                        {
+                            Some(scheduler_id) => scheduler_id,
+                            None => {
+                                warn!("No scheduler found for task {}", update.task_id);
+                                continue;
+                            }
+                        };
+
+                        updates_per_scheduler
+                            .entry(scheduler_id.clone())
+                            .or_insert_with(Vec::new)
+                            .push(update);
+                    }
+                    Update::SchedulerRegistration(registration) => {
+                        scheduler_ids.insert(
+                            registration.task_id.clone(),
+                            registration.scheduler_id.clone(),
+                        );
+                    }
+                    Update::SchedulerUnregistration(unregistration) => {
+                        scheduler_ids.remove(&unregistration.task_id);
                     }
                 }
-                DaemonUpdate::Update(update) => {
-                    let task_id = update.task_id.clone();
+            }
 
-                    if let Some(scheduler) = scheduler_lookup.read().await.get(&task_id) {
-                        let mut scheduler = scheduler.lock().await;
-                        let mut delete_state = false;
-                        if let Some(state) = state_per_task.get_mut(&task_id) {
-                            if state.last_sent + send_interval_ms
-                                > Self::timestamp_millis()
-                            {
-                                state.buffered_num_rows += update.num_rows;
-                                state.buffered_num_bytes += update.num_bytes;
+            for (scheduler_id, updates) in updates_per_scheduler {
+                let mut request_updates = Vec::with_capacity(updates.len());
+
+                for update in updates {
+                    request_updates.push(protobuf::ShortCircuitUpdate {
+                        id: update.task_id,
+                        count: update.count,
+                        partition: update.partition.try_into().unwrap(),
+                    })
+                }
+
+                let scheduler = match get_scheduler
+                    .get_or_create_scheduler_client(&scheduler_id)
+                    .await
+                {
+                    Ok(scheduler) => scheduler,
+                    Err(e) => {
+                        warn!("Failed to get scheduler {}: {}", scheduler_id, e);
+                        continue;
+                    }
+                };
+
+                let request = ShortCircuitUpdateRequest {
+                    updates: request_updates,
+                };
+
+                match scheduler
+                    .lock()
+                    .await
+                    .send_short_circuit_update(request)
+                    .await
+                {
+                    Err(e) => warn!(
+                        "Failed to send short circuit update to scheduler {}: {}",
+                        scheduler_id, e
+                    ),
+                    Ok(response) => {
+                        let commands = response.into_inner().commands;
+
+                        for command in commands {
+                            if let Some(state) = state_per_task.get(&command.id) {
+                                state.short_circuit.store(true, Ordering::SeqCst);
                             } else {
-                                let update = ShortCircuitUpdateRequest {
-                                    task_identity: task_id.clone(),
-                                    row_count: update.num_rows + state.buffered_num_rows,
-                                    byte_count: update.num_bytes
-                                        + state.buffered_num_bytes,
-                                };
-
-                                state.buffered_num_rows = 0;
-                                state.buffered_num_bytes = 0;
-
-                                info!("Sending short circuit update: {:?}", update);
-
-                                match scheduler.send_short_circuit_update(update).await {
-                                    Err(e) => {
-                                        warn!("Failed to update short circuit: {:?}", e);
-                                    }
-                                    Ok(cmd) => {
-                                        let short_circuit =
-                                            cmd.into_inner().short_circuit;
-                                        if short_circuit {
-                                            info!(
-                                                "Short circuit triggered for task {}",
-                                                task_id
-                                            );
-
-                                            state
-                                                .short_circuit
-                                                .store(short_circuit, Ordering::SeqCst);
-
-                                            // Delete state if short circuit is triggered
-                                            // The short circuit atomic bool is wrapped in an Arc
-                                            // so it will remain readable by the stream
-                                            delete_state = true;
-                                        }
-                                    }
-                                }
-                                state.last_sent = Self::timestamp_millis();
+                                warn!("No state found for task {}", command.id);
                             }
                         }
-
-                        if delete_state {
-                            state_per_task.remove(&task_id);
-                        }
                     }
-                }
+                };
             }
         }
     }
 
-    fn timestamp_millis() -> u64 {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64
-    }
-
-    pub fn register_limit(
+    pub fn register_scheduler(
         &self,
         task_id: String,
-        row_count_limit: Option<u64>,
-        bytes_count_limit: Option<u64>,
-    ) -> Result<ShortCircuitConfig> {
+        scheduler_id: String,
+    ) -> Result<(), BallistaError> {
+        let update = Update::SchedulerRegistration(SchedulerRegistration {
+            task_id,
+            scheduler_id,
+        });
+
+        self.updates_sender.try_send(update).map_err(|e| {
+            BallistaError::Internal(format!(
+                "Failed to send scheduler registration: {}",
+                e
+            ))
+        })
+    }
+
+    pub fn unregister_scheduler(&self, task_id: String) -> Result<(), BallistaError> {
+        let update = Update::SchedulerUnregistration(SchedulerUnregistration { task_id });
+
+        self.updates_sender.try_send(update).map_err(|e| {
+            BallistaError::Internal(format!(
+                "Failed to send scheduler unregistration: {}",
+                e
+            ))
+        })
+    }
+
+    pub fn register_stream(
+        &self,
+        task_id: String,
+    ) -> Result<ShortCircuitConfig, DataFusionError> {
         let short_circuit = Arc::new(AtomicBool::new(false));
 
-        let create = RegisterShortCircuit {
-            task_id,
+        let update = Update::ShortCircuitRegister(ShortCircuitRegister {
+            task_id: task_id.clone(),
             short_circuit: short_circuit.clone(),
-            row_count_limit,
-            bytes_count_limit,
-        };
+        });
 
-        self.create_sender.try_send(create).map_err(|e| {
-            DataFusionError::Execution(format!(
-                "Failed to send register request to short circuit daemon: {}",
+        self.updates_sender.try_send(update).map_err(|e| {
+            DataFusionError::Internal(format!(
+                "Failed to send short circuit registration: {}",
                 e
             ))
         })?;
 
-        Ok(ShortCircuitConfig {
-            send_update: self.updates_sender.clone(),
-            short_circuit,
+        Ok(ShortCircuitConfig { short_circuit })
+    }
+
+    pub fn send_update(&self, update: ShortCircuitUpdate) -> Result<(), BallistaError> {
+        let update = Update::ShortCircuit(update);
+
+        self.updates_sender.try_send(update).map_err(|e| {
+            BallistaError::Internal(format!("Failed to send short circuit update: {}", e))
         })
-    }
-
-    pub async fn register_scheduler(
-        &self,
-        task_id: String,
-        scheduler: Arc<Mutex<SchedulerGrpcClient<Channel>>>,
-    ) {
-        info!("Registering scheduler lookup for task {}", task_id);
-        let mut scheduler_lookup = self.scheduler_lookup.write().await;
-        scheduler_lookup.insert(task_id, scheduler);
-    }
-
-    pub async fn unregister_scheduler(&self, task_id: &str) {
-        info!("Unregistering scheduler lookup for task {}", task_id);
-        let mut scheduler_lookup = self.scheduler_lookup.write().await;
-        scheduler_lookup.remove(task_id);
-    }
-}
-
-struct Registration {
-    client: Arc<ShortCircuitClient>,
-    task_id: String,
-}
-impl Drop for Registration {
-    fn drop(&mut self) {
-        let client = self.client.clone();
-        let task_id = self.task_id.clone();
-        tokio::spawn(async move {
-            client.unregister_scheduler(&task_id).await;
-        });
     }
 }

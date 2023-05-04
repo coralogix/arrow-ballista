@@ -8,35 +8,47 @@ use arrow::record_batch::RecordBatch;
 use datafusion::error::Result;
 use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
-use tokio::sync::mpsc::Sender;
 use tracing::warn;
+
+use super::short_circuit_client::ShortCircuitClient;
 
 #[derive(Debug)]
 pub struct ShortCircuitConfig {
-    pub send_update: Sender<ShortCircuitUpdate>,
     pub short_circuit: Arc<AtomicBool>,
 }
 
 pub struct ShortCircuitStream {
     pub inner: Pin<Box<dyn RecordBatchStream + Send>>,
     pub config: ShortCircuitConfig,
+    pub client: Arc<ShortCircuitClient>,
     pub task_id: String,
-    buffered_row_count: u64,
-    buffered_byte_size: u64,
+    pub partition: usize,
+    count_mode: CountMode,
+    buffered_count: u64,
+}
+
+pub enum CountMode {
+    Bytes,
+    Rows,
 }
 
 impl ShortCircuitStream {
     pub fn new(
         inner: Pin<Box<dyn RecordBatchStream + Send>>,
         config: ShortCircuitConfig,
+        client: Arc<ShortCircuitClient>,
         task_id: String,
+        partition: usize,
+        count_mode: CountMode,
     ) -> Self {
         Self {
             inner,
             config,
+            client,
             task_id,
-            buffered_row_count: 0,
-            buffered_byte_size: 0,
+            partition,
+            count_mode,
+            buffered_count: 0,
         }
     }
 }
@@ -44,8 +56,8 @@ impl ShortCircuitStream {
 #[derive(Debug)]
 pub struct ShortCircuitUpdate {
     pub task_id: String,
-    pub num_rows: u64,
-    pub num_bytes: u64,
+    pub partition: usize,
+    pub count: u64,
 }
 
 impl RecordBatchStream for ShortCircuitStream {
@@ -68,21 +80,24 @@ impl Stream for ShortCircuitStream {
         let poll = self.inner.poll_next_unpin(cx);
 
         if let Poll::Ready(Some(Ok(record_batch))) = &poll {
-            let num_rows = record_batch.num_rows() as u64;
-            let num_bytes = record_batch.get_array_memory_size() as u64;
-            let status_update = ShortCircuitUpdate {
-                task_id: self.task_id.clone(),
-                num_rows,
-                num_bytes,
+            let count = match self.count_mode {
+                CountMode::Bytes => record_batch.get_array_memory_size() as u64,
+                CountMode::Rows => record_batch.num_rows() as u64,
             };
 
-            if let Err(e) = self.config.send_update.try_send(status_update) {
-                if self.buffered_byte_size + self.buffered_row_count == 0 {
+            let status_update = ShortCircuitUpdate {
+                task_id: self.task_id.clone(),
+                partition: self.partition,
+                count,
+            };
+
+            if let Err(e) = self.client.send_update(status_update) {
+                // So we only log when it starts happening
+                if self.buffered_count == 0 {
                     warn!("Stream could not send short circuit update to daemon, it might be running very fast! ({:?})", e);
                 }
 
-                self.buffered_byte_size += num_rows;
-                self.buffered_row_count += num_bytes;
+                self.buffered_count += count;
             }
         }
 

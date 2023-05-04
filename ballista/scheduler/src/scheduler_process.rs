@@ -23,6 +23,7 @@ use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::transport::server::Connected;
 use tower::Service;
 
@@ -40,6 +41,7 @@ use crate::flight_sql::FlightSqlServiceImpl;
 use crate::metrics::default_metrics_collector;
 use crate::scheduler_server::externalscaler::external_scaler_server::ExternalScalerServer;
 use crate::scheduler_server::SchedulerServer;
+use crate::short_circuit::plan_visitor::DefaultPlanVisitor;
 
 pub async fn start_server(
     cluster: BallistaCluster,
@@ -65,6 +67,7 @@ pub async fn start_server(
             BallistaCodec::default(),
             config,
             metrics_collector,
+            Arc::new(DefaultPlanVisitor::default()),
         );
 
     scheduler_server.init().await?;

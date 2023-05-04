@@ -30,6 +30,7 @@ pub mod shutdown;
 pub mod terminate;
 
 mod cpu_bound_executor;
+mod scheduler_client;
 mod standalone;
 
 pub use standalone::new_standalone_executor;

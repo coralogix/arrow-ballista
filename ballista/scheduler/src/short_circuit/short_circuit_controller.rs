@@ -1,164 +1,126 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use regex::Regex;
-use tokio::{
-    sync::RwLock,
-    time::{sleep, Duration},
-};
+use datafusion::physical_plan::ExecutionPlan;
+use tokio::sync::RwLock;
 use tracing::{info, warn};
 
-use crate::scheduler_server::timestamp_millis;
+use super::plan_visitor::{DefaultPlanVisitor, PlanVisitor};
 
 pub struct ShortCircuitController {
+    visitor: Arc<dyn PlanVisitor>,
     state: Arc<RwLock<HashMap<String, State>>>,
+    job_registrations: Arc<RwLock<HashMap<String, ShortCircuitRegistration>>>,
 }
 
 struct State {
-    row_count_limit: Option<u64>,
-    byte_count_limit: Option<u64>,
-    row_count: u64,
-    byte_count: u64,
-    last_update: u64,
-}
-
-struct TaskIdentity {
-    job_id: String,
-    stage_id: String,
-    stage_attempt_num: u64,
-}
-
-impl TaskIdentity {
-    fn to_key(&self) -> String {
-        format!(
-            "{}/{}/{}",
-            self.job_id, self.stage_id, self.stage_attempt_num
-        )
-    }
+    counts: Vec<u64>,
+    limit: u64,
 }
 
 impl Default for ShortCircuitController {
     fn default() -> Self {
         let state = Arc::new(RwLock::new(HashMap::new()));
 
-        tokio::spawn(Self::run_daemon(state.clone()));
-
-        Self { state }
+        Self {
+            visitor: Arc::new(DefaultPlanVisitor::default()),
+            state,
+            job_registrations: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 }
 
 impl ShortCircuitController {
-    async fn run_daemon(state: Arc<RwLock<HashMap<String, State>>>) {
-        loop {
-            sleep(Duration::from_secs(1)).await;
+    pub fn new(visitor: Arc<dyn PlanVisitor>) -> Self {
+        let state = Arc::new(RwLock::new(HashMap::new()));
+        let job_registrations = Arc::new(RwLock::new(HashMap::new()));
 
-            let mut state = state.write().await;
-
-            state.retain(|task_id, state| {
-                let now = timestamp_millis();
-                // Some amount of time that is long enough to not cause issues
-                let should_retain = state.last_update + 60_000 > now;
-                if !should_retain {
-                    info!("Removing short circuit state for task {}", task_id);
-                }
-                should_retain
-            });
+        Self {
+            visitor,
+            state,
+            job_registrations
         }
     }
 
-    pub async fn register_short_circuit(
+    pub async fn register(
         &self,
-        task_identity: String,
-        row_count_limit: Option<u64>,
-        byte_count_limit: Option<u64>,
-    ) -> Result<(), String> {
-        info!(
-            "Registering short circuit for task {} with row count limit {:?} and byte count limit {:?}",
-            task_identity, row_count_limit, byte_count_limit
-        );
+        job_id: &str,
+        plan: Arc<dyn ExecutionPlan>,
+    ) {
+        info!("Registering short circuit nodes for job {}", job_id);
+        let visited = self.visitor.visit_all(plan.as_ref());
 
         let mut state = self.state.write().await;
+        let mut ids = Vec::with_capacity(visited.len());
 
-        let task_identity = Self::parse_task_identity(task_identity)?;
+        for result in visited {
+            info!("Registering short circuit node {}", result.id);
+            state.insert(
+                result.id.clone(),
+                State {
+                    counts: vec![],
+                    limit: result.limit,
+                },
+            );
 
-        state.insert(
-            task_identity.to_key(),
-            State {
-                row_count_limit,
-                byte_count_limit,
-                row_count: 0,
-                byte_count: 0,
-                last_update: timestamp_millis(),
-            },
-        );
+            ids.push(result.id.clone());
+        }
 
-        Ok(())
+        let registration = ShortCircuitRegistration { ids };
+
+        let mut job_registrations = self.job_registrations.write().await;
+        job_registrations.insert(job_id.to_owned(), registration);
+    }
+
+    pub async fn unregister(&self, job_id: &str) {
+        info!("Unregistering short circuit nodes for job {}", job_id);
+        let mut state = self.state.write().await;
+
+        let job_registrations = self.job_registrations.read().await;
+        let registration = job_registrations.get(job_id).unwrap();
+
+        for id in &registration.ids {
+            info!("Unregistering short circuit node {}", id);
+            state.remove(id);
+        }
     }
 
     pub async fn update(
         &self,
-        task_identity: String,
-        row_count: u64,
-        byte_count: u64,
+        id: String,
+        partition: usize,
+        count: u64,
     ) -> Result<bool, String> {
         let mut state = self.state.write().await;
 
-        let task_identity = Self::parse_task_identity(task_identity)?;
-
-        let state = match state.get_mut(&task_identity.to_key()) {
+        let state = match state.get_mut(&id) {
             Some(state) => state,
             // If the registration hasn't happened yet
             None => {
-                warn!(
-                    "Short circuit update received for unregistered task {}",
-                    task_identity.to_key()
-                );
+                warn!("Short circuit update received for unregistered node {}", id);
                 return Ok(false);
             }
         };
 
-        state.row_count += row_count;
-        state.byte_count += byte_count;
-        state.last_update = timestamp_millis();
+        if state.counts.len() <= partition {
+            state.counts.resize(partition + 1, 0);
+        }
 
-        let should_short_circuit = state
-            .row_count_limit
-            .iter()
-            .any(|limit| state.row_count >= *limit)
-            || state
-                .byte_count_limit
-                .iter()
-                .any(|limit| state.byte_count >= *limit);
+        state.counts[partition] += count;
+
+        let should_short_circuit = state.counts.iter().sum::<u64>() >= state.limit;
 
         if should_short_circuit {
             info!(
-                "Short circuiting task {} due to global limit reached",
-                task_identity.to_key()
+                "Short circuiting node {} partition {} due to global limit reached",
+                id, partition
             );
         }
 
         Ok(should_short_circuit)
     }
+}
 
-    fn parse_task_identity(task_identity: String) -> Result<TaskIdentity, String> {
-        // Ballista uses the same task identity format consistently, but it has to use the String defined by Datafusion.
-        // So we need to parse it here.
-        let regex = Regex::new(r"TID (\d+) ([^/]*)/(\d+)\.(\d+)/\[([\d,\s]+)\]").unwrap();
-        let captures = regex
-            .captures(&task_identity)
-            .ok_or_else(|| format!("Invalid task identity: {}", task_identity))?;
-        // let _task_id = captures.get(1).unwrap().as_str();
-        let job_id = captures.get(2).unwrap().as_str().to_owned();
-        let stage_id = captures.get(3).unwrap().as_str().to_owned();
-        let stage_attempt_num_str = captures.get(4).unwrap().as_str();
-        // let _stage_partitions = captures.get(5).unwrap().as_str();
-
-        let stage_attempt_num = stage_attempt_num_str.parse::<u64>().unwrap();
-
-        Ok(TaskIdentity {
-            job_id,
-            stage_id,
-            stage_attempt_num,
-        })
-    }
+pub struct ShortCircuitRegistration {
+    ids: Vec<String>,
 }

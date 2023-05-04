@@ -34,14 +34,14 @@ mod tests {
         metrics::LoggingMetricsCollector,
         shutdown::ShutdownNotifier,
     };
-    use ballista_scheduler::standalone::new_standalone_scheduler_with_codec;
+    use ballista_scheduler::{standalone::new_standalone_scheduler_with_codec, short_circuit::plan_visitor::{PlanVisitor, PlanVisitorResult}};
     use datafusion::{
         common::DFSchema,
         config::Extensions,
         datasource::{provider_as_source, TableProvider},
         execution::runtime_env::{RuntimeConfig, RuntimeEnv},
         logical_expr::{LogicalPlan, TableScan},
-        sql::TableReference,
+        sql::TableReference, physical_plan::ExecutionPlan,
     };
     use datafusion_proto::{
         logical_plan::{AsLogicalPlan, LogicalExtensionCodec},
@@ -56,7 +56,7 @@ mod tests {
 
     use crate::{
         test_logical_codec::TestLogicalCodec, test_physical_codec::TestPhysicalCodec,
-        test_table::TestTable,
+        test_table::TestTable, test_table_exec::TestTableExec,
     };
 
     use ballista_core::serde::protobuf::job_status::Status;
@@ -246,10 +246,27 @@ mod tests {
         logical_codec: Arc<dyn LogicalExtensionCodec>,
         physical_codec: Arc<dyn PhysicalExtensionCodec>,
     ) -> SocketAddr {
-        new_standalone_scheduler_with_codec(physical_codec, logical_codec)
+        new_standalone_scheduler_with_codec(physical_codec, logical_codec, Arc::new(TestPlanVisitor {}))
             .await
             .context("Starting scheduler process")
             .unwrap()
+    }
+
+    struct TestPlanVisitor {}
+
+    impl PlanVisitor for TestPlanVisitor {
+        fn visit(&self, plan: &dyn ExecutionPlan) -> Option<PlanVisitorResult> {
+            if let Some(exec) = plan.as_any().downcast_ref::<TestTableExec>() {
+                return Some(
+                    PlanVisitorResult {
+                        id: "".to_owned(),
+                        limit: exec.global_limit
+                    }
+                );
+            }
+
+            None
+        }
     }
 
     async fn start_executors_local(

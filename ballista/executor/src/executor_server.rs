@@ -43,7 +43,7 @@ use ballista_core::serde::protobuf::{
 
 use ballista_core::serde::scheduler::TaskDefinition;
 use ballista_core::serde::BallistaCodec;
-use ballista_core::utils::{create_grpc_client_connection, create_grpc_server};
+use ballista_core::utils::create_grpc_server;
 use dashmap::DashMap;
 use datafusion::execution::context::TaskContext;
 use datafusion::prelude::SessionConfig;
@@ -57,12 +57,13 @@ use tokio::task::JoinHandle;
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::execution_engine::QueryStageExecutor;
 use crate::executor::Executor;
+use crate::scheduler_client::SchedulerClientRegistry;
 use crate::short_circuit::short_circuit_client::ShortCircuitClient;
 use crate::shutdown::ShutdownNotifier;
 use crate::{as_task_status, TaskExecutionTimes};
 
 pub type ServerHandle = JoinHandle<Result<(), BallistaError>>;
-type SchedulerClients = Arc<DashMap<String, SchedulerGrpcClient<Channel>>>;
+type SchedulerClients = Arc<DashMap<String, Arc<Mutex<SchedulerGrpcClient<Channel>>>>>;
 
 /// Wrap TaskDefinition with its curator scheduler id for task update to its specific curator scheduler later
 #[derive(Debug)]
@@ -214,7 +215,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         codec: BallistaCodec<T, U>,
         default_extensions: Extensions,
     ) -> Self {
-        let short_circuit_client = Arc::new(ShortCircuitClient::new(1000));
+        let schedulers: SchedulerClients = Arc::new(DashMap::new());
+
+        let short_circuit_client =
+            Arc::new(ShortCircuitClient::new(1000, schedulers.clone()));
+
         Self {
             _start_time: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -224,7 +229,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             executor_env,
             codec,
             scheduler_to_register,
-            schedulers: Default::default(),
+            schedulers,
             default_extensions,
             short_circuit_client,
         }
@@ -233,23 +238,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
     async fn get_scheduler_client(
         &self,
         scheduler_id: &str,
-    ) -> Result<SchedulerGrpcClient<Channel>, BallistaError> {
-        let scheduler = self.schedulers.get(scheduler_id).map(|value| value.clone());
-        // If channel does not exist, create a new one
-        if let Some(scheduler) = scheduler {
-            Ok(scheduler)
-        } else {
-            let scheduler_url = format!("http://{scheduler_id}");
-            let connection = create_grpc_client_connection(scheduler_url).await?;
-            let scheduler = SchedulerGrpcClient::new(connection);
-
-            {
-                self.schedulers
-                    .insert(scheduler_id.to_owned(), scheduler.clone());
-            }
-
-            Ok(scheduler)
-        }
+    ) -> Result<Arc<Mutex<SchedulerGrpcClient<Channel>>>, BallistaError> {
+        self.schedulers
+            .get_or_create_scheduler_client(scheduler_id)
+            .await
     }
 
     /// 1. First Heartbeat to its registration scheduler, if successful then return; else go next.
@@ -290,6 +282,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             let scheduler = item.value_mut();
 
             match scheduler
+                .lock()
+                .await
                 .heart_beat_from_executor(heartbeat_params.clone())
                 .await
             {
@@ -379,13 +373,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         let session_config =
             SessionConfig::from(config).with_extension(self.short_circuit_client.clone());
 
-        let scheduler = Arc::new(Mutex::new(
-            self.get_scheduler_client(scheduler_id.as_str()).await?,
-        ));
-
         self.short_circuit_client
-            .register_scheduler(task_identity.to_owned(), scheduler)
-            .await;
+            .register_scheduler(task_identity.to_owned(), scheduler_id.clone())?;
 
         let mut task_scalar_functions = HashMap::new();
         let mut task_aggregate_functions = HashMap::new();
@@ -467,8 +456,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         );
 
         self.short_circuit_client
-            .unregister_scheduler(task_identity)
-            .await;
+            .unregister_scheduler(task_identity.to_owned())?;
 
         let task_status_sender = self.executor_env.tx_task_status.clone();
         task_status_sender
@@ -610,8 +598,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
 
                 for (scheduler_id, tasks_status) in curator_task_status_map.into_iter() {
                     match executor_server.get_scheduler_client(&scheduler_id).await {
-                        Ok(mut scheduler) => {
+                        Ok(scheduler) => {
                             if let Err(e) = scheduler
+                                .lock()
+                                .await
                                 .update_task_status(UpdateTaskStatusParams {
                                     executor_id: executor_server
                                         .executor

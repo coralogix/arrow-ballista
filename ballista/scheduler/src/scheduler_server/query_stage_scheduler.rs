@@ -188,7 +188,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
                 info!("Job {} success", job_id);
                 self.state.task_manager.succeed_job(&job_id).await?;
-                self.state.clean_up_successful_job(job_id);
+                self.state.clean_up_successful_job(job_id).await;
             }
             QueryStageSchedulerEvent::JobRunningFailed {
                 job_id,
@@ -208,7 +208,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))
                         .await?;
                 }
-                self.state.clean_up_failed_job(job_id);
+                self.state.clean_up_failed_job(job_id).await;
             }
             QueryStageSchedulerEvent::JobUpdated(job_id) => {
                 info!(job_id, "job updated");
@@ -220,7 +220,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 info!(job_id, "job cancelled");
                 let (running_tasks, _pending_tasks) =
                     self.state.task_manager.cancel_job(&job_id).await?;
-                self.state.clean_up_failed_job(job_id);
+                self.state.clean_up_failed_job(job_id).await;
 
                 tx_event
                     .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))

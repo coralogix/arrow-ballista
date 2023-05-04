@@ -19,6 +19,7 @@ use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::metrics::default_metrics_collector;
 use crate::scheduler_server::SchedulerServer;
+use crate::short_circuit::plan_visitor::{self, PlanVisitor, DefaultPlanVisitor};
 use ballista_core::serde::{BallistaCodec, BallistaPhysicalExtensionCodec};
 use ballista_core::utils::{create_grpc_server, default_session_builder};
 use ballista_core::{
@@ -39,6 +40,7 @@ use tokio::net::TcpListener;
 pub async fn new_standalone_scheduler_with_codec(
     physical_codec: Arc<dyn PhysicalExtensionCodec>,
     logical_codec: Arc<dyn LogicalExtensionCodec>,
+    plan_visitor: Arc<dyn PlanVisitor>
 ) -> Result<SocketAddr> {
     let metrics_collector = default_metrics_collector()?;
 
@@ -51,6 +53,7 @@ pub async fn new_standalone_scheduler_with_codec(
             BallistaCodec::new(logical_codec, physical_codec),
             SchedulerConfig::default(),
             metrics_collector,
+            plan_visitor
         );
 
     scheduler_server.init().await?;
@@ -77,6 +80,7 @@ pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
     new_standalone_scheduler_with_codec(
         Arc::new(BallistaPhysicalExtensionCodec {}),
         Arc::new(DefaultLogicalExtensionCodec {}),
+        Arc::new(DefaultPlanVisitor::default())
     )
     .await
 }
