@@ -1,7 +1,7 @@
 use crate::proto;
 use crate::test_table::TestTable;
-use ballista_executor::short_circuit::short_circuit_client::ShortCircuitClient;
-use ballista_executor::short_circuit::short_circuit_stream::ShortCircuitStream;
+use ballista_executor::circuit_breaker::client::CircuitBreakerClient;
+use ballista_executor::circuit_breaker::stream::CircuitBreakerStream;
 use ballista_scheduler::scheduler_server::timestamp_millis;
 use datafusion::arrow::array::Int32Array;
 use datafusion::arrow::datatypes::SchemaRef;
@@ -20,6 +20,7 @@ use futures::Stream;
 use std::any::Any;
 use std::convert::TryFrom;
 use std::pin::Pin;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
@@ -79,7 +80,7 @@ impl ExecutionPlan for TestTableExec {
     fn execute(
         &self,
         // Each partition behaves exactly the same
-        _partition: usize,
+        partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let record_batch = RecordBatch::try_new(
@@ -96,17 +97,33 @@ impl ExecutionPlan for TestTableExec {
 
         if let Some(daemon) = context
             .session_config()
-            .get_extension::<ShortCircuitClient>()
+            .get_extension::<CircuitBreakerClient>()
         {
             if let Some(task_id) = context.task_id() {
-                let config = daemon.register_limit(
-                    task_id.clone(),
-                    Some(self.global_limit),
-                    None,
-                )?;
                 let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
-                let limited_steam = ShortCircuitStream::new(boxed, config, task_id);
-                return Ok(Box::pin(limited_steam));
+
+                let circuit_breaker = Arc::new(AtomicBool::new(false));
+
+                daemon
+                    .register(task_id.clone(), circuit_breaker.clone())
+                    .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+
+                let limit = self.global_limit.clone();
+
+                let calc = move |f: &RecordBatch| f.num_rows() as f64 / limit as f64;
+
+                let arc = Arc::new(calc);
+
+                let limited_stream = CircuitBreakerStream::new(
+                    boxed,
+                    arc,
+                    task_id,
+                    partition as u32,
+                    circuit_breaker,
+                    daemon.clone(),
+                );
+
+                return Ok(Box::pin(limited_stream));
             }
         }
 

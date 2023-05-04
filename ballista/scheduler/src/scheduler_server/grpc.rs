@@ -23,13 +23,13 @@ use std::convert::TryInto;
 use ballista_core::serde::protobuf::executor_registration::OptionalHost;
 use ballista_core::serde::protobuf::scheduler_grpc_server::SchedulerGrpc;
 use ballista_core::serde::protobuf::{
-    CancelJobParams, CancelJobResult, CleanJobDataParams, CleanJobDataResult,
+    CancelJobParams, CancelJobResult, CircuitBreakerCommand, CircuitBreakerUpdateRequest,
+    CircuitBreakerUpdateResponse, CleanJobDataParams, CleanJobDataResult,
     ExecuteQueryParams, ExecuteQueryResult, ExecutorHeartbeat, ExecutorStoppedParams,
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
     PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
-    ShortCircuitRegisterRequest, ShortCircuitRegisterResponse, ShortCircuitUpdateRequest,
-    ShortCircuitUpdateResponse, UpdateTaskStatusParams, UpdateTaskStatusResult,
+    UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -553,41 +553,30 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         Ok(Response::new(CleanJobDataResult {}))
     }
 
-    async fn register_short_circuit(
+    async fn send_circuit_breaker_update(
         &self,
-        request: Request<ShortCircuitRegisterRequest>,
-    ) -> Result<Response<ShortCircuitRegisterResponse>, Status> {
-        let ShortCircuitRegisterRequest {
-            task_identity,
-            row_count_limit,
-            byte_count_limit,
-        } = request.into_inner();
+        request: Request<CircuitBreakerUpdateRequest>,
+    ) -> Result<Response<CircuitBreakerUpdateResponse>, Status> {
+        let CircuitBreakerUpdateRequest { updates } = request.into_inner();
 
-        self.short_circuit_controller
-            .register_short_circuit(task_identity, row_count_limit, byte_count_limit)
-            .await
-            .map_err(Status::internal)?;
+        let mut commands = vec![];
 
-        Ok(Response::new(ShortCircuitRegisterResponse {}))
-    }
+        for update in updates {
+            let circuit_breaker = self
+                .state
+                .circuit_breaker
+                .update(update.task_id.clone(), update.partition, update.percent)
+                .await
+                .map_err(Status::internal)?;
 
-    async fn send_short_circuit_update(
-        &self,
-        request: Request<ShortCircuitUpdateRequest>,
-    ) -> Result<Response<ShortCircuitUpdateResponse>, Status> {
-        let ShortCircuitUpdateRequest {
-            task_identity,
-            row_count,
-            byte_count,
-        } = request.into_inner();
+            if circuit_breaker {
+                commands.push(CircuitBreakerCommand {
+                    task_id: update.task_id,
+                });
+            }
+        }
 
-        let short_circuit = self
-            .short_circuit_controller
-            .update(task_identity, row_count, byte_count)
-            .await
-            .map_err(Status::internal)?;
-
-        Ok(Response::new(ShortCircuitUpdateResponse { short_circuit }))
+        Ok(Response::new(CircuitBreakerUpdateResponse { commands }))
     }
 }
 

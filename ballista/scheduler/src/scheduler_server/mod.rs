@@ -33,7 +33,6 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
-use crate::short_circuit::short_circuit_controller::ShortCircuitController;
 use crate::state::session_manager::SessionManager;
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
 use log::{error, warn};
@@ -71,7 +70,6 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     pub(crate) query_stage_event_loop: EventLoop<QueryStageSchedulerEvent>,
     query_stage_scheduler: Arc<QueryStageScheduler<T, U>>,
     executor_termination_grace_period: u64,
-    short_circuit_controller: Arc<ShortCircuitController>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T, U> {
@@ -99,7 +97,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config.event_loop_buffer_size as usize,
             query_stage_scheduler.clone(),
         );
-        let short_circuit_controller = Arc::new(ShortCircuitController::default());
 
         Self {
             scheduler_name,
@@ -108,7 +105,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             query_stage_event_loop,
             query_stage_scheduler,
             executor_termination_grace_period: config.executor_termination_grace_period,
-            short_circuit_controller,
         }
     }
 
@@ -139,7 +135,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config.event_loop_buffer_size as usize,
             query_stage_scheduler.clone(),
         );
-        let short_circuit_controller = Arc::new(ShortCircuitController::default());
 
         Self {
             scheduler_name,
@@ -148,7 +143,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             query_stage_event_loop,
             query_stage_scheduler,
             executor_termination_grace_period: config.executor_termination_grace_period,
-            short_circuit_controller,
         }
     }
 

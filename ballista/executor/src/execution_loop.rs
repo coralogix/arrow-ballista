@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use async_trait::async_trait;
 use ballista_core::serde::protobuf::task_status::Status;
 use datafusion::config::{ConfigOptions, Extensions};
 use datafusion::physical_plan::ExecutionPlan;
@@ -25,9 +26,10 @@ use ballista_core::serde::protobuf::{
 };
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
 
+use crate::circuit_breaker::client::CircuitBreakerClient;
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
-use crate::short_circuit::short_circuit_client::ShortCircuitClient;
+use crate::scheduler_client_registry::SchedulerClientRegistry;
 use crate::{as_task_status, TaskExecutionTimes};
 use ballista_core::error::BallistaError;
 use ballista_core::serde::scheduler::ExecutorSpecification;
@@ -50,7 +52,7 @@ use std::{sync::Arc, time::Duration};
 use tonic::transport::Channel;
 
 pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
-    mut scheduler: SchedulerGrpcClient<Channel>,
+    scheduler: SchedulerGrpcClient<Channel>,
     executor: Arc<Executor>,
     codec: BallistaCodec<T, U>,
     default_extensions: Extensions,
@@ -72,7 +74,14 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     let dedicated_executor =
         DedicatedExecutor::new("task_runner", executor_specification.task_slots as usize);
 
-    let short_circuit_client = Arc::new(ShortCircuitClient::new(1000));
+    let scheduler = Arc::new(Mutex::new(scheduler));
+
+    let circuit_breaker_client = Arc::new(CircuitBreakerClient::new(
+        Duration::from_secs(1),
+        Arc::new(SingleSchedulerClient {
+            scheduler: scheduler.clone(),
+        }),
+    ));
 
     loop {
         // Wait for task slots to be available before asking for new work
@@ -84,22 +93,24 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         // to avoid going in sleep mode between polling
         let mut active_job = false;
 
-        let task_status: Vec<TaskStatus> =
-            sample_tasks_status(&mut task_status_receiver, short_circuit_client.clone())
-                .await;
+        let task_status: Vec<TaskStatus> = sample_tasks_status(
+            &mut task_status_receiver,
+            circuit_breaker_client.clone(),
+        )
+        .await?;
 
         let poll_work_result: anyhow::Result<
             tonic::Response<PollWorkResult>,
             tonic::Status,
         > = scheduler
+            .lock()
+            .await
             .poll_work(PollWorkParams {
                 metadata: Some(executor.metadata.clone()),
                 num_free_slots: available_task_slots.available_permits() as u32,
                 task_status,
             })
             .await;
-
-        let scheduler_mutex = Arc::new(Mutex::new(scheduler.clone()));
 
         match poll_work_result {
             Ok(result) => {
@@ -127,12 +138,8 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         partitions,
                     );
 
-                    short_circuit_client
-                        .register_scheduler(
-                            task_identity.clone(),
-                            scheduler_mutex.clone(),
-                        )
-                        .await;
+                    circuit_breaker_client
+                        .register_scheduler(task_identity.clone(), "".to_owned())?;
 
                     match run_received_task(
                         executor.clone(),
@@ -143,7 +150,7 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                         &codec,
                         &dedicated_executor,
                         default_extensions.clone(),
-                        short_circuit_client.clone(),
+                        circuit_breaker_client.clone(),
                     )
                     .await
                     {
@@ -198,7 +205,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     codec: &BallistaCodec<T, U>,
     dedicated_executor: &DedicatedExecutor,
     extensions: Extensions,
-    short_circuit_client: Arc<ShortCircuitClient>,
+    circuit_breaker_client: Arc<CircuitBreakerClient>,
 ) -> Result<(), BallistaError> {
     let task_id = task.task_id;
     let job_id = task.job_id;
@@ -221,7 +228,8 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     for (k, v) in task_props {
         config.set(&k, &v)?;
     }
-    let session_config = SessionConfig::from(config).with_extension(short_circuit_client);
+    let session_config =
+        SessionConfig::from(config).with_extension(circuit_breaker_client);
 
     let mut task_scalar_functions = HashMap::new();
     let mut task_aggregate_functions = HashMap::new();
@@ -331,8 +339,8 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 
 async fn sample_tasks_status(
     task_status_receiver: &mut Receiver<TaskStatus>,
-    short_circuit_client: Arc<ShortCircuitClient>,
-) -> Vec<TaskStatus> {
+    circuit_breaker_client: Arc<CircuitBreakerClient>,
+) -> Result<Vec<TaskStatus>, BallistaError> {
     let mut task_status: Vec<TaskStatus> = vec![];
 
     loop {
@@ -354,9 +362,7 @@ async fn sample_tasks_status(
                         &status.partitions,
                     );
 
-                    short_circuit_client
-                        .unregister_scheduler(&task_identity)
-                        .await;
+                    circuit_breaker_client.unregister_scheduler(task_identity)?;
                 }
 
                 task_status.push(status);
@@ -370,5 +376,26 @@ async fn sample_tasks_status(
         }
     }
 
-    task_status
+    Ok(task_status)
+}
+
+struct SingleSchedulerClient {
+    scheduler: Arc<Mutex<SchedulerGrpcClient<Channel>>>,
+}
+
+#[async_trait]
+impl SchedulerClientRegistry for SingleSchedulerClient {
+    async fn get_scheduler_client(
+        &self,
+        _scheduler_id: &str,
+    ) -> Result<Option<Arc<Mutex<SchedulerGrpcClient<Channel>>>>, BallistaError> {
+        Ok(Some(self.scheduler.clone()))
+    }
+    async fn insert_scheduler_client(
+        &self,
+        _scheduler_id: &str,
+        _client: Arc<Mutex<SchedulerGrpcClient<Channel>>>,
+    ) {
+        panic!("Tried to insert scheduler into SingleSchedulerClient")
+    }
 }
