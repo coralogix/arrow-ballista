@@ -219,53 +219,35 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 );
 
                 let num_status = tasks_status.len();
-                match self
+                if let Err(e) = self
                     .state
-                    .update_task_statuses(&executor_id, tasks_status)
+                    .update_task_statuses(&executor_id, tasks_status, tx_event)
                     .await
                 {
-                    Ok((stage_events, offers)) => {
-                        if self.state.config.is_push_staged_scheduling() {
-                            tx_event
-                                .post_event(
-                                    QueryStageSchedulerEvent::ReservationOffering(offers),
-                                )
-                                .await?;
-                        }
-
-                        for stage_event in stage_events {
-                            tx_event.post_event(stage_event).await?;
-                        }
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to update {} task statuses for Executor {}: {:?}",
-                            num_status, executor_id, e
-                        );
-                        // TODO error handling
-                    }
+                    error!(
+                        "Failed to update {} task statuses for Executor {}: {:?}",
+                        num_status, executor_id, e
+                    );
+                    // TODO error handling
                 }
             }
             QueryStageSchedulerEvent::ReservationOffering(mut reservations) => {
-                let mut remainder = if reservations.len() > self.tasks_per_tick {
-                    reservations.split_off(self.tasks_per_tick)
-                } else {
-                    vec![]
-                };
+                if self.state.config.is_push_staged_scheduling() {
+                    if reservations.len() > self.tasks_per_tick {
+                        tx_event
+                            .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                                reservations.split_off(self.tasks_per_tick),
+                            ))
+                            .await?;
+                    }
 
-                let (reservations, _) =
-                    self.state.offer_reservation(reservations).await?;
-
-                self.set_pending_tasks(self.state.task_manager.get_pending_task_count());
-
-                remainder.extend(reservations);
-
-                if !remainder.is_empty() {
-                    tx_event
-                        .post_event(QueryStageSchedulerEvent::ReservationOffering(
-                            remainder,
-                        ))
+                    self.state
+                        .offer_reservation(reservations, tx_event)
                         .await?;
+
+                    self.set_pending_tasks(
+                        self.state.task_manager.get_pending_task_count(),
+                    );
                 }
             }
             QueryStageSchedulerEvent::ExecutorLost(executor_id, _) => {

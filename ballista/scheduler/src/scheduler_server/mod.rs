@@ -167,6 +167,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         self.query_stage_scheduler.metrics_collector()
     }
 
+    #[cfg(test)]
+    pub(crate) fn get_event_sender(
+        &self,
+    ) -> Result<EventSender<QueryStageSchedulerEvent>> {
+        self.query_stage_event_loop.get_sender()
+    }
+
     pub async fn submit_job(
         &self,
         job_id: &str,
@@ -442,6 +449,8 @@ mod test {
 
         let scheduler = test_scheduler(TaskSchedulingPolicy::PullStaged).await?;
 
+        let tx_event = scheduler.get_event_sender()?;
+
         let executors = test_executors(task_slots);
         for (executor_metadata, executor_data) in executors {
             scheduler
@@ -533,7 +542,11 @@ mod test {
 
                 scheduler
                     .state
-                    .update_task_statuses("executor-1", vec![task_status])
+                    .update_task_statuses(
+                        "executor-1",
+                        vec![task_status],
+                        tx_event.clone(),
+                    )
                     .await?;
             } else {
                 break;
