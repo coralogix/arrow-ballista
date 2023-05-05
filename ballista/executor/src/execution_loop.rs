@@ -230,7 +230,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 
     let circuit_breaker_metadata = CircuitBreakerMetadataExtension {
         job_id: job_id.clone(),
-        stage_id: stage_id.clone(),
+        stage_id,
         attempt_number: attempt,
     };
 

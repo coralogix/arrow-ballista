@@ -341,7 +341,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
 
         let task_context = Arc::new(TaskContext::new(
             Some(task_identity),
-            task.session_id.clone(),
+            task.session_id,
             session_config,
             task_scalar_functions,
             task_aggregate_functions,

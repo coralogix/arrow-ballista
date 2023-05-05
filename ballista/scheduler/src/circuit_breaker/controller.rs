@@ -18,6 +18,10 @@ struct StageState {
 }
 
 struct AttemptState {
+    node_states: Arc<DashMap<String, NodeState>>,
+}
+
+struct NodeState {
     partition_states: Arc<DashMap<u32, PartitionState>>,
 }
 
@@ -48,12 +52,14 @@ impl CircuitBreakerController {
                 .attempt_states
                 .iter()
                 .any(|attempt_state| {
-                    attempt_state
-                        .value()
-                        .partition_states
-                        .iter()
-                        .fold(0.0, |a, b| a + b.percent)
-                        >= 1.0
+                    attempt_state.value().node_states.iter().any(|node_state| {
+                        node_state
+                            .value()
+                            .partition_states
+                            .iter()
+                            .fold(0.0, |a, b| a + b.percent)
+                            >= 1.0
+                    })
                 })
         });
 
@@ -97,7 +103,7 @@ impl CircuitBreakerController {
             None => {
                 let attempt_states = Arc::new(DashMap::new());
                 stage_states.insert(
-                    key.stage_id.clone(),
+                    key.stage_id,
                     StageState {
                         attempt_states: attempt_states.clone(),
                     },
@@ -106,13 +112,27 @@ impl CircuitBreakerController {
             }
         };
 
-        let partition_states = match attempt_states.get(&key.stage_id) {
+        let node_states = match attempt_states.get(&key.attempt_num) {
+            Some(state) => state.node_states.clone(),
+            None => {
+                let node_states = Arc::new(DashMap::new());
+                attempt_states.insert(
+                    key.attempt_num,
+                    AttemptState {
+                        node_states: node_states.clone(),
+                    },
+                );
+                node_states
+            }
+        };
+
+        let partition_states = match node_states.get(&key.node_id) {
             Some(state) => state.partition_states.clone(),
             None => {
                 let partition_states = Arc::new(DashMap::new());
-                attempt_states.insert(
-                    key.stage_id,
-                    AttemptState {
+                node_states.insert(
+                    key.node_id,
+                    NodeState {
                         partition_states: partition_states.clone(),
                     },
                 );

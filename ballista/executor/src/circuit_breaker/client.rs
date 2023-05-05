@@ -24,10 +24,36 @@ use crate::{
 pub struct CircuitBreakerKey {
     pub job_id: String,
     pub stage_id: u32,
-    pub attempt_number: u32,
+    pub attempt_num: u32,
     pub partition: u32,
     pub node_id: String,
     pub task_id: String,
+}
+
+impl From<CircuitBreakerKey> for protobuf::CircuitBreakerKey {
+    fn from(val: CircuitBreakerKey) -> Self {
+        protobuf::CircuitBreakerKey {
+            job_id: val.job_id,
+            stage_id: val.stage_id,
+            attempt_num: val.attempt_num,
+            partition: val.partition,
+            node_id: val.node_id,
+            task_id: val.task_id,
+        }
+    }
+}
+
+impl From<protobuf::CircuitBreakerKey> for CircuitBreakerKey {
+    fn from(key: protobuf::CircuitBreakerKey) -> Self {
+        Self {
+            job_id: key.job_id,
+            stage_id: key.stage_id,
+            attempt_num: key.attempt_num,
+            partition: key.partition,
+            node_id: key.node_id,
+            task_id: key.task_id,
+        }
+    }
 }
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
@@ -210,14 +236,7 @@ impl CircuitBreakerClient {
                 let mut request_updates = Vec::with_capacity(updates.len());
 
                 for update in updates {
-                    let key = protobuf::CircuitBreakerKey {
-                        job_id: update.key.job_id,
-                        stage_id: update.key.stage_id,
-                        attempt_num: update.key.attempt_number,
-                        partition: update.key.partition,
-                        node_id: update.key.node_id,
-                        task_id: update.key.task_id,
-                    };
+                    let key = update.key.into();
 
                     request_updates.push(protobuf::CircuitBreakerUpdate {
                         key: Some(key),
@@ -250,15 +269,7 @@ impl CircuitBreakerClient {
 
                         for command in commands {
                             if let Some(key_proto) = command.key {
-                                // TODO: Into/From
-                                let key = CircuitBreakerKey {
-                                    job_id: key_proto.job_id,
-                                    stage_id: key_proto.stage_id,
-                                    attempt_number: key_proto.attempt_num,
-                                    partition: key_proto.partition,
-                                    node_id: key_proto.node_id,
-                                    task_id: key_proto.task_id,
-                                };
+                                let key = key_proto.into();
 
                                 if let Some(state) = state_per_task.get(&key) {
                                     state.circuit_breaker.store(true, Ordering::SeqCst);

@@ -119,7 +119,7 @@ impl ExecutionPlan for TestTableExec {
                 partition: partition as u32,
                 job_id: metadata.job_id.clone(),
                 stage_id: metadata.stage_id,
-                attempt_number: metadata.attempt_number,
+                attempt_num: metadata.attempt_number,
                 node_id: "test_table_exec".to_owned(),
             };
 
