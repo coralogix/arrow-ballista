@@ -373,6 +373,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             Err(e) => {
                 self.metrics_collector
                     .record_process_event(event_type, start.elapsed().as_millis() as u64);
+                self.metrics_collector.record_event_failed(event_type);
                 Err(e)
             }
         }
