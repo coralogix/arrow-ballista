@@ -104,6 +104,8 @@ pub struct ExecutionGraph {
     pub end_time: u64,
     #[prost(uint64, tag = "13")]
     pub queued_at: u64,
+    #[prost(bool, tag = "14")]
+    pub circuit_breaker_tripped: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StageAttempts {
@@ -846,6 +848,8 @@ pub struct SuccessfulJob {
     pub started_at: u64,
     #[prost(uint64, tag = "4")]
     pub ended_at: u64,
+    #[prost(bool, tag = "5")]
+    pub circuit_breaker_tripped: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct QueuedJob {

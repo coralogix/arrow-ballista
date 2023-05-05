@@ -31,15 +31,6 @@ struct TaskIdentity {
     stage_attempt_num: u64,
 }
 
-impl TaskIdentity {
-    fn to_key(&self) -> String {
-        format!(
-            "{}/{}/{}",
-            self.job_id, self.stage_id, self.stage_attempt_num
-        )
-    }
-}
-
 impl Default for CircuitBreakerController {
     fn default() -> Self {
         let job_states = Arc::new(DashMap::new());
@@ -48,6 +39,33 @@ impl Default for CircuitBreakerController {
 }
 
 impl CircuitBreakerController {
+    pub fn is_tripped_for(&self, job_id: &str) -> bool {
+        let stage_states = match self.job_states.get(&job_id.to_owned()) {
+            Some(state) => state.stage_states.clone(),
+            // If the registration hasn't happened yet
+            None => {
+                return false;
+            }
+        };
+
+        let is_tripped = stage_states.iter().any(|stage_state| {
+            stage_state
+                .value()
+                .attempt_states
+                .iter()
+                .any(|attempt_state| {
+                    attempt_state
+                        .value()
+                        .partition_states
+                        .iter()
+                        .fold(0.0, |a, b| a + b.percent)
+                        >= 1.0
+                })
+        });
+
+        is_tripped
+    }
+
     pub fn create(&self, job_id: &str) {
         info!("Creating circuit breaker for job {}", job_id);
         self.job_states.insert(
@@ -69,26 +87,26 @@ impl CircuitBreakerController {
         partition: u32,
         percent: f64,
     ) -> Result<bool, String> {
-        let task_identity = Self::parse_task_identity(task_identity)?;
+        let task_info = Self::parse_task_identity(task_identity.clone())?;
 
-        let stage_states = match self.job_states.get(&task_identity.job_id) {
+        let stage_states = match self.job_states.get(&task_info.job_id) {
             Some(state) => state.stage_states.clone(),
             // If the registration hasn't happened yet
             None => {
                 warn!(
                     "Circuit breaker update received for unregistered job {}",
-                    task_identity.job_id
+                    task_info.job_id
                 );
                 return Ok(false);
             }
         };
 
-        let attempt_states = match stage_states.get(&task_identity.stage_id) {
+        let attempt_states = match stage_states.get(&task_info.stage_id) {
             Some(state) => state.attempt_states.clone(),
             None => {
                 let attempt_states = Arc::new(DashMap::new());
                 stage_states.insert(
-                    task_identity.stage_id.clone(),
+                    task_info.stage_id.clone(),
                     StageState {
                         attempt_states: attempt_states.clone(),
                     },
@@ -97,13 +115,12 @@ impl CircuitBreakerController {
             }
         };
 
-        let partition_states = match attempt_states.get(&task_identity.stage_attempt_num)
-        {
+        let partition_states = match attempt_states.get(&task_info.stage_attempt_num) {
             Some(state) => state.partition_states.clone(),
             None => {
                 let partition_states = Arc::new(DashMap::new());
                 attempt_states.insert(
-                    task_identity.stage_attempt_num,
+                    task_info.stage_attempt_num,
                     AttemptState {
                         partition_states: partition_states.clone(),
                     },
@@ -130,7 +147,7 @@ impl CircuitBreakerController {
         if should_circuit_breaker {
             info!(
                 "Sending circuit breaker signal to task {}, global limit reached",
-                task_identity.to_key()
+                task_identity
             );
         }
 

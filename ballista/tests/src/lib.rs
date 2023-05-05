@@ -147,6 +147,8 @@ mod tests {
             .await
             .unwrap();
 
+        assert!(successful_job.circuit_breaker_tripped);
+
         let partitions = successful_job.partition_location;
 
         assert_eq!(partitions.len(), 2);

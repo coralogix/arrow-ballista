@@ -35,7 +35,7 @@ struct SchedulerRegistration {
 }
 
 #[derive(Debug)]
-struct SchedulerUnregistration {
+struct SchedulerDeregistration {
     task_id: String,
 }
 
@@ -50,7 +50,7 @@ enum ClientUpdate {
     Create(CircuitBreakerRegistration),
     Update(CircuitBreakerUpdate),
     SchedulerRegistration(SchedulerRegistration),
-    SchedulerUnregistration(SchedulerUnregistration),
+    SchedulerDeregistration(SchedulerDeregistration),
 }
 
 impl CircuitBreakerClient {
@@ -111,11 +111,11 @@ impl CircuitBreakerClient {
         })
     }
 
-    pub fn unregister_scheduler(&self, task_id: String) -> Result<(), BallistaError> {
+    pub fn deregister_scheduler(&self, task_id: String) -> Result<(), BallistaError> {
         info!("Unregistering scheduler for task {}", task_id);
 
         let update =
-            ClientUpdate::SchedulerUnregistration(SchedulerUnregistration { task_id });
+            ClientUpdate::SchedulerDeregistration(SchedulerDeregistration { task_id });
 
         self.update_sender.try_send(update).map_err(|e| {
             BallistaError::Internal(format!(
@@ -159,7 +159,7 @@ impl CircuitBreakerClient {
                             .insert(registration.task_id, registration.scheduler_id);
                     }
 
-                    ClientUpdate::SchedulerUnregistration(unregistration) => {
+                    ClientUpdate::SchedulerDeregistration(unregistration) => {
                         scheduler_unregistrations.push(unregistration);
                     }
                 }
@@ -198,7 +198,7 @@ impl CircuitBreakerClient {
                     })
                 }
 
-                let scheduler = match get_scheduler
+                let mut scheduler = match get_scheduler
                     .get_or_create_scheduler_client(&scheduler_id)
                     .await
                 {
@@ -213,12 +213,7 @@ impl CircuitBreakerClient {
                     updates: request_updates,
                 };
 
-                match scheduler
-                    .lock()
-                    .await
-                    .send_circuit_breaker_update(request)
-                    .await
-                {
+                match scheduler.send_circuit_breaker_update(request).await {
                     Err(e) => warn!(
                         "Failed to send circuit breaker update to scheduler {}: {}",
                         scheduler_id, e

@@ -187,7 +187,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     .record_completed(&job_id, queued_at, completed_at);
 
                 info!("Job {} success", job_id);
-                self.state.task_manager.succeed_job(&job_id).await?;
+
+                // self.state.circuit_breaker.
+                let is_tripped = self.state.circuit_breaker.is_tripped_for(&job_id);
+                self.state
+                    .task_manager
+                    .succeed_job(&job_id, is_tripped)
+                    .await?;
                 self.state.clean_up_successful_job(job_id);
             }
             QueryStageSchedulerEvent::JobRunningFailed {

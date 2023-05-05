@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 
 use log::{debug, error, info, warn};
 use tonic::transport::Channel;
@@ -63,7 +63,7 @@ use crate::shutdown::ShutdownNotifier;
 use crate::{as_task_status, TaskExecutionTimes};
 
 pub type ServerHandle = JoinHandle<Result<(), BallistaError>>;
-type SchedulerClients = Arc<DashMap<String, Arc<Mutex<SchedulerGrpcClient<Channel>>>>>;
+type SchedulerClients = Arc<DashMap<String, SchedulerGrpcClient<Channel>>>;
 
 /// Wrap TaskDefinition with its curator scheduler id for task update to its specific curator scheduler later
 #[derive(Debug)]
@@ -240,7 +240,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
     async fn get_scheduler_client(
         &self,
         scheduler_id: &str,
-    ) -> Result<Arc<Mutex<SchedulerGrpcClient<Channel>>>, BallistaError> {
+    ) -> Result<SchedulerGrpcClient<Channel>, BallistaError> {
         self.schedulers
             .get_or_create_scheduler_client(scheduler_id)
             .await
@@ -284,8 +284,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             let scheduler = item.value_mut();
 
             match scheduler
-                .lock()
-                .await
                 .heart_beat_from_executor(heartbeat_params.clone())
                 .await
             {
@@ -458,7 +456,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         );
 
         self.circuit_breaker_client
-            .unregister_scheduler(task_identity.to_owned())?;
+            .deregister_scheduler(task_identity.to_owned())?;
 
         let task_status_sender = self.executor_env.tx_task_status.clone();
         task_status_sender
@@ -600,10 +598,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
 
                 for (scheduler_id, tasks_status) in curator_task_status_map.into_iter() {
                     match executor_server.get_scheduler_client(&scheduler_id).await {
-                        Ok(scheduler) => {
+                        Ok(mut scheduler) => {
                             if let Err(e) = scheduler
-                                .lock()
-                                .await
                                 .update_task_status(UpdateTaskStatusParams {
                                     executor_id: executor_server
                                         .executor
