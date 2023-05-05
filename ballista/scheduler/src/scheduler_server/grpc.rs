@@ -562,17 +562,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         let mut commands = vec![];
 
         for update in updates {
-            let circuit_breaker = self
-                .state
-                .circuit_breaker
-                .update(update.task_id.clone(), update.partition, update.percent)
-                .await
-                .map_err(Status::internal)?;
+            if let Some(key) = update.key {
+                let circuit_breaker = self
+                    .state
+                    .circuit_breaker
+                    .update(key.clone(), update.percent)
+                    .await
+                    .map_err(Status::internal)?;
 
-            if circuit_breaker {
-                commands.push(CircuitBreakerCommand {
-                    task_id: update.task_id,
-                });
+                if circuit_breaker {
+                    commands.push(CircuitBreakerCommand { key: Some(key) });
+                }
             }
         }
 

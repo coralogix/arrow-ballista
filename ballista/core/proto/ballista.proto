@@ -923,23 +923,31 @@ message RunningTaskInfo {
   uint32 stage_id = 3;
 }
 
+message CircuitBreakerKey {
+  string job_id = 1;
+  uint32 stage_id = 2;
+  uint32 attempt_num = 3;
+  uint32 partition = 4;
+  string node_id = 5;
+  string task_id = 6;
+}
+
 message CircuitBreakerUpdateRequest {
-   repeated CircuitBreakerUpdate updates = 1;
- }
+  repeated CircuitBreakerUpdate updates = 1;
+}
 
- message CircuitBreakerUpdate {
-   string task_id = 1;
-   uint32 partition = 2;
-   double percent = 3;
- }
+message CircuitBreakerUpdate {
+  CircuitBreakerKey key = 1;
+  double percent = 2;
+}
 
-  message CircuitBreakerUpdateResponse {
-    repeated CircuitBreakerCommand commands = 1;
-  }
+message CircuitBreakerUpdateResponse {
+  repeated CircuitBreakerCommand commands = 1;
+}
 
-  message CircuitBreakerCommand {
-   string task_id = 1;
-  }
+message CircuitBreakerCommand {
+  CircuitBreakerKey key = 1;
+}
 
 service SchedulerGrpc {
   // Executors must poll the scheduler for heartbeat and to receive tasks

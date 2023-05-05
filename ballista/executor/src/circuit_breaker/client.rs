@@ -20,6 +20,23 @@ use crate::{
     scheduler_client_registry::SchedulerClientRegistry,
 };
 
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+pub struct CircuitBreakerKey {
+    pub job_id: String,
+    pub stage_id: u32,
+    pub attempt_number: u32,
+    pub partition: u32,
+    pub node_id: String,
+    pub task_id: String,
+}
+
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+pub struct CircuitBreakerMetadataExtension {
+    pub job_id: String,
+    pub stage_id: u32,
+    pub attempt_number: u32,
+}
+
 pub struct CircuitBreakerClient {
     update_sender: Sender<ClientUpdate>,
 }
@@ -41,7 +58,7 @@ struct SchedulerDeregistration {
 
 #[derive(Debug)]
 struct CircuitBreakerRegistration {
-    task_id: String,
+    key: CircuitBreakerKey,
     circuit_breaker: Arc<AtomicBool>,
 }
 
@@ -71,11 +88,11 @@ impl CircuitBreakerClient {
 
     pub fn register(
         &self,
-        task_id: String,
+        key: CircuitBreakerKey,
         circuit_breaker: Arc<AtomicBool>,
     ) -> Result<(), Error> {
         let registration = CircuitBreakerRegistration {
-            task_id,
+            key,
             circuit_breaker,
         };
 
@@ -149,7 +166,7 @@ impl CircuitBreakerClient {
                             circuit_breaker: register.circuit_breaker,
                         };
 
-                        state_per_task.insert(register.task_id, state);
+                        state_per_task.insert(register.key, state);
                     }
                     ClientUpdate::Update(update) => {
                         updates.push(update);
@@ -166,16 +183,18 @@ impl CircuitBreakerClient {
             }
 
             let mut updates_per_scheduler = HashMap::new();
-            let mut seen_task_ids = HashSet::new();
+            let mut seen_keys = HashSet::new();
 
             for update in updates.into_iter().rev() {
                 // Per request only one update per task is sent
                 // This is why we go from newest to oldest
-                if seen_task_ids.insert(update.task_id.clone()) {
-                    let scheduler_id: &String = match scheduler_ids.get(&update.task_id) {
+                if seen_keys.insert(update.key.clone()) {
+                    let scheduler_id: &String = match scheduler_ids
+                        .get(&update.key.task_id)
+                    {
                         Some(scheduler_id) => scheduler_id,
                         None => {
-                            warn!("No scheduler found for task {}", update.task_id);
+                            warn!("No scheduler found for task {}", update.key.task_id);
                             continue;
                         }
                     };
@@ -191,9 +210,17 @@ impl CircuitBreakerClient {
                 let mut request_updates = Vec::with_capacity(updates.len());
 
                 for update in updates {
+                    let key = protobuf::CircuitBreakerKey {
+                        job_id: update.key.job_id,
+                        stage_id: update.key.stage_id,
+                        attempt_num: update.key.attempt_number,
+                        partition: update.key.partition,
+                        node_id: update.key.node_id,
+                        task_id: update.key.task_id,
+                    };
+
                     request_updates.push(protobuf::CircuitBreakerUpdate {
-                        task_id: update.task_id,
-                        partition: update.partition,
+                        key: Some(key),
                         percent: update.percent,
                     })
                 }
@@ -222,10 +249,22 @@ impl CircuitBreakerClient {
                         let commands = response.into_inner().commands;
 
                         for command in commands {
-                            if let Some(state) = state_per_task.get(&command.task_id) {
-                                state.circuit_breaker.store(true, Ordering::SeqCst);
-                            } else {
-                                warn!("No state found for task {}", command.task_id);
+                            if let Some(key_proto) = command.key {
+                                // TODO: Into/From
+                                let key = CircuitBreakerKey {
+                                    job_id: key_proto.job_id,
+                                    stage_id: key_proto.stage_id,
+                                    attempt_number: key_proto.attempt_num,
+                                    partition: key_proto.partition,
+                                    node_id: key_proto.node_id,
+                                    task_id: key_proto.task_id,
+                                };
+
+                                if let Some(state) = state_per_task.get(&key) {
+                                    state.circuit_breaker.store(true, Ordering::SeqCst);
+                                } else {
+                                    warn!("No state found for task {:?}", key);
+                                }
                             }
                         }
                     }

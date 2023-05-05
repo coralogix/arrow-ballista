@@ -10,13 +10,12 @@ use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
 use tracing::warn;
 
-use super::client::CircuitBreakerClient;
+use super::client::{CircuitBreakerClient, CircuitBreakerKey};
 
 pub struct CircuitBreakerStream {
     inner: Pin<Box<dyn RecordBatchStream + Send>>,
     calculate: Arc<dyn Fn(&RecordBatch) -> f64 + Sync + Send>,
-    task_id: String,
-    partition: u32,
+    key: CircuitBreakerKey,
     percent: f64,
     is_lagging: bool,
     circuit_breaker: Arc<AtomicBool>,
@@ -27,16 +26,14 @@ impl CircuitBreakerStream {
     pub fn new(
         inner: Pin<Box<dyn RecordBatchStream + Send>>,
         calculate: Arc<dyn Fn(&RecordBatch) -> f64 + Sync + Send>,
-        task_id: String,
-        partition: u32,
+        key: CircuitBreakerKey,
         circuit_breaker: Arc<AtomicBool>,
         client: Arc<CircuitBreakerClient>,
     ) -> Self {
         Self {
             inner,
             calculate,
-            task_id,
-            partition,
+            key,
             percent: 0.0,
             is_lagging: false,
             circuit_breaker,
@@ -47,8 +44,7 @@ impl CircuitBreakerStream {
 
 #[derive(Debug)]
 pub struct CircuitBreakerUpdate {
-    pub task_id: String,
-    pub partition: u32,
+    pub key: CircuitBreakerKey,
     pub percent: f64,
 }
 
@@ -77,8 +73,7 @@ impl Stream for CircuitBreakerStream {
             self.percent += delta;
 
             let status_update = CircuitBreakerUpdate {
-                task_id: self.task_id.clone(),
-                partition: self.partition,
+                key: self.key.clone(),
                 percent: self.percent,
             };
 

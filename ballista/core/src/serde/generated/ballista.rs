@@ -1572,17 +1572,30 @@ pub struct RunningTaskInfo {
     pub stage_id: u32,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CircuitBreakerKey {
+    #[prost(string, tag = "1")]
+    pub job_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "2")]
+    pub stage_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub attempt_num: u32,
+    #[prost(uint32, tag = "4")]
+    pub partition: u32,
+    #[prost(string, tag = "5")]
+    pub node_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub task_id: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerUpdateRequest {
     #[prost(message, repeated, tag = "1")]
     pub updates: ::prost::alloc::vec::Vec<CircuitBreakerUpdate>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerUpdate {
-    #[prost(string, tag = "1")]
-    pub task_id: ::prost::alloc::string::String,
-    #[prost(uint32, tag = "2")]
-    pub partition: u32,
-    #[prost(double, tag = "3")]
+    #[prost(message, optional, tag = "1")]
+    pub key: ::core::option::Option<CircuitBreakerKey>,
+    #[prost(double, tag = "2")]
     pub percent: f64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1592,8 +1605,8 @@ pub struct CircuitBreakerUpdateResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerCommand {
-    #[prost(string, tag = "1")]
-    pub task_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "1")]
+    pub key: ::core::option::Option<CircuitBreakerKey>,
 }
 /// Generated client implementations.
 pub mod scheduler_grpc_client {

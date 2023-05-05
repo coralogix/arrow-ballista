@@ -54,7 +54,9 @@ use datafusion_proto::{
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::JoinHandle;
 
-use crate::circuit_breaker::client::CircuitBreakerClient;
+use crate::circuit_breaker::client::{
+    CircuitBreakerClient, CircuitBreakerMetadataExtension,
+};
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::execution_engine::QueryStageExecutor;
 use crate::executor::Executor;
@@ -313,8 +315,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         for (k, v) in task_props {
             config.set(&k, &v)?;
         }
+
+        let job_id = task.job_id;
+        let stage_id = task.stage_id;
+        let attempt = task.stage_attempt_num;
+
+        let circuit_breaker_metadata = CircuitBreakerMetadataExtension {
+            job_id: job_id.clone(),
+            stage_id: stage_id as u32,
+            attempt_number: attempt as u32,
+        };
+
         let session_config = SessionConfig::from(config)
-            .with_extension(self.circuit_breaker_client.clone());
+            .with_extension(self.circuit_breaker_client.clone())
+            .with_extension(Arc::new(circuit_breaker_metadata));
 
         let mut task_scalar_functions = HashMap::new();
         let mut task_aggregate_functions = HashMap::new();
@@ -343,8 +357,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         })?;
 
         Ok(self.executor.execution_engine.create_query_stage_exec(
-            task.job_id,
-            task.stage_id,
+            job_id,
+            stage_id,
             plan,
             &self.executor.work_dir,
         )?)

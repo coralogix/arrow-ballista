@@ -26,7 +26,9 @@ use ballista_core::serde::protobuf::{
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::circuit_breaker::client::CircuitBreakerClient;
+use crate::circuit_breaker::client::{
+    CircuitBreakerClient, CircuitBreakerMetadataExtension,
+};
 use crate::cpu_bound_executor::DedicatedExecutor;
 use crate::executor::Executor;
 use crate::scheduler_client_registry::SchedulerClientRegistry;
@@ -206,6 +208,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     let task_id = task.task_id;
     let job_id = task.job_id;
     let stage_id = task.stage_id;
+    let attempt = task.stage_attempt_num;
     let stage_attempt_num = task.stage_attempt_num;
     let task_launch_time = task.launch_time;
     let partitions: Vec<usize> = task.partitions.iter().map(|p| *p as usize).collect();
@@ -224,8 +227,16 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
     for (k, v) in task_props {
         config.set(&k, &v)?;
     }
-    let session_config =
-        SessionConfig::from(config).with_extension(circuit_breaker_client);
+
+    let circuit_breaker_metadata = CircuitBreakerMetadataExtension {
+        job_id: job_id.clone(),
+        stage_id: stage_id.clone(),
+        attempt_number: attempt,
+    };
+
+    let session_config = SessionConfig::from(config)
+        .with_extension(circuit_breaker_client)
+        .with_extension(Arc::new(circuit_breaker_metadata));
 
     let mut task_scalar_functions = HashMap::new();
     let mut task_aggregate_functions = HashMap::new();

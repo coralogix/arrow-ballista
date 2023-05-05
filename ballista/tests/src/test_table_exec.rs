@@ -1,6 +1,8 @@
 use crate::proto;
 use crate::test_table::TestTable;
 use ballista_executor::circuit_breaker::client::CircuitBreakerClient;
+use ballista_executor::circuit_breaker::client::CircuitBreakerKey;
+use ballista_executor::circuit_breaker::client::CircuitBreakerMetadataExtension;
 use ballista_executor::circuit_breaker::stream::CircuitBreakerStream;
 use ballista_scheduler::scheduler_server::timestamp_millis;
 use datafusion::arrow::array::Int32Array;
@@ -95,36 +97,51 @@ impl ExecutionPlan for TestTableExec {
             delay_ms: 100,
         };
 
-        if let Some(daemon) = context
+        let client_opt = context
             .session_config()
-            .get_extension::<CircuitBreakerClient>()
+            .get_extension::<CircuitBreakerClient>();
+
+        let task_id_opt = context.task_id();
+
+        let metadata = context
+            .session_config()
+            .get_extension::<CircuitBreakerMetadataExtension>();
+
+        if let (Some(client), Some(task_id), Some(metadata)) =
+            (client_opt, task_id_opt, metadata)
         {
-            if let Some(task_id) = context.task_id() {
-                let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
+            let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
 
-                let circuit_breaker = Arc::new(AtomicBool::new(false));
+            let circuit_breaker = Arc::new(AtomicBool::new(false));
 
-                daemon
-                    .register(task_id.clone(), circuit_breaker.clone())
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            let key = CircuitBreakerKey {
+                task_id: task_id.clone(),
+                partition: partition as u32,
+                job_id: metadata.job_id.clone(),
+                stage_id: metadata.stage_id,
+                attempt_number: metadata.attempt_number,
+                node_id: "test_table_exec".to_owned(),
+            };
 
-                let limit = self.global_limit.clone();
+            client
+                .register(key.clone(), circuit_breaker.clone())
+                .map_err(|e| DataFusionError::Execution(e.to_string()))?;
 
-                let calc = move |f: &RecordBatch| f.num_rows() as f64 / limit as f64;
+            let limit = self.global_limit.clone();
 
-                let arc = Arc::new(calc);
+            let calc = move |f: &RecordBatch| f.num_rows() as f64 / limit as f64;
 
-                let limited_stream = CircuitBreakerStream::new(
-                    boxed,
-                    arc,
-                    task_id,
-                    partition as u32,
-                    circuit_breaker,
-                    daemon.clone(),
-                );
+            let arc = Arc::new(calc);
 
-                return Ok(Box::pin(limited_stream));
-            }
+            let limited_stream = CircuitBreakerStream::new(
+                boxed,
+                arc,
+                key,
+                circuit_breaker,
+                client.clone(),
+            );
+
+            return Ok(Box::pin(limited_stream));
         }
 
         Ok(Box::pin(stream))
