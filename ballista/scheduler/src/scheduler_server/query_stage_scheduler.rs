@@ -241,9 +241,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                             .await?;
                     }
 
-                    self.state
-                        .offer_reservation(reservations, tx_event)
-                        .await?;
+                    self.state.offer_reservation(reservations, tx_event).await?;
 
                     self.set_pending_tasks(
                         self.state.task_manager.get_pending_task_count(),
