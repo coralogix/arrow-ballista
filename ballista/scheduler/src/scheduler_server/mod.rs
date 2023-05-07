@@ -364,7 +364,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let reservations = self
             .state
             .executor_manager
-            .register_executor(metadata, executor_data, false)
+            .register_executor(metadata, executor_data, false, true)
             .await?;
 
         // If we are using push-based scheduling then reserve this executors slots and send
@@ -456,7 +456,7 @@ mod test {
             scheduler
                 .state
                 .executor_manager
-                .register_executor(executor_metadata, executor_data, false)
+                .register_executor(executor_metadata, executor_data, false, false)
                 .await?;
         }
 

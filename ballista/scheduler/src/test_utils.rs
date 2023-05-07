@@ -470,7 +470,7 @@ impl SchedulerTest {
             scheduler
                 .state
                 .executor_manager
-                .register_executor(metadata, executor_data, false)
+                .register_executor(metadata, executor_data, false, false)
                 .await?;
         }
 

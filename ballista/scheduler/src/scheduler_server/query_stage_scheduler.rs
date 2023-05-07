@@ -241,11 +241,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                             .await?;
                     }
 
-                    self.state.offer_reservation(reservations, tx_event).await?;
+                    self.state
+                        .offer_reservation(reservations, tx_event.clone())
+                        .await?;
 
-                    self.set_pending_tasks(
-                        self.state.task_manager.get_pending_task_count(),
-                    );
+                    let pending = self.state.task_manager.get_pending_task_count();
+
+                    self.set_pending_tasks(pending);
+
+                    if pending > 0 {
+                        tx_event.post_event(QueryStageSchedulerEvent::Tick).await?;
+                    }
                 }
             }
             QueryStageSchedulerEvent::ExecutorLost(executor_id, _) => {
