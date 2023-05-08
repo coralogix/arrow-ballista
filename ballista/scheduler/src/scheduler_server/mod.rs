@@ -181,16 +181,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         ctx: Arc<SessionContext>,
         plan: &LogicalPlan,
     ) -> Result<()> {
-        self.query_stage_event_loop
-            .get_sender()?
-            .post_event(QueryStageSchedulerEvent::JobQueued {
+        self.query_stage_event_loop.get_sender()?.post_event(
+            QueryStageSchedulerEvent::JobQueued {
                 job_id: job_id.to_owned(),
                 job_name: job_name.to_owned(),
                 session_ctx: ctx,
                 plan: Box::new(plan.clone()),
                 queued_at: timestamp_millis(),
-            })
-            .await
+            },
+        );
+
+        Ok(())
     }
 
     pub async fn get_execution_graph(
@@ -220,13 +221,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             warn!("{}", error_msg);
             return Ok(());
         }
-        self.query_stage_event_loop
-            .get_sender()?
-            .post_event(QueryStageSchedulerEvent::TaskUpdating(
-                executor_id.to_owned(),
-                tasks_status,
-            ))
-            .await
+        self.query_stage_event_loop.get_sender()?.post_event(
+            QueryStageSchedulerEvent::TaskUpdating(executor_id.to_owned(), tasks_status),
+        );
+
+        Ok(())
     }
 
     pub(crate) async fn offer_reservation(
@@ -235,8 +234,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
     ) -> Result<()> {
         self.query_stage_event_loop
             .get_sender()?
-            .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations))
-            .await
+            .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations));
+
+        Ok(())
     }
 
     /// Spawn an async task which periodically check the active executors' status and
@@ -344,12 +344,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 error!("error removing executor {executor_id}: {e:?}");
             }
 
-            if let Err(e) = event_sender
-                .post_event(QueryStageSchedulerEvent::ExecutorLost(executor_id, reason))
-                .await
-            {
-                error!("error sending ExecutorLost event: {e:?}");
-            }
+            event_sender
+                .post_event(QueryStageSchedulerEvent::ExecutorLost(executor_id, reason));
         });
     }
 

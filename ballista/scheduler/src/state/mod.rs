@@ -181,8 +181,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 .collect();
 
             tx_event
-                .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations))
-                .await?;
+                .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations));
         }
 
         self.task_manager
@@ -206,21 +205,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 .await
             {
                 Ok(res) if !res.is_empty() => {
-                    if let Err(e) = tx_event
-                        .post_event(QueryStageSchedulerEvent::ReservationOffering(res))
-                        .await
-                    {
-                        error!("error sending ReservationOffering event: {e:?}");
-                    }
+                    tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(res));
                 }
                 Ok(_) => {
                     debug!("no tasks slots reserved, scheduling another Tick");
                     tokio::time::sleep(Duration::from_millis(tick_interval)).await;
-                    if let Err(e) =
-                        tx_event.post_event(QueryStageSchedulerEvent::Tick).await
-                    {
-                        error!("error sending Tick event: {e:?}");
-                    }
+                    tx_event.post_event(QueryStageSchedulerEvent::Tick);
                 }
                 Err(e) => error!("error reserving task slots: {e:?}"),
             }
@@ -255,16 +246,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 let reservations =
                     vec![ExecutorReservation::new_free(executor_id); num_tasks];
 
-                if let Err(e) = tx_event
-                    .post_event(QueryStageSchedulerEvent::ReservationOffering(
-                        reservations,
-                    ))
-                    .await
-                {
-                    error!(
-                        "error returning reservations after task launch failed: {e:?}"
-                    );
-                }
+                tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
+                    reservations,
+                ));
             }
         });
     }
@@ -439,7 +423,6 @@ mod test {
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
     use std::sync::Arc;
-    use tokio::sync::mpsc;
 
     const TEST_SCHEDULER_NAME: &str = "localhost:50050";
 
@@ -452,7 +435,7 @@ mod test {
                 BallistaCodec::default(),
             ));
 
-        let (tx, _rx) = mpsc::channel(100);
+        let (tx, _rx) = flume::unbounded();
         let tx_event = EventSender::new(tx);
 
         let executors = test_executors(1, 4);
@@ -567,7 +550,7 @@ mod test {
             .register_executor(executor_metadata, executor_data, true, false)
             .await?;
 
-        let (tx, _rx) = mpsc::channel(100);
+        let (tx, _rx) = flume::unbounded();
         let tx_event = EventSender::new(tx);
 
         state.offer_reservation(reservations, tx_event).await?;

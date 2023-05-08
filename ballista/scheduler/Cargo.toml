@@ -57,6 +57,7 @@ datafusion-proto = { workspace = true }
 etcd-client = { version = "0.10", optional = true }
 flatbuffers = { version = "22.9.29" }
 futures = "0.3"
+flume = { version = "0.10.14", features = ["async"] }
 graphviz-rust = "0.6.1"
 http = "0.2"
 http-body = "0.4"

@@ -521,8 +521,9 @@ impl SchedulerTest {
         self.scheduler
             .query_stage_event_loop
             .get_sender()?
-            .post_event(event)
-            .await
+            .post_event(event);
+
+        Ok(())
     }
 
     pub async fn tick(&mut self) -> Result<()> {
@@ -547,8 +548,9 @@ impl SchedulerTest {
         self.scheduler
             .query_stage_event_loop
             .get_sender()?
-            .post_event(QueryStageSchedulerEvent::JobCancel(job_id.to_owned()))
-            .await
+            .post_event(QueryStageSchedulerEvent::JobCancel(job_id.to_owned()));
+
+        Ok(())
     }
 
     pub async fn await_completion_timeout(

@@ -53,6 +53,7 @@ datafusion = { workspace = true }
 datafusion-objectstore-hdfs = { version = "0.1.1", default-features = false, optional = true }
 datafusion-proto = { workspace = true }
 futures = "0.3"
+flume = { version = "0.10.14", features = ["async"] }
 hashbrown = "0.13"
 itertools = "0.10"
 libloading = "0.7.3"

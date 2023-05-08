@@ -28,7 +28,6 @@ use ballista_core::error::{BallistaError, Result};
 use ballista_core::event_loop::{EventAction, EventSender};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
-use tokio::sync::mpsc;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
@@ -119,9 +118,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                         }
                     };
 
-                    if let Err(e) = tx_event.post_event(event).await {
-                        error!("Fail to send event due to {}", e);
-                    }
+                    tx_event.post_event(event);
                 });
             }
             QueryStageSchedulerEvent::JobSubmitted {
@@ -144,7 +141,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
 
                 if self.state.config.is_push_staged_scheduling() {
                     // submit a scheduler tick.
-                    tx_event.post_event(QueryStageSchedulerEvent::Tick).await?;
+                    tx_event.post_event(QueryStageSchedulerEvent::Tick);
                 }
             }
             QueryStageSchedulerEvent::JobPlanningFailed {
@@ -190,8 +187,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
 
                 if !running_tasks.is_empty() {
                     tx_event
-                        .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))
-                        .await?;
+                        .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks));
                 }
                 self.state.clean_up_failed_job(job_id);
             }
@@ -207,9 +203,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     self.state.task_manager.cancel_job(&job_id).await?;
                 self.state.clean_up_failed_job(job_id);
 
-                tx_event
-                    .post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks))
-                    .await?;
+                tx_event.post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks));
             }
             QueryStageSchedulerEvent::TaskUpdating(executor_id, tasks_status) => {
                 debug!(
@@ -234,11 +228,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
             QueryStageSchedulerEvent::ReservationOffering(mut reservations) => {
                 if self.state.config.is_push_staged_scheduling() {
                     if reservations.len() > self.tasks_per_tick {
-                        tx_event
-                            .post_event(QueryStageSchedulerEvent::ReservationOffering(
+                        tx_event.post_event(
+                            QueryStageSchedulerEvent::ReservationOffering(
                                 reservations.split_off(self.tasks_per_tick),
-                            ))
-                            .await?;
+                            ),
+                        );
                     }
 
                     self.state
@@ -250,7 +244,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     self.set_pending_tasks(pending);
 
                     if pending > 0 {
-                        tx_event.post_event(QueryStageSchedulerEvent::Tick).await?;
+                        tx_event.post_event(QueryStageSchedulerEvent::Tick);
                     }
                 }
             }
@@ -259,8 +253,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     Ok(tasks) => {
                         if !tasks.is_empty() {
                             tx_event
-                                .post_event(QueryStageSchedulerEvent::CancelTasks(tasks))
-                                .await?;
+                                .post_event(QueryStageSchedulerEvent::CancelTasks(tasks));
                         }
                     }
                     Err(e) => {
@@ -305,12 +298,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                         let interval = self.tick_interval;
                         tokio::task::spawn(async move {
                             tokio::time::sleep(Duration::from_millis(interval)).await;
-
-                            if let Err(e) =
-                                tx_event.post_event(QueryStageSchedulerEvent::Tick).await
-                            {
-                                error!(error = ?e, "error sending tick");
-                            }
+                            tx_event.post_event(QueryStageSchedulerEvent::Tick)
                         });
                     }
                 }
@@ -336,8 +324,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     async fn on_receive(
         &self,
         event: QueryStageSchedulerEvent,
-        tx_event: &mpsc::Sender<QueryStageSchedulerEvent>,
-        _rx_event: &mpsc::Receiver<QueryStageSchedulerEvent>,
+        tx_event: &flume::Sender<QueryStageSchedulerEvent>,
+        _rx_event: &flume::Receiver<QueryStageSchedulerEvent>,
     ) -> Result<()> {
         let tx_event = EventSender::new(tx_event.clone());
 
@@ -402,7 +390,7 @@ mod tests {
 
         let query_stage_scheduler = test.query_stage_scheduler();
 
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<QueryStageSchedulerEvent>(10);
+        let (tx, rx) = flume::unbounded::<QueryStageSchedulerEvent>();
 
         let event = QueryStageSchedulerEvent::JobSubmitted {
             job_id: "job-id".to_string(),
@@ -413,13 +401,13 @@ mod tests {
 
         query_stage_scheduler.on_receive(event, &tx, &rx).await?;
 
-        let next_event = rx.recv().await.unwrap();
+        let next_event = rx.recv_async().await.unwrap();
 
         println!("receieved {next_event:?}");
 
         assert!(matches!(next_event, QueryStageSchedulerEvent::Tick));
 
-        let next_event = rx.recv().await.unwrap();
+        let next_event = rx.recv_async().await.unwrap();
 
         println!("receieved {next_event:?}");
 

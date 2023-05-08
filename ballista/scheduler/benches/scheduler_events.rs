@@ -391,7 +391,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
             let mut completions = vec![];
 
-            for id in 0..10 {
+            for id in 0..50 {
                 let job_id = format!("job-{id}");
                 server
                     .submit_job(&job_id, "", ctx.clone(), &plan)

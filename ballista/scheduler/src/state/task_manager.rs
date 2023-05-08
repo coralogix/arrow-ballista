@@ -531,7 +531,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             };
 
             for event in job_events {
-                tx_event.post_event(event).await?;
+                tx_event.post_event(event);
             }
         }
 
