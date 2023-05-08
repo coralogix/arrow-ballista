@@ -111,6 +111,16 @@ impl ExecutorManager {
         Ok(())
     }
 
+    pub async fn reserve_slots_on_executors(
+        &self,
+        n: u32,
+        executors: HashSet<String>,
+    ) -> Result<Vec<ExecutorReservation>> {
+        self.cluster_state
+            .reserve_slots(n, self.task_distribution, Some(executors))
+            .await
+    }
+
     /// Reserve up to n executor task slots. Once reserved these slots will not be available
     /// for scheduling.
     /// This operation is atomic, so if this method return an Err, no slots have been reserved.

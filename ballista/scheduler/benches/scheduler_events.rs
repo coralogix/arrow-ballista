@@ -3,20 +3,21 @@ use ballista_core::config::TaskSchedulingPolicy;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
-    task_status, JobStatus, ShuffleWritePartition, SuccessfulTask, TaskDefinition,
-    TaskStatus,
+    task_status, ExecutorHeartbeat, JobStatus, ShuffleWritePartition, SuccessfulTask,
+    TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::{
     ExecutorData, ExecutorMetadata, ExecutorSpecification,
 };
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::default_session_builder;
-use ballista_scheduler::cluster::BallistaCluster;
+use ballista_scheduler::cluster::memory::{InMemoryClusterState, InMemoryJobState};
+use ballista_scheduler::cluster::{BallistaCluster, ClusterState};
 use ballista_scheduler::config::{SchedulerConfig, TaskDistribution};
 use ballista_scheduler::metrics::NoopMetricsCollector;
 use ballista_scheduler::scheduler_server::SchedulerServer;
 use ballista_scheduler::state::execution_graph::TaskDescription;
-use ballista_scheduler::state::executor_manager::ExecutorManager;
+use ballista_scheduler::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use ballista_scheduler::state::task_manager::TaskLauncher;
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
@@ -32,10 +33,11 @@ use datafusion::prelude::{col, count, SessionContext};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 use pprof::criterion::{Output, PProfProfiler};
 use std::any::Any;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::runtime::Builder;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, Mutex};
 use tracing_subscriber::EnvFilter;
 
 fn dummy_table_schema() -> SchemaRef {
@@ -194,16 +196,112 @@ impl TaskLauncher<LogicalPlanNode, PhysicalPlanNode> for Launcher {
     }
 }
 
+struct RemoteClusterState {
+    inner: InMemoryClusterState,
+    reservation_guard: Mutex<()>,
+}
+
+impl RemoteClusterState {
+    pub fn new() -> Self {
+        Self {
+            inner: InMemoryClusterState::default(),
+            reservation_guard: Mutex::new(()),
+        }
+    }
+}
+
+#[async_trait]
+impl ClusterState for RemoteClusterState {
+    async fn reserve_slots(
+        &self,
+        num_slots: u32,
+        distribution: TaskDistribution,
+        executors: Option<HashSet<String>>,
+    ) -> Result<Vec<ExecutorReservation>> {
+        if let Ok(_guard) = self.reservation_guard.try_lock() {
+            self.inner
+                .reserve_slots(num_slots, distribution, executors)
+                .await
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn reserve_slots_exact(
+        &self,
+        num_slots: u32,
+        distribution: TaskDistribution,
+        executors: Option<HashSet<String>>,
+    ) -> Result<Vec<ExecutorReservation>> {
+        if let Ok(_guard) = self.reservation_guard.try_lock() {
+            self.inner
+                .reserve_slots_exact(num_slots, distribution, executors)
+                .await
+        } else {
+            Ok(vec![])
+        }
+    }
+
+    async fn cancel_reservations(
+        &self,
+        reservations: Vec<ExecutorReservation>,
+    ) -> Result<()> {
+        let _guard = self.reservation_guard.lock().await;
+
+        self.inner.cancel_reservations(reservations).await
+    }
+
+    async fn register_executor(
+        &self,
+        metadata: ExecutorMetadata,
+        spec: ExecutorData,
+        reserve: bool,
+    ) -> Result<Vec<ExecutorReservation>> {
+        self.inner.register_executor(metadata, spec, reserve).await
+    }
+
+    async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
+        self.inner.save_executor_metadata(metadata).await
+    }
+
+    async fn get_executor_metadata(&self, executor_id: &str) -> Result<ExecutorMetadata> {
+        self.inner.get_executor_metadata(executor_id).await
+    }
+
+    async fn save_executor_heartbeat(&self, heartbeat: ExecutorHeartbeat) -> Result<()> {
+        self.inner.save_executor_heartbeat(heartbeat).await
+    }
+
+    async fn remove_executor(&self, executor_id: &str) -> Result<()> {
+        self.inner.remove_executor(executor_id).await
+    }
+
+    fn executor_heartbeats(&self) -> HashMap<String, ExecutorHeartbeat> {
+        self.inner.executor_heartbeats()
+    }
+
+    fn get_executor_heartbeat(&self, executor_id: &str) -> Option<ExecutorHeartbeat> {
+        self.inner.get_executor_heartbeat(executor_id)
+    }
+}
+
 async fn setup_env(
     num_executors: usize,
 ) -> Arc<SchedulerServer<LogicalPlanNode, PhysicalPlanNode>> {
     let scheduler_name = "bench-server".to_string();
 
-    let cluster =
-        BallistaCluster::new_memory(scheduler_name.clone(), default_session_builder);
+    let cluster = BallistaCluster::new(
+        Arc::new(RemoteClusterState::new()),
+        Arc::new(InMemoryJobState::new(
+            scheduler_name.clone(),
+            default_session_builder,
+        )),
+    );
 
     let config = SchedulerConfig::default()
         .with_task_distribution(TaskDistribution::Bias)
+        .with_tasks_per_tick(1024)
+        .with_scheduler_tick_interval_ms(1_000)
         .with_scheduler_policy(TaskSchedulingPolicy::PushStaged);
 
     let metrics = Arc::new(NoopMetricsCollector::default());
@@ -293,7 +391,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
             let mut completions = vec![];
 
-            for id in 0..50 {
+            for id in 0..10 {
                 let job_id = format!("job-{id}");
                 server
                     .submit_job(&job_id, "", ctx.clone(), &plan)

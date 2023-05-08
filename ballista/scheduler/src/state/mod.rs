@@ -20,7 +20,7 @@ use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
 use datafusion::datasource::source_as_provider;
 use std::any::type_name;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -42,6 +42,7 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+use futures::TryFutureExt;
 use log::{debug, error, info};
 use prost::Message;
 
@@ -190,6 +191,27 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             .await?;
 
         Ok(())
+    }
+
+    pub(crate) fn reserve(
+        &self,
+        n: u32,
+        executors: HashSet<String>,
+        tx_event: EventSender<QueryStageSchedulerEvent>,
+    ) {
+        let executor_manager = self.executor_manager.clone();
+        tokio::spawn(async move {
+            if let Err(e) = executor_manager
+                .reserve_slots_on_executors(n, executors)
+                .and_then(|res| {
+                    tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(res))
+                })
+                .await
+            {
+                error!("error reserving task slots: {e:?}");
+            }
+        });
     }
 
     fn launch_tasks_async(

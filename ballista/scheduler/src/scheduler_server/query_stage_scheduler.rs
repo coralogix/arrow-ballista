@@ -288,24 +288,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 if pending_tasks > 0 {
                     let num_tasks = pending_tasks.min(self.tasks_per_tick);
 
-                    let reservations = self
+                    let live_executors = self
                         .state
                         .executor_manager
-                        .reserve_slots(num_tasks as u32)
-                        .await?;
+                        .get_alive_executors_within_one_minute();
 
-                    let num_reservations = reservations.len();
+                    self.state.reserve(
+                        num_tasks as u32,
+                        live_executors,
+                        tx_event.clone(),
+                    );
 
-                    if !reservations.is_empty() {
-                        tx_event
-                            .post_event(QueryStageSchedulerEvent::ReservationOffering(
-                                reservations,
-                            ))
-                            .await?;
-                    }
-
-                    if pending_tasks > self.tasks_per_tick || num_reservations < num_tasks
-                    {
+                    if pending_tasks > self.tasks_per_tick {
                         // if there are more available tasks or we are not able to reserve all of
                         // our slots, scheduler another tick
                         let interval = self.tick_interval;
