@@ -301,7 +301,7 @@ async fn setup_env(
     let config = SchedulerConfig::default()
         .with_task_distribution(TaskDistribution::Bias)
         .with_tasks_per_tick(1024)
-        .with_scheduler_tick_interval_ms(1_000)
+        .with_scheduler_tick_interval_ms(100)
         .with_scheduler_policy(TaskSchedulingPolicy::PushStaged);
 
     let metrics = Arc::new(NoopMetricsCollector::default());

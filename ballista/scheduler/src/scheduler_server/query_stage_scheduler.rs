@@ -17,7 +17,7 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use async_trait::async_trait;
 use tracing::{debug, error, info};
@@ -40,7 +40,6 @@ pub(crate) struct QueryStageScheduler<
     state: Arc<SchedulerState<T, U>>,
     metrics_collector: Arc<dyn SchedulerMetricsCollector>,
     pending_tasks: AtomicUsize,
-    tick_interval: u64,
     tasks_per_tick: usize,
 }
 
@@ -48,14 +47,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
     pub(crate) fn new(
         state: Arc<SchedulerState<T, U>>,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
-        tick_interval: u64,
         tasks_per_tick: usize,
     ) -> Self {
         Self {
             state,
             metrics_collector,
             pending_tasks: AtomicUsize::default(),
-            tick_interval,
             tasks_per_tick,
         }
     }
@@ -242,10 +239,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     let pending = self.state.task_manager.get_pending_task_count();
 
                     self.set_pending_tasks(pending);
-
-                    if pending > 0 {
-                        tx_event.post_event(QueryStageSchedulerEvent::Tick);
-                    }
                 }
             }
             QueryStageSchedulerEvent::ExecutorLost(executor_id, _) => {
@@ -291,16 +284,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                         live_executors,
                         tx_event.clone(),
                     );
-
-                    if pending_tasks > self.tasks_per_tick {
-                        // if there are more available tasks or we are not able to reserve all of
-                        // our slots, scheduler another tick
-                        let interval = self.tick_interval;
-                        tokio::task::spawn(async move {
-                            tokio::time::sleep(Duration::from_millis(interval)).await;
-                            tx_event.post_event(QueryStageSchedulerEvent::Tick)
-                        });
-                    }
                 }
             }
         }

@@ -89,9 +89,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.scheduler_tick_interval_ms,
             config.tasks_per_tick as usize,
         ));
+
         let query_stage_event_loop = EventLoop::new(
             "query_stage".to_owned(),
             config.event_loop_buffer_size as usize,
@@ -127,7 +127,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
             metrics_collector,
-            config.scheduler_tick_interval_ms,
             config.tasks_per_tick as usize,
         ));
         let query_stage_event_loop = EventLoop::new(
@@ -150,6 +149,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         self.state.init().await?;
         self.query_stage_event_loop.start()?;
         self.expire_dead_executors()?;
+
+        let tx_event = self.query_stage_event_loop.get_sender()?;
+        let tick_interval = self.state.config.scheduler_tick_interval_ms;
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(tick_interval)).await;
+                tx_event.post_event(QueryStageSchedulerEvent::Tick);
+            }
+        });
 
         Ok(())
     }

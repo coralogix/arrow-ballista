@@ -22,7 +22,7 @@ use datafusion::datasource::source_as_provider;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
@@ -198,7 +198,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         tx_event: EventSender<QueryStageSchedulerEvent>,
     ) {
         let executor_manager = self.executor_manager.clone();
-        let tick_interval = self.config.scheduler_tick_interval_ms;
         tokio::spawn(async move {
             match executor_manager
                 .reserve_slots_on_executors(n, executors)
@@ -208,11 +207,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                     tx_event
                         .post_event(QueryStageSchedulerEvent::ReservationOffering(res));
                 }
-                Ok(_) => {
-                    debug!("no tasks slots reserved, scheduling another Tick");
-                    tokio::time::sleep(Duration::from_millis(tick_interval)).await;
-                    tx_event.post_event(QueryStageSchedulerEvent::Tick);
-                }
+                Ok(_) => debug!("no tasks slots reserved, scheduling another Tick"),
                 Err(e) => error!("error reserving task slots: {e:?}"),
             }
         });
