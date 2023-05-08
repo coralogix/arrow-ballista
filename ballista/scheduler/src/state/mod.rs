@@ -22,7 +22,7 @@ use datafusion::datasource::source_as_provider;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
@@ -42,7 +42,6 @@ use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
-use futures::TryFutureExt;
 use log::{debug, error, info};
 use prost::Message;
 
@@ -200,16 +199,30 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         tx_event: EventSender<QueryStageSchedulerEvent>,
     ) {
         let executor_manager = self.executor_manager.clone();
+        let tick_interval = self.config.scheduler_tick_interval_ms;
         tokio::spawn(async move {
-            if let Err(e) = executor_manager
+            match executor_manager
                 .reserve_slots_on_executors(n, executors)
-                .and_then(|res| {
-                    tx_event
-                        .post_event(QueryStageSchedulerEvent::ReservationOffering(res))
-                })
                 .await
             {
-                error!("error reserving task slots: {e:?}");
+                Ok(res) if !res.is_empty() => {
+                    if let Err(e) = tx_event
+                        .post_event(QueryStageSchedulerEvent::ReservationOffering(res))
+                        .await
+                    {
+                        error!("error sending ReservationOffering event: {e:?}");
+                    }
+                }
+                Ok(_) => {
+                    debug!("no tasks slots reserved, scheduling another Tick");
+                    tokio::time::sleep(Duration::from_millis(tick_interval)).await;
+                    if let Err(e) =
+                        tx_event.post_event(QueryStageSchedulerEvent::Tick).await
+                    {
+                        error!("error sending Tick event: {e:?}");
+                    }
+                }
+                Err(e) => error!("error reserving task slots: {e:?}"),
             }
         });
     }
