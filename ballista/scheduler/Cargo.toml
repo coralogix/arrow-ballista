@@ -56,8 +56,8 @@ datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 etcd-client = { version = "0.10", optional = true }
 flatbuffers = { version = "22.9.29" }
-futures = "0.3"
 flume = { version = "0.10.14", features = ["async"] }
+futures = "0.3"
 graphviz-rust = "0.6.1"
 http = "0.2"
 http-body = "0.4"
@@ -91,7 +91,7 @@ warp = "0.3"
 [dev-dependencies]
 ballista-core = { path = "../core", version = "0.11.0" }
 criterion = { version = "0.4", features = ["async_tokio"] }
-pprof = { version = "0.11", features = ["flamegraph","criterion","frame-pointer"]}
+pprof = { version = "0.11", features = ["flamegraph","criterion","frame-pointer"] }
 
 [build-dependencies]
 configure_me_codegen = "=0.4.0"
