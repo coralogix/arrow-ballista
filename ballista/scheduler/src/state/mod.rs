@@ -93,7 +93,7 @@ pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPl
     pub session_manager: SessionManager,
     pub codec: BallistaCodec<T, U>,
     pub config: SchedulerConfig,
-    pub circuit_breaker: CircuitBreakerController,
+    pub circuit_breaker: Arc<CircuitBreakerController>,
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T, U> {
@@ -129,7 +129,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
-            circuit_breaker: CircuitBreakerController::default(),
+            circuit_breaker: Arc::new(CircuitBreakerController::default()),
         }
     }
 
@@ -154,7 +154,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
             config,
-            circuit_breaker: CircuitBreakerController::default(),
+            circuit_breaker: Arc::new(CircuitBreakerController::default()),
         }
     }
 
