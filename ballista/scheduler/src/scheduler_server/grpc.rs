@@ -567,7 +567,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     .state
                     .circuit_breaker
                     .update(key.clone(), update.percent)
-                    .await
                     .map_err(Status::internal)?;
 
                 if circuit_breaker {

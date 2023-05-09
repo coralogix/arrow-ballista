@@ -155,14 +155,14 @@ impl CircuitBreakerClient {
     }
 
     pub fn deregister_scheduler(&self, task_id: String) -> Result<(), BallistaError> {
-        info!("Unregistering scheduler for task {}", task_id);
+        info!("Deregistering scheduler for task {}", task_id);
 
         let update =
             ClientUpdate::SchedulerDeregistration(SchedulerDeregistration { task_id });
 
         self.update_sender.try_send(update).map_err(|e| {
             BallistaError::Internal(format!(
-                "Failed to send scheduler unregistration: {}",
+                "Failed to send scheduler deregistration: {}",
                 e
             ))
         })
@@ -183,7 +183,7 @@ impl CircuitBreakerClient {
 
         while let Some(combined_received) = updates_stream.next().await {
             let mut updates = Vec::new();
-            let mut scheduler_unregistrations = Vec::new();
+            let mut scheduler_deregistrations = Vec::new();
 
             for update in combined_received {
                 match update {
@@ -202,8 +202,8 @@ impl CircuitBreakerClient {
                             .insert(registration.task_id, registration.scheduler_id);
                     }
 
-                    ClientUpdate::SchedulerDeregistration(unregistration) => {
-                        scheduler_unregistrations.push(unregistration);
+                    ClientUpdate::SchedulerDeregistration(deregistration) => {
+                        scheduler_deregistrations.push(deregistration);
                     }
                 }
             }
@@ -272,7 +272,7 @@ impl CircuitBreakerClient {
                                 let key = key_proto.into();
 
                                 if let Some(state) = state_per_task.get(&key) {
-                                    state.circuit_breaker.store(true, Ordering::SeqCst);
+                                    state.circuit_breaker.store(true, Ordering::Release);
                                 } else {
                                     warn!("No state found for task {:?}", key);
                                 }
@@ -282,8 +282,8 @@ impl CircuitBreakerClient {
                 };
             }
 
-            for unregistration in scheduler_unregistrations {
-                scheduler_ids.remove(&unregistration.task_id);
+            for deregistration in scheduler_deregistrations {
+                scheduler_ids.remove(&deregistration.task_id);
             }
         }
     }

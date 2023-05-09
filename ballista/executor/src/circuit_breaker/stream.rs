@@ -61,7 +61,7 @@ impl Stream for CircuitBreakerStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
-        if self.circuit_breaker.load(Ordering::SeqCst) {
+        if self.circuit_breaker.load(Ordering::Acquire) {
             return Poll::Ready(None);
         }
 

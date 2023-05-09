@@ -38,7 +38,7 @@ impl Default for CircuitBreakerController {
 
 impl CircuitBreakerController {
     pub fn is_tripped_for(&self, job_id: &str) -> bool {
-        let stage_states = match self.job_states.get(&job_id.to_owned()) {
+        let stage_states = match self.job_states.get(job_id) {
             Some(state) => state.stage_states.clone(),
             // If the registration hasn't happened yet
             None => {
@@ -81,7 +81,7 @@ impl CircuitBreakerController {
         self.job_states.remove(job_id);
     }
 
-    pub async fn update(
+    pub fn update(
         &self,
         key: CircuitBreakerKey,
         percent: f64,
