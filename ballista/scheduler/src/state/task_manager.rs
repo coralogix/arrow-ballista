@@ -56,6 +56,7 @@ use tracing::{debug, error, info, warn};
 use tokio::sync::{watch, RwLock, RwLockWriteGuard};
 
 use crate::scheduler_server::timestamp_millis;
+use ballista_core::event_loop::EventSender;
 use ballista_core::physical_optimizer::OptimizeTaskGroup;
 use tracing::trace;
 
@@ -500,7 +501,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         &self,
         executor: &ExecutorMetadata,
         task_status: Vec<TaskStatus>,
-    ) -> Result<Vec<QueryStageSchedulerEvent>> {
+        tx_event: EventSender<QueryStageSchedulerEvent>,
+    ) -> Result<()> {
         let mut job_updates: HashMap<String, Vec<TaskStatus>> = HashMap::new();
         for status in task_status {
             trace!("Task Update\n{:?}", status);
@@ -509,7 +511,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             job_task_statuses.push(status);
         }
 
-        let mut events: Vec<QueryStageSchedulerEvent> = vec![];
         for (job_id, statuses) in job_updates {
             let num_tasks = statuses.len();
             debug!("Updating {} tasks in job {}", num_tasks, job_id);
@@ -530,11 +531,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             };
 
             for event in job_events {
-                events.push(event);
+                tx_event.post_event(event);
             }
         }
 
-        Ok(events)
+        Ok(())
     }
 
     /// Take a list of executor reservations and fill them with tasks that are ready
@@ -607,12 +608,31 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
     /// Mark a job to success. This will create a key under the CompletedJobs keyspace
     /// and remove the job from ActiveJobs
-    pub(crate) async fn succeed_job(&self, job_id: &str) -> Result<()> {
+    pub(crate) async fn succeed_job(
+        &self,
+        job_id: &str,
+        circuit_breaker_tripped: bool,
+    ) -> Result<()> {
         debug!("Moving job {} from Active to Success", job_id);
 
         if let Some(graph) = self.remove_active_execution_graph(job_id) {
-            let graph = graph.read().await.clone();
-            if graph.is_successful() {
+            let mut graph = graph.write().await.clone();
+            graph.circuit_breaker_tripped = circuit_breaker_tripped;
+
+            if let Some(job_status::Status::Successful(status)) = graph.status().status {
+                // update circuit breaker tripped flag
+                let updated_status = SuccessfulJob {
+                    circuit_breaker_tripped,
+                    ..status
+                };
+
+                let updated_job_status = JobStatus {
+                    status: Some(job_status::Status::Successful(updated_status)),
+                    ..graph.status()
+                };
+
+                graph.update_status(updated_job_status);
+
                 self.state.save_job(job_id, &graph).await?;
             } else {
                 error!("Job {} has not finished and cannot be completed", job_id);
