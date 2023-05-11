@@ -57,6 +57,7 @@ pub enum BallistaError {
     // (executor_id, map_stage_id, map_partition_id, message)
     FetchFailed(String, usize, Vec<usize>, String),
     Cancelled,
+    External(String),
 }
 
 #[allow(clippy::from_over_into)]
@@ -104,6 +105,9 @@ impl From<DataFusionError> for BallistaError {
     fn from(e: DataFusionError) -> Self {
         match e {
             DataFusionError::ArrowError(e) => Self::from(e),
+            DataFusionError::External(err) => {
+                BallistaError::External(err.as_ref().to_string())
+            }
             _ => BallistaError::DataFusionError(e),
         }
     }
@@ -177,9 +181,14 @@ impl From<&ParserError> for execution_error::parser_error::Error {
     }
 }
 
-impl From<&DataFusionError> for execution_error::datafusion_error::Error {
+impl From<&DataFusionError> for datafusion_error::Error {
     fn from(value: &DataFusionError) -> Self {
         match value {
+            DataFusionError::External(message) => datafusion_error::Error::External(
+                datafusion_error::External {
+                    message: message.to_string()
+                },
+            ),
             DataFusionError::ArrowError(error) => {
                     datafusion_error::Error::ArrowError(
                             execution_error::ArrowError {
@@ -411,11 +420,6 @@ impl From<&DataFusionError> for execution_error::datafusion_error::Error {
                         message: message.clone()
                     },
                 ),
-            DataFusionError::External(message) => datafusion_error::Error::External(
-                    execution_error::datafusion_error::External {
-                        message: message.to_string()
-                    },
-                ),
             DataFusionError::Context(ctx, error) => datafusion_error::Error::Context(
                     Box::new(execution_error::datafusion_error::Context {
                         ctx: ctx.clone(),
@@ -424,7 +428,11 @@ impl From<&DataFusionError> for execution_error::datafusion_error::Error {
                         )),
                     })
                 ),
-            DataFusionError::Substrait(_) => todo!()
+            DataFusionError::Substrait(message) => datafusion_error::Error::Substrair(
+                execution_error::datafusion_error::Substrait {
+                    message: message.clone()
+                },
+            ),
     }
     }
 }
@@ -538,11 +546,19 @@ impl From<&BallistaError> for execution_error::Error {
                 })
             }
             BallistaError::DataFusionError(error) => {
-                execution_error::Error::DatafusionError(
-                    execution_error::DatafusionError {
-                        error: Some(error.into()),
-                    },
-                )
+                match error {
+                    // catch it here
+                    DataFusionError::External(error) => {
+                        execution_error::Error::External(execution_error::External {
+                            message: error.as_ref().to_string(),
+                        })
+                    }
+                    other => execution_error::Error::DatafusionError(
+                        execution_error::DatafusionError {
+                            error: Some(other.into()),
+                        },
+                    ),
+                }
             }
             BallistaError::SqlError(error) => {
                 execution_error::Error::SqlError(execution_error::SqlError {
@@ -603,6 +619,11 @@ impl From<&BallistaError> for execution_error::Error {
             BallistaError::Cancelled => {
                 execution_error::Error::Cancelled(execution_error::Cancelled {})
             }
+            BallistaError::External(message) => {
+                execution_error::Error::External(execution_error::External {
+                    message: message.to_string(),
+                })
+            }
         }
     }
 }
@@ -640,6 +661,7 @@ impl Display for BallistaError {
                 )
             }
             BallistaError::Cancelled => write!(f, "Task cancelled"),
+            BallistaError::External(message) => write!(f, "External error: {}", message),
         }
     }
 }
@@ -938,6 +960,9 @@ impl Display for execution_error::Error {
                 write!(f, "FetchFailed: {}", error.message)
             }
             execution_error::Error::Cancelled(_) => write!(f, "Cancelled"),
+            execution_error::Error::External(error) => {
+                write!(f, "External: {}", error.message)
+            }
         }
     }
 }

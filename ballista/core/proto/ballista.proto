@@ -549,6 +549,9 @@ message RunningJob {
 }
 
 message ExecutionError {
+  message External {
+    string message = 1;
+  }
   message NotImplemented {
     string message = 1;
   }
@@ -844,6 +847,7 @@ message ExecutionError {
     GrpcActionError grpc_active_error = 16;
     FetchFailed fetch_failed = 17;
     Cancelled cancelled = 18;
+    External external = 19;
   }
 }
 message FailedJob {
