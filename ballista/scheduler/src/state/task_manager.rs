@@ -29,7 +29,8 @@ use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, execution_error, JobStatus, KeyValuePair, TaskDefinition, TaskStatus,
+    self, execution_error, job_status, JobStatus, KeyValuePair, SuccessfulJob,
+    TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
