@@ -968,8 +968,8 @@ pub mod execution_error {
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct External {
-        #[prost(string, tag = "1")]
-        pub message: ::prost::alloc::string::String,
+        #[prost(message, optional, tag = "1")]
+        pub error: ::core::option::Option<DatafusionError>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]

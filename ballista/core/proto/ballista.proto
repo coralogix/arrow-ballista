@@ -550,7 +550,7 @@ message RunningJob {
 
 message ExecutionError {
   message External {
-    string message = 1;
+    DatafusionError error = 1;
   }
   message NotImplemented {
     string message = 1;

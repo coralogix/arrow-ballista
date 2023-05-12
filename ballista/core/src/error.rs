@@ -57,7 +57,7 @@ pub enum BallistaError {
     // (executor_id, map_stage_id, map_partition_id, message)
     FetchFailed(String, usize, Vec<usize>, String),
     Cancelled,
-    External(String),
+    External(DataFusionError),
 }
 
 #[allow(clippy::from_over_into)]
@@ -105,9 +105,7 @@ impl From<DataFusionError> for BallistaError {
     fn from(e: DataFusionError) -> Self {
         match e {
             DataFusionError::ArrowError(e) => Self::from(e),
-            DataFusionError::External(err) => {
-                BallistaError::External(err.as_ref().to_string())
-            }
+            DataFusionError::External(_) => BallistaError::External(e),
             _ => BallistaError::DataFusionError(e),
         }
     }
@@ -548,9 +546,11 @@ impl From<&BallistaError> for execution_error::Error {
             BallistaError::DataFusionError(error) => {
                 match error {
                     // catch it here
-                    DataFusionError::External(error) => {
+                    DataFusionError::External(_) => {
                         execution_error::Error::External(execution_error::External {
-                            message: error.as_ref().to_string(),
+                            error: Some(execution_error::DatafusionError {
+                                error: Some(error.into()),
+                            }),
                         })
                     }
                     other => execution_error::Error::DatafusionError(
@@ -619,9 +619,11 @@ impl From<&BallistaError> for execution_error::Error {
             BallistaError::Cancelled => {
                 execution_error::Error::Cancelled(execution_error::Cancelled {})
             }
-            BallistaError::External(message) => {
+            BallistaError::External(error) => {
                 execution_error::Error::External(execution_error::External {
-                    message: message.to_string(),
+                    error: Some(execution_error::DatafusionError {
+                        error: Some(error.into()),
+                    }),
                 })
             }
         }
@@ -961,7 +963,7 @@ impl Display for execution_error::Error {
             }
             execution_error::Error::Cancelled(_) => write!(f, "Cancelled"),
             execution_error::Error::External(error) => {
-                write!(f, "External: {}", error.message)
+                write!(f, "External: {:?}", error.error)
             }
         }
     }
