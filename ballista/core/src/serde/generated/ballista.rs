@@ -959,18 +959,15 @@ pub struct RunningJob {
 pub struct ExecutionError {
     #[prost(
         oneof = "execution_error::Error",
-        tags = "5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19"
+        tags = "5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18"
     )]
     pub error: ::core::option::Option<execution_error::Error>,
 }
 /// Nested message and enum types in `ExecutionError`.
 pub mod execution_error {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct External {
-        #[prost(message, optional, tag = "1")]
-        pub error: ::core::option::Option<DatafusionError>,
-    }
+    /// message External {
+    ///    DatafusionError error = 1;
+    /// }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct NotImplemented {
@@ -1650,10 +1647,9 @@ pub mod execution_error {
         GrpcActiveError(GrpcActionError),
         #[prost(message, tag = "17")]
         FetchFailed(FetchFailed),
+        /// External external = 19;
         #[prost(message, tag = "18")]
         Cancelled(Cancelled),
-        #[prost(message, tag = "19")]
-        External(External),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]

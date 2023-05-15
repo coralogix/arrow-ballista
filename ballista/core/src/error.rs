@@ -542,21 +542,11 @@ impl From<&BallistaError> for execution_error::Error {
                 })
             }
             BallistaError::DataFusionError(error) => {
-                match error {
-                    // catch it here
-                    DataFusionError::External(_) => {
-                        execution_error::Error::External(execution_error::External {
-                            error: Some(execution_error::DatafusionError {
-                                error: Some(error.into()),
-                            }),
-                        })
-                    }
-                    other => execution_error::Error::DatafusionError(
-                        execution_error::DatafusionError {
-                            error: Some(other.into()),
-                        },
-                    ),
-                }
+                execution_error::Error::DatafusionError(
+                    execution_error::DatafusionError {
+                        error: Some(error.into()),
+                    },
+                )
             }
             BallistaError::SqlError(error) => {
                 execution_error::Error::SqlError(execution_error::SqlError {
@@ -953,9 +943,6 @@ impl Display for execution_error::Error {
                 write!(f, "FetchFailed: {}", error.message)
             }
             execution_error::Error::Cancelled(_) => write!(f, "Cancelled"),
-            execution_error::Error::External(error) => {
-                write!(f, "External: {:?}", error.error)
-            }
         }
     }
 }
