@@ -865,7 +865,8 @@ impl Display for execution_error::DatafusionError {
                     write!(f, "DatafusionError/ResourcesExhausted: {}", error.message)
                 }
                 execution_error::datafusion_error::Error::External(error) => {
-                    write!(f, "DatafusionError/External: {}", error.message)
+                    // to be better in UI, we will show only message
+                    write!(f, "{}", error.message)
                 }
                 execution_error::datafusion_error::Error::JitError(error) => {
                     write!(f, "DatafusionError/JitError: {}", error.message)
