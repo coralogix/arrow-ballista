@@ -210,7 +210,7 @@ impl ShuffleWriterExec {
                     )
                     .await
                     .map_err(|e| match e {
-                        BallistaError::External(err) => err,
+                        BallistaError::DataFusionError(err) => err,
                         other => DataFusionError::Execution(format!("{other:?}")),
                     })?;
 

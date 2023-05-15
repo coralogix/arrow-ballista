@@ -57,7 +57,6 @@ pub enum BallistaError {
     // (executor_id, map_stage_id, map_partition_id, message)
     FetchFailed(String, usize, Vec<usize>, String),
     Cancelled,
-    External(DataFusionError),
 }
 
 #[allow(clippy::from_over_into)]
@@ -104,8 +103,7 @@ impl From<parser::ParserError> for BallistaError {
 impl From<DataFusionError> for BallistaError {
     fn from(e: DataFusionError) -> Self {
         match e {
-            DataFusionError::ArrowError(e) => Self::from(e),
-            DataFusionError::External(_) => BallistaError::External(e),
+            DataFusionError::ArrowError(e) => e.into(),
             _ => BallistaError::DataFusionError(e),
         }
     }
@@ -619,13 +617,6 @@ impl From<&BallistaError> for execution_error::Error {
             BallistaError::Cancelled => {
                 execution_error::Error::Cancelled(execution_error::Cancelled {})
             }
-            BallistaError::External(error) => {
-                execution_error::Error::External(execution_error::External {
-                    error: Some(execution_error::DatafusionError {
-                        error: Some(error.into()),
-                    }),
-                })
-            }
         }
     }
 }
@@ -663,7 +654,6 @@ impl Display for BallistaError {
                 )
             }
             BallistaError::Cancelled => write!(f, "Task cancelled"),
-            BallistaError::External(message) => write!(f, "External error: {}", message),
         }
     }
 }

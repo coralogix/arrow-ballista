@@ -316,8 +316,8 @@ async fn fetch_partition(
     let host = metadata.host.as_str();
     let port = metadata.port as u16;
     let mut ballista_client = BallistaClient::try_new(host, port).await.map_err(|e| {
-        if let BallistaError::External(nested_error) = e {
-            nested_error
+        if let BallistaError::DataFusionError(err) = e {
+            err
         } else {
             DataFusionError::Execution(format!("{:?}", e))
         }
