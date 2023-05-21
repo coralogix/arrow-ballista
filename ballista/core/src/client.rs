@@ -47,7 +47,7 @@ use log::debug;
 use prost::Message;
 use tonic::Streaming;
 
-// 16 GiB
+// 16 MiB
 const MAX_MESSAGE_SIZE: usize = 17179869184;
 
 /// Client for interacting with Ballista executors.
