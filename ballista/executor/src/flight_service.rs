@@ -44,9 +44,6 @@ use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{debug, info, warn};
 
-// type FlightDataSender = Sender<Result<FlightData, Status>>;
-// type FlightDataReceiver = Receiver<Result<FlightData, Status>>;
-
 // TODO this is currently configured in two different places
 // 4 MiB
 const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
