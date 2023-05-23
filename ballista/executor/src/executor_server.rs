@@ -64,7 +64,6 @@ use crate::executor::Executor;
 use crate::scheduler_client_registry::SchedulerClientRegistry;
 use crate::shutdown::ShutdownNotifier;
 use crate::{as_task_status, TaskExecutionTimes};
-use tokio_retry::strategy::FixedInterval;
 
 pub type ServerHandle = JoinHandle<Result<(), BallistaError>>;
 type SchedulerClients = Arc<DashMap<String, SchedulerGrpcClient<Channel>>>;
@@ -556,8 +555,7 @@ fn task_identity(task: &TaskDefinition) -> String {
 }
 
 lazy_static! {
-    static ref STATUS_RETRY_POLICY: Vec<Duration> =
-        FixedInterval::from_millis(10).take(3).collect();
+    static ref STATUS_RETRY_POLICY: Vec<Duration> = vec![Duration::from_millis(10); 3];
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T, U> {
@@ -599,6 +597,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                     // retries are exhausted, return error
                     return Err(e);
                 }
+            } else {
+                return Ok(());
             }
         }
     }
@@ -641,6 +641,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                     // retries are exhausted, return error
                     return Err(e);
                 }
+            } else {
+                return Ok(());
             }
         }
     }
