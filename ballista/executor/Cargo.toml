@@ -63,6 +63,7 @@ tokio = { version = "1.0", features = [
     "parking_lot",
     "signal",
 ] }
+tokio-retry = "0.3.0"
 tokio-stream = { version = "0.1", features = ["net"] }
 tonic = { workspace = true }
 tracing = "0.1.36"
