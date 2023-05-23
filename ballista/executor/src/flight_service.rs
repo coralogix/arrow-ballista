@@ -48,8 +48,8 @@ use tracing::{debug, info, warn};
 // type FlightDataReceiver = Receiver<Result<FlightData, Status>>;
 
 // TODO this is currently configured in two different places
-// 16MiB
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+// 4 MiB
+const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 
 /// Service implementing the Apache Arrow Flight Protocol
 #[derive(Clone)]
