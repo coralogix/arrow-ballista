@@ -243,8 +243,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     let reservations = (0..num_slots)
                         .map(|_| ExecutorReservation::new_free(executor_id.clone()))
                         .collect();
-                    info!("Returning {num_slots} task slots for executor {executor_id} from lost scheduler {scheduler_id}");
+                    info!(
+                        num_slots,
+                        executor_id,
+                        scheduler_id,
+                        "returning task slots for lost scheduler"
+                    );
 
+                    // for now, just return the slots to the pool
                     tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
                         reservations,
                     ));
