@@ -375,17 +375,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         )?)
     }
 
-    async fn run_task(
+    async fn run_task_inner(
         &self,
+        start_exec_time: u64,
         task_identity: &str,
         scheduler_id: String,
         curator_task: TaskDefinition,
         query_stage_exec: Arc<dyn QueryStageExecutor>,
-    ) -> Result<(), BallistaError> {
-        let start_exec_time = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
+    ) -> Result<TaskStatus, BallistaError> {
         info!(task_identity, scheduler_id, "running task");
         let task = curator_task;
         let task_props = task.props;
@@ -410,8 +407,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             .with_extension(self.circuit_breaker_client.clone())
             .with_extension(Arc::new(circuit_breaker_metadata));
 
-        self.circuit_breaker_client
-            .register_scheduler(task_identity.to_owned(), scheduler_id.clone())?;
+        if let Err(e) = self
+            .circuit_breaker_client
+            .register_scheduler(task_identity.to_owned(), scheduler_id.clone())
+        {
+            error!(task_identity, scheduler_id, error = %e, "failed to register circuit breaker");
+        }
 
         let mut task_scalar_functions = HashMap::new();
         let mut task_aggregate_functions = HashMap::new();
@@ -457,6 +458,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
                 shuffle_output_partitioning,
             )
             .await;
+
         info!(task_identity, "completed task");
         debug!("Statistics: {:?}", execution_result);
 
@@ -485,7 +487,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             end_exec_time,
         };
 
-        let task_status = as_task_status(
+        Ok(as_task_status(
             execution_result,
             executor_id.clone(),
             job_id,
@@ -495,26 +497,97 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             attempt,
             Some(operator_metrics),
             task_execution_times,
-        );
+        ))
+    }
 
-        if let Err(e) = self
-            .circuit_breaker_client
-            .deregister_scheduler(task_identity.to_owned())
-        {
-            error!(error = %e, task_identity, scheduler_id, "error de-registering circuit breaker");
-        }
+    async fn run_task(
+        &self,
+        task_identity: &str,
+        scheduler_id: String,
+        curator_task: TaskDefinition,
+        query_stage_exec: Arc<dyn QueryStageExecutor>,
+    ) {
+        let start_exec_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
 
         let task_status_sender = self.executor_env.tx_task_status.clone();
-        if let Err(_e) = task_status_sender
-            .send(CuratorTaskStatus {
-                scheduler_id,
-                task_status: vec![task_status],
-            })
+
+        let job_id = curator_task.job_id.clone();
+        let stage_id = curator_task.stage_id;
+        let task_id = curator_task.task_id;
+        let partitions = curator_task.partitions.clone();
+        let attempt = curator_task.stage_attempt_num;
+        let launch_time = curator_task.launch_time;
+
+        match self
+            .run_task_inner(
+                start_exec_time,
+                task_identity,
+                scheduler_id.clone(),
+                curator_task,
+                query_stage_exec,
+            )
             .await
         {
-            error!("failed to send task status, channel closed");
+            Ok(task_status) => {
+                if let Err(_e) = task_status_sender
+                    .send(CuratorTaskStatus {
+                        scheduler_id,
+                        task_status: vec![task_status],
+                    })
+                    .await
+                {
+                    error!(
+                        task_identity,
+                        job_id,
+                        stage_id,
+                        task_id,
+                        "failed to send task status, channel closed"
+                    );
+                }
+            }
+            Err(err) => {
+                let executor_id = self.executor.metadata.id.clone();
+
+                error!(task_identity, job_id, stage_id, task_id, executor_id, scheduler_id, error = %err, "failed to run task");
+                let task_status = as_task_status(
+                    Err(err),
+                    executor_id,
+                    job_id.clone(),
+                    stage_id,
+                    task_id,
+                    partitions,
+                    attempt,
+                    None,
+                    TaskExecutionTimes {
+                        launch_time,
+                        start_exec_time,
+                        end_exec_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                    },
+                );
+
+                if let Err(_e) = task_status_sender
+                    .send(CuratorTaskStatus {
+                        scheduler_id,
+                        task_status: vec![task_status],
+                    })
+                    .await
+                {
+                    error!(
+                        task_identity,
+                        job_id,
+                        stage_id,
+                        task_id,
+                        "failed to send task status, channel closed"
+                    );
+                }
+            }
         }
-        Ok(())
     }
 
     // TODO populate with real metrics
@@ -872,13 +945,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                     plan,
                                 )
                                 .await
-                                .unwrap_or_else(|e| {
-                                    error!(
-                                        task_identity,
-                                        error = %e,
-                                        "failed to run task",
-                                    );
-                                });
                         });
                     }
                 } else {
