@@ -120,8 +120,10 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
         let addr = addr.parse().unwrap();
 
         info!(
-            "Ballista v{} Rust Executor Grpc Server listening on {:?}",
-            BALLISTA_VERSION, addr
+            executor_id = executor_meta.id,
+            socket_address = %addr,
+            version = BALLISTA_VERSION,
+            "starting executor server",
         );
 
         let server = ExecutorGrpcServer::new(executor_server.clone())
@@ -134,7 +136,7 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
                 .add_service(server)
                 .serve_with_shutdown(addr, shutdown_signal);
             grpc_server_future.await.map_err(|e| {
-                error!("Tonic error, Could not start Executor Grpc Server.");
+                error!(error = %e, "failed to start executor gRPC server");
                 BallistaError::TonicError(e)
             })
         })
@@ -145,10 +147,10 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     let executor_server = Arc::new(executor_server);
     match register_executor(&mut scheduler, executor.clone()).await {
         Ok(_) => {
-            info!("Executor registration succeed");
+            info!("executor registration succeed");
         }
         Err(error) => {
-            error!("Executor registration failed due to: {}", error);
+            error!(error = %error, "executor registration failed");
             // abort the Executor Grpc Future
             server.abort();
             return Err(error);
@@ -184,7 +186,7 @@ async fn register_executor(
         Ok(())
     } else {
         Err(BallistaError::General(
-            "Executor registration failed!!!".to_owned(),
+            "executor registration failed".to_owned(),
         ))
     }
 }
@@ -283,8 +285,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             }
             Err(e) => {
                 warn!(
-                    "Fail to update heartbeat to its registration scheduler due to {:?}",
-                    e
+                        error = %e,
+                        "failed to send heartbeat to registration scheduler"
                 );
             }
         };
@@ -302,8 +304,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
                 }
                 Err(e) => {
                     warn!(
-                        "Fail to update heartbeat to scheduler {} due to {:?}",
-                        scheduler_id, e
+                        scheduler_id,
+                        error = %e,
+                        "failed to send heartbeat to scheduler"
                     );
                 }
             }
@@ -383,7 +386,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_millis() as u64;
-        info!("Start to run task {}", task_identity);
+        info!(task_identity, scheduler_id, "running task");
         let task = curator_task;
         let task_props = task.props;
 
@@ -440,7 +443,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         let task_id = task.task_id;
         let partitions = task.partitions;
 
-        info!("Start to execute shuffle write for task {}", task_identity);
+        info!(task_identity, "executing shuffle write");
 
         let execution_result = self
             .executor
@@ -454,14 +457,22 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
                 shuffle_output_partitioning,
             )
             .await;
-        info!("Done with task {}", task_identity);
+        info!(task_identity, "completed task");
         debug!("Statistics: {:?}", execution_result);
 
         let plan_metrics = query_stage_exec.collect_plan_metrics();
-        let operator_metrics = plan_metrics
+        let operator_metrics = match plan_metrics
             .into_iter()
             .map(|m| m.try_into())
-            .collect::<Result<Vec<_>, BallistaError>>()?;
+            .collect::<Result<Vec<_>, BallistaError>>()
+        {
+            Ok(metrics) => metrics,
+            Err(e) => {
+                error!(error = %e, "error serializing task metrics");
+                vec![]
+            }
+        };
+
         let executor_id = &self.executor.metadata.id;
 
         let end_exec_time = SystemTime::now()
@@ -486,17 +497,23 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             task_execution_times,
         );
 
-        self.circuit_breaker_client
-            .deregister_scheduler(task_identity.to_owned())?;
+        if let Err(e) = self
+            .circuit_breaker_client
+            .deregister_scheduler(task_identity.to_owned())
+        {
+            error!(error = %e, task_identity, scheduler_id, "error de-registering circuit breaker");
+        }
 
         let task_status_sender = self.executor_env.tx_task_status.clone();
-        task_status_sender
+        if let Err(_e) = task_status_sender
             .send(CuratorTaskStatus {
                 scheduler_id,
                 task_status: vec![task_status],
             })
             .await
-            .unwrap();
+        {
+            error!("failed to send task status, channel closed");
+        }
         Ok(())
     }
 
@@ -525,14 +542,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> Heartbeater<T, U>
         let mut heartbeat_shutdown = shutdown_noti.subscribe_for_shutdown();
         let heartbeat_complete = shutdown_noti.shutdown_complete_tx.clone();
         tokio::spawn(async move {
-            info!("Starting heartbeater to send heartbeat the scheduler periodically");
+            let executor_id = &executor_server.executor.metadata.id;
+            info!(executor_id, "starting executor heartbeat");
             // As long as the shutdown notification has not been received
             while !heartbeat_shutdown.is_shutdown() {
                 executor_server.heartbeat().await;
                 tokio::select! {
                     _ = tokio::time::sleep(Duration::from_millis(60000)) => {},
                     _ = heartbeat_shutdown.recv() => {
-                        info!("Stop heartbeater");
+                        info!(executor_id, "stopping executor heartbeat");
                         drop(heartbeat_complete);
                         return;
                     }
@@ -585,7 +603,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                 })
                 .await
             {
-                warn!("failed to update task status: {e:?}");
+                warn!(error = %e, "failed to update task status");
                 if let Some(interval) = retries.next() {
                     if matches!(
                         e.code(),
@@ -628,7 +646,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                 .await
             {
                 warn!(
-                    "failed to send scheduler lost for scheduler {scheduler_id}: {e:?}"
+                    scheduler_id, error = %e, "failed to send scheduler lost"
                 );
                 if let Some(interval) = retries.next() {
                     if matches!(
@@ -785,7 +803,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
         let mut task_runner_shutdown = shutdown_noti.subscribe_for_shutdown();
         let task_runner_complete = shutdown_noti.shutdown_complete_tx.clone();
         tokio::spawn(async move {
-            info!("Starting the task runner pool");
+            info!("starting task runner pool");
 
             // Use a dedicated executor for CPU bound tasks so that the main tokio
             // executor can still answer requests even when under load
@@ -820,17 +838,17 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                         Ok(Ok(plan)) => plan,
                         Ok(Err(e)) => {
                             error!(
-                                "Failed to decode the plan of task {:?} due to {:?}",
-                                task_identity(&task.tasks[0]),
-                                e
+                                task_identity = task_identity(&task.tasks[0]),
+                                error = %e,
+                                "failed to decode task",
                             );
                             return;
                         }
                         Err(e) => {
                             error!(
-                                "Failed to receive error plan of task {:?} due to {:?}",
-                                task_identity(&task.tasks[0]),
-                                e
+                                task_identity = task_identity(&task.tasks[0]),
+                                error = %e,
+                                "failed to receive decoded task",
                             );
                             return;
                         }
@@ -842,7 +860,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                         let scheduler_id = scheduler_id.clone();
 
                         let task_identity = task_identity(&curator_task);
-                        info!("Received task {:?}", &task_identity);
+                        info!(task_identity, "received task");
 
                         let server = executor_server.clone();
                         dedicated_executor.spawn(async move {
@@ -856,14 +874,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                 .await
                                 .unwrap_or_else(|e| {
                                     error!(
-                                        "Fail to run the task {:?} due to {:?}",
-                                        task_identity, e
+                                        task_identity,
+                                        error = %e,
+                                        "failed to run task",
                                     );
                                 });
                         });
                     }
                 } else {
-                    info!("Channel is closed and will exit the task receive loop");
+                    info!("channel is closed and will exit the task receive loop");
                     drop(task_runner_complete);
                     return;
                 }
@@ -909,17 +928,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
         let stop_request = request.into_inner();
         if stop_request.executor_id != self.executor.metadata.id {
             warn!(
-                "The executor id {} in request is different from {}. The stop request will be ignored",
-                stop_request.executor_id, self.executor.metadata.id
+                request_executor_id = stop_request.executor_id,
+                executor_id = self.executor.metadata.id,
+                "received executor invalid executor ID in stop request, ignoring",
             );
             return Ok(Response::new(StopExecutorResult {}));
         }
         let stop_reason = stop_request.reason;
         let force = stop_request.force;
-        info!(
-            "Receive stop executor request, reason: {:?}, force {:?}",
-            stop_reason, force
-        );
+        info!(stop_reason, force, "receive stop executor request",);
         let stop_sender = self.executor_env.tx_stop.clone();
         stop_sender.send(force).await.unwrap();
         Ok(Response::new(StopExecutorResult {}))
@@ -930,7 +947,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
         request: Request<CancelTasksParams>,
     ) -> Result<Response<CancelTasksResult>, Status> {
         let task_infos = request.into_inner().task_infos;
-        info!("Cancelling tasks for {:?}", task_infos);
+        info!(
+            num_tasks = task_infos.len(),
+            "received cancel tasks request"
+        );
 
         let mut cancelled = true;
 
@@ -940,7 +960,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
                 .cancel_task(task.task_id as usize, task.job_id, task.stage_id as usize)
                 .await
             {
-                error!("Error cancelling task: {:?}", e);
+                error!(error = %e, "error cancelling tasks");
                 cancelled = false;
             }
         }
@@ -975,7 +995,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
             )));
         }
 
-        info!("Remove data for job {:?}", job_id);
+        info!(job_id, "removing data for job");
 
         std::fs::remove_dir_all(&path)?;
 

@@ -39,6 +39,7 @@ use prometheus::{
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::watch;
+use tracing::info;
 
 lazy_static! {
     static ref ACTIVE_TASKS: IntGauge =
@@ -201,8 +202,9 @@ impl Executor {
         &self,
         task_id: usize,
         job_id: String,
-        _stage_id: usize,
+        stage_id: usize,
     ) -> Result<bool, BallistaError> {
+        info!(task_id, job_id, stage_id, "cancelling task");
         if let Some((_, handle)) = self.remove_handle(job_id, task_id) {
             handle.abort();
             Ok(true)
