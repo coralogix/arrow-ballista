@@ -173,6 +173,11 @@ impl Executor {
         task_ctx: Arc<TaskContext>,
         _shuffle_output_partitioning: Option<Partitioning>,
     ) -> Result<Vec<protobuf::ShuffleWritePartition>, BallistaError> {
+        info!(
+            executor_id = self.metadata.id,
+            job_id, stage_id, task_id, "executing query stage"
+        );
+
         let _metric_guard = ActiveTaskMetricGuard::new(partitions.len());
 
         let (task, abort_handle) = futures::future::abortable(
@@ -204,7 +209,10 @@ impl Executor {
         job_id: String,
         stage_id: usize,
     ) -> Result<bool, BallistaError> {
-        info!(task_id, job_id, stage_id, "cancelling task");
+        info!(
+            executor_id = self.metadata.id,
+            task_id, job_id, stage_id, "cancelling task"
+        );
         if let Some((_, handle)) = self.remove_handle(job_id, task_id) {
             handle.abort();
             Ok(true)
