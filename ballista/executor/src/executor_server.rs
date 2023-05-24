@@ -412,10 +412,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
                     TaskExecutionTimes {
                         launch_time,
                         start_exec_time,
-                        end_exec_time: SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_millis() as u64,
+                        end_exec_time: start_exec_time,
                     },
                 );
 
