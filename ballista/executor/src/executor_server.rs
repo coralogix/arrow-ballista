@@ -1037,14 +1037,22 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
                 .try_into()
                 .map_err(|e| Status::invalid_argument(format!("{e}")))?;
 
-            task_sender
+            if task_sender
                 .send(CuratorTaskDefinition {
                     scheduler_id: scheduler_id.clone(),
                     plan,
                     tasks: vec![task_def],
                 })
                 .await
-                .unwrap();
+                .is_err()
+            {
+                warn!(
+                    scheduler_id,
+                    executor_id = self.executor.metadata.id,
+                    "task from scheduler rejected, executor is shutting down"
+                );
+                return Err(Status::aborted("executor is shutting down"));
+            }
         }
         Ok(Response::new(LaunchTaskResult { success: true }))
     }
@@ -1064,7 +1072,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
         }
         let stop_reason = stop_request.reason;
         let force = stop_request.force;
-        info!(stop_reason, force, "receive stop executor request",);
+        info!(
+            stop_reason,
+            force,
+            executor_id = self.executor.metadata.id,
+            "receive stop executor request",
+        );
         let stop_sender = self.executor_env.tx_stop.clone();
         stop_sender.send(force).await.unwrap();
         Ok(Response::new(StopExecutorResult {}))
@@ -1088,7 +1101,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
                 .cancel_task(task.task_id as usize, task.job_id, task.stage_id as usize)
                 .await
             {
-                error!(error = %e, "error cancelling tasks");
+                error!(executor_id = self.executor.metadata.id, error = %e, "error cancelling tasks");
                 cancelled = false;
             }
         }
@@ -1123,7 +1136,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
             )));
         }
 
-        info!(job_id, "removing data for job");
+        info!(
+            job_id,
+            executor_id = self.executor.metadata.id,
+            "removing data for job"
+        );
 
         std::fs::remove_dir_all(&path)?;
 
