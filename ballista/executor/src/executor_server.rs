@@ -313,21 +313,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         }
     }
 
-    async fn decode_task(
+    async fn decode_task_inner(
         &self,
-        curator_task: TaskDefinition,
+        curator_task: &TaskDefinition,
         plan: &[u8],
     ) -> Result<Arc<dyn QueryStageExecutor>, BallistaError> {
         let task = curator_task;
-        let task_identity = task_identity(&task);
-        let task_props = task.props;
+        let task_identity = task_identity(task);
         let mut config =
             ConfigOptions::new().with_extensions(self.default_extensions.clone());
-        for (k, v) in task_props {
-            config.set(&k, &v)?;
+        for (k, v) in &task.props {
+            config.set(k, v)?;
         }
 
-        let job_id = task.job_id;
+        let job_id = task.job_id.clone();
         let stage_id = task.stage_id;
         let attempt = task.stage_attempt_num;
 
@@ -352,7 +351,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
 
         let task_context = Arc::new(TaskContext::new(
             Some(task_identity),
-            task.session_id,
+            task.session_id.clone(),
             session_config,
             task_scalar_functions,
             task_aggregate_functions,
@@ -373,6 +372,69 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             plan,
             &self.executor.work_dir,
         )?)
+    }
+
+    async fn decode_task(
+        &self,
+        scheduler_id: String,
+        curator_task: TaskDefinition,
+        plan: &[u8],
+    ) -> Result<Arc<dyn QueryStageExecutor>, BallistaError> {
+        match self.decode_task_inner(&curator_task, plan).await {
+            Ok(exec) => Ok(exec),
+            Err(err) => {
+                let start_exec_time = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_millis() as u64;
+
+                let task_status_sender = self.executor_env.tx_task_status.clone();
+
+                let job_id = curator_task.job_id.clone();
+                let stage_id = curator_task.stage_id;
+                let task_id = curator_task.task_id;
+                let partitions = curator_task.partitions.clone();
+                let attempt = curator_task.stage_attempt_num;
+                let launch_time = curator_task.launch_time;
+
+                error!(job_id, stage_id, task_id, scheduler_id, executor_id = self.executor.metadata.id, error = %err, "failed decode task");
+                let task_status = as_task_status(
+                    Err(BallistaError::Internal(format!(
+                        "failed to decode task: {err}"
+                    ))),
+                    self.executor.metadata.id.clone(),
+                    job_id.clone(),
+                    stage_id,
+                    task_id,
+                    partitions,
+                    attempt,
+                    None,
+                    TaskExecutionTimes {
+                        launch_time,
+                        start_exec_time,
+                        end_exec_time: SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as u64,
+                    },
+                );
+
+                if let Err(_e) = task_status_sender
+                    .send(CuratorTaskStatus {
+                        scheduler_id,
+                        task_status: vec![task_status],
+                    })
+                    .await
+                {
+                    error!(
+                        job_id,
+                        stage_id, task_id, "failed to send task status, channel closed"
+                    );
+                }
+
+                Err(err)
+            }
+        }
     }
 
     async fn run_task_inner(
@@ -899,10 +961,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                     let server = executor_server.clone();
                     let plan = task.plan;
                     let curator_task = task.tasks[0].clone();
+                    let scheduler_id = task.scheduler_id.clone();
+
                     let out: tokio::sync::oneshot::Receiver<
                         Result<Arc<dyn QueryStageExecutor>, BallistaError>,
                     > = dedicated_executor.spawn(async move {
-                        server.decode_task(curator_task, &plan).await
+                        server.decode_task(scheduler_id, curator_task, &plan).await
                     });
 
                     let plan = out.await;
@@ -915,7 +979,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                 error = %e,
                                 "failed to decode task",
                             );
-                            return;
+                            continue;
                         }
                         Err(e) => {
                             error!(
@@ -923,9 +987,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                 error = %e,
                                 "failed to receive decoded task",
                             );
-                            return;
+                            continue;
                         }
                     };
+
                     let scheduler_id = task.scheduler_id.clone();
 
                     for curator_task in task.tasks {
