@@ -152,13 +152,13 @@ pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     fn prepare_task_definition(
         &self,
         ctx: Arc<SessionContext>,
-        task: TaskDescription,
+        task: &TaskDescription,
     ) -> Result<TaskDefinition>;
 
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDescription>,
+        tasks: &[TaskDescription],
         executor_manager: &ExecutorManager,
     ) -> Result<()>;
 }
@@ -190,7 +190,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U
     fn prepare_task_definition(
         &self,
         ctx: Arc<SessionContext>,
-        task: TaskDescription,
+        task: &TaskDescription,
     ) -> Result<TaskDefinition> {
         let job_id = task.partitions.job_id.clone();
         let stage_id = task.partitions.stage_id;
@@ -233,7 +233,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U
                 .collect(),
             plan,
             output_partitioning,
-            session_id: task.session_id,
+            session_id: task.session_id.clone(),
             launch_time: timestamp_millis(),
             props,
         })
@@ -242,7 +242,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U
     async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDescription>,
+        tasks: &[TaskDescription],
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
         if log::max_level() >= log::Level::Info {
@@ -263,26 +263,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U
             );
         }
 
-        let tasks = tasks.into_iter().map(|task_def| async {
+        let tasks = tasks.iter().map(|task_def| async {
             let ctx = self.state.get_session(&task_def.session_id).await?;
             self.prepare_task_definition(ctx, task_def)
         });
 
-        let tasks: Result<Vec<TaskDefinition>> = try_join_all(tasks).await;
+        let tasks: Vec<TaskDefinition> = try_join_all(tasks).await?;
 
         let mut client = executor_manager.get_client(&executor.id).await?;
         client
             .launch_task(protobuf::LaunchTaskParams {
-                tasks: tasks?,
+                tasks,
                 scheduler_id: self.scheduler_id.clone(),
             })
-            .await
-            .map_err(|e| {
-                BallistaError::Internal(format!(
-                    "Failed to connect to executor {}: {:?}",
-                    executor.id, e
-                ))
-            })?;
+            .await?;
 
         Ok(())
     }
@@ -768,14 +762,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         task: TaskDescription,
     ) -> Result<TaskDefinition> {
         let ctx = self.state.get_session(&task.session_id).await?;
-        self.launcher.prepare_task_definition(ctx, task)
+        self.launcher.prepare_task_definition(ctx, &task)
     }
 
     /// Launch the given tasks on the specified executor
     pub(crate) async fn launch_tasks(
         &self,
         executor: &ExecutorMetadata,
-        tasks: Vec<TaskDescription>,
+        tasks: &[TaskDescription],
         executor_manager: &ExecutorManager,
     ) -> Result<()> {
         self.launcher

@@ -1061,6 +1061,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorGrpc
         &self,
         request: Request<LaunchTaskParams>,
     ) -> Result<Response<LaunchTaskResult>, Status> {
+        // Reject new tasks is already in TERMINATING state
+        if TERMINATING.load(Ordering::Acquire) {
+            return Err(Status::unavailable("executor is terminating"));
+        }
+
         let LaunchTaskParams {
             tasks,
             scheduler_id,
