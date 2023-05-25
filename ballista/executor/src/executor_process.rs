@@ -366,7 +366,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             })
             .await
         {
-            error!(executor_id, error = %error, "error sending heartbeat with fenced status");
+            error!(executor_id, %error, "error sending heartbeat with fenced status");
         }
 
         // TODO we probably don't need a separate rpc call for this....
