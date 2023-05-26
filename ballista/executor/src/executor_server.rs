@@ -748,6 +748,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                 .update_task_status(UpdateTaskStatusParams {
                     executor_id: executor_id.to_owned(),
                     task_status: status.clone(),
+                    executor_terminating: TERMINATING.load(Ordering::Acquire),
                 })
                 .await
             {

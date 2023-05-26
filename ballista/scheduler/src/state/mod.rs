@@ -176,20 +176,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             .get_executor_metadata(executor_id)
             .await?;
 
-        if self.config.is_push_staged_scheduling() {
-            // each task can consume multiple slots, so ensure here that we count each task partition
-            let total_num_tasks = tasks_status
-                .iter()
-                .map(|status| status.partitions.len())
-                .sum::<usize>();
-            let reservations = (0..total_num_tasks)
-                .map(|_| ExecutorReservation::new_free(executor_id.to_owned()))
-                .collect();
-
-            tx_event
-                .post_event(QueryStageSchedulerEvent::ReservationOffering(reservations));
-        }
-
         self.task_manager
             .update_task_statuses(&executor, tasks_status, tx_event)
             .await?;
@@ -301,6 +287,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 tx_event.post_event(QueryStageSchedulerEvent::TaskUpdating(
                     executor_id,
                     status,
+                    false,
                 ));
             }
         });
