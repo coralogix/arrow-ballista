@@ -248,9 +248,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 let reservations =
                     vec![ExecutorReservation::new_free(executor_id.clone()); num_tasks];
 
-                tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
-                    reservations,
-                ));
+                // cancel executor reservations. we cancel instead of offering the reservations back to the
+                // event loop because the executor may be in `TERMINATING` state in which case the executor
+                // manager will know what to do
+                let num_reservations = reservations.len();
+                if let Err(e) = executor_manager.cancel_reservations(reservations).await {
+                    error!(executor_id, num_reservations, error = %e, "error cancelling reservations after task launch failure");
+                }
 
                 // send a failed status for all tasks that failed to launch so they can
                 // be re-scheduled
