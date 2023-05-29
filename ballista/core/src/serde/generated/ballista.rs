@@ -965,9 +965,6 @@ pub struct ExecutionError {
 }
 /// Nested message and enum types in `ExecutionError`.
 pub mod execution_error {
-    /// message External {
-    ///    DatafusionError error = 1;
-    /// }
     #[allow(clippy::derive_partial_eq_without_eq)]
     #[derive(Clone, PartialEq, ::prost::Message)]
     pub struct NotImplemented {
@@ -1647,7 +1644,6 @@ pub mod execution_error {
         GrpcActiveError(GrpcActionError),
         #[prost(message, tag = "17")]
         FetchFailed(FetchFailed),
-        /// External external = 19;
         #[prost(message, tag = "18")]
         Cancelled(Cancelled),
     }
