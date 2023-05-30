@@ -73,10 +73,7 @@ impl Stream for CircuitBreakerStream {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
         if self.circuit_breaker.load(Ordering::Acquire) || self.percent >= 1.0 {
-            info!(
-                "Stopping CircuitBreakerStream early for key: {:?}",
-                self.key
-            );
+            info!(key = self.key, "Stopping CircuitBreakerStream early",);
             return Poll::Ready(None);
         }
 
