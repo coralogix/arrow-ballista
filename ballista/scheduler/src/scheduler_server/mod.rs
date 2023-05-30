@@ -35,7 +35,7 @@ use crate::config::SchedulerConfig;
 use crate::metrics::SchedulerMetricsCollector;
 use crate::state::session_manager::SessionManager;
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
-use log::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::query_stage_scheduler::QueryStageScheduler;
@@ -218,19 +218,25 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         &self,
         executor_id: &str,
         tasks_status: Vec<TaskStatus>,
+        offer: bool,
     ) -> Result<()> {
         // We might receive buggy task updates from dead executors.
         if self.state.config.is_push_staged_scheduling()
             && self.state.executor_manager.is_dead_executor(executor_id)
         {
-            let error_msg = format!(
-                "Receive buggy tasks status from dead Executor {executor_id}, task status update ignored."
+            warn!(
+                executor_id,
+                "ignoring task status update from dead executor"
             );
-            warn!("{}", error_msg);
             return Ok(());
         }
+
         self.query_stage_event_loop.get_sender()?.post_event(
-            QueryStageSchedulerEvent::TaskUpdating(executor_id.to_owned(), tasks_status),
+            QueryStageSchedulerEvent::TaskUpdating(
+                executor_id.to_owned(),
+                tasks_status,
+                offer,
+            ),
         );
 
         Ok(())
@@ -273,16 +279,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                     );
 
                     let stop_reason = if terminating {
+                        info!(executor_id, termination_grace_period, "removing TERMINATING executor after termination grace period");
                         format!(
                         "TERMINATING executor {executor_id} heartbeat timed out after {termination_grace_period}s"
-                    )
+                        )
                     } else {
+                        warn!(
+                            executor_id,
+                            timeout = DEFAULT_EXECUTOR_TIMEOUT_SECONDS,
+                            "removing ACTIVE executor"
+                        );
                         format!(
                             "ACTIVE executor {executor_id} heartbeat timed out after {DEFAULT_EXECUTOR_TIMEOUT_SECONDS}s",
                         )
                     };
-
-                    warn!("{stop_reason}");
 
                     // If executor is expired, remove it immediately
                     Self::remove_executor(
@@ -308,17 +318,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                                         .await
                                     {
                                         Err(error) => {
-                                            warn!(
-                                            "Failed to send stop_executor rpc due to, {}",
-                                            error
-                                        );
+                                            warn!(%error,"failed to send stop_executor rpc");
                                         }
                                         Ok(_value) => {}
                                     }
                                 });
                             }
                             Err(_) => {
-                                warn!("Executor is already dead, failed to connect to Executor {}", executor_id);
+                                warn!(executor_id, "executor is already dead");
                             }
                         }
                     }
@@ -417,7 +424,7 @@ mod test {
     use datafusion::config::Extensions;
     use datafusion::logical_expr::{col, sum, LogicalPlan};
 
-    use datafusion::test_util::scan_empty;
+    use datafusion::test_util::scan_empty_with_partitions;
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
 
@@ -588,6 +595,7 @@ mod test {
             4,
             1,
             None,
+            false,
         )
         .await?;
 
@@ -654,10 +662,11 @@ mod test {
             4,
             1,
             Some(runner),
+            false,
         )
         .await?;
 
-        let status = test.run("job", "", &plan).await.expect("running plan");
+        let status = test.run("job", "", &plan).await?;
 
         assert!(
             matches!(
@@ -689,6 +698,7 @@ mod test {
             4,
             1,
             None,
+            false,
         )
         .await?;
 
@@ -718,6 +728,42 @@ mod test {
 
         assert_no_submitted_event("job", &metrics_collector);
         assert_failed_event("job", &metrics_collector);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_task_launch_failure() -> Result<()> {
+        let metrics_collector = Arc::new(TestMetricsCollector::default());
+        let mut test = SchedulerTest::new(
+            SchedulerConfig::default()
+                .with_scheduler_policy(TaskSchedulingPolicy::PushStaged),
+            metrics_collector.clone(),
+            4,
+            1,
+            None,
+            true,
+        )
+        .await?;
+
+        let plan = test_plan();
+
+        // This should fail when we try and create the physical plan
+        let status = test.run("job", "", &plan).await?;
+
+        assert!(
+            matches!(
+                status,
+                JobStatus {
+                    status: Some(job_status::Status::Successful(_)),
+                    ..
+                }
+            ),
+            "{}",
+            "Expected job status to be Success but it was {status:?}"
+        );
+
+        assert_completed_event("job", &metrics_collector);
 
         Ok(())
     }
@@ -783,7 +829,7 @@ mod test {
             Field::new("gmv", DataType::UInt64, false),
         ]);
 
-        scan_empty(None, &schema, Some(vec![0, 1]))
+        scan_empty_with_partitions(None, &schema, Some(vec![0, 1]), 10)
             .unwrap()
             .aggregate(vec![col("id")], vec![sum(col("gmv"))])
             .unwrap()

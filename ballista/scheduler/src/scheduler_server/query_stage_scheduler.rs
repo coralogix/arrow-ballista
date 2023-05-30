@@ -30,6 +30,7 @@ use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
+use crate::state::executor_manager::ExecutorReservation;
 
 use crate::state::SchedulerState;
 
@@ -84,7 +85,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 plan,
                 queued_at,
             } => {
-                info!("Job {} queued with name {:?}", job_id, job_name);
+                info!(job_id, job_name, "job queued");
 
                 self.state
                     .task_manager
@@ -97,8 +98,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                         .submit_job(&job_id, &job_name, session_ctx, &plan, queued_at)
                         .await
                     {
+                        error!(job_id, error = %e, "error planning job");
                         let fail_message = format!("Error planning job {job_id}: {e:?}");
-                        error!("{}", &fail_message);
                         QueryStageSchedulerEvent::JobPlanningFailed {
                             job_id,
                             fail_message,
@@ -151,7 +152,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 self.metrics_collector
                     .record_failed(&job_id, queued_at, failed_at);
 
-                error!("Job {} failed: {:?}", job_id, fail_message);
+                error!(job_id, fail_message,%error,"job planning failed");
                 self.state
                     .task_manager
                     .fail_unscheduled_job(&job_id, error)
@@ -165,7 +166,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 self.metrics_collector
                     .record_completed(&job_id, queued_at, completed_at);
 
-                info!("Job {} success", job_id);
+                info!(job_id, "job_finished");
 
                 // self.state.circuit_breaker.
                 let is_tripped = self.state.circuit_breaker.is_tripped_for(&job_id);
@@ -184,7 +185,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 self.metrics_collector
                     .record_failed(&job_id, queued_at, failed_at);
 
-                error!("Job {} running failed", job_id);
+                error!(job_id, "job running failed");
                 let (running_tasks, _pending_tasks) =
                     self.state.task_manager.abort_job(&job_id, error).await?;
 
@@ -208,12 +209,33 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
 
                 tx_event.post_event(QueryStageSchedulerEvent::CancelTasks(running_tasks));
             }
-            QueryStageSchedulerEvent::TaskUpdating(executor_id, tasks_status) => {
+            QueryStageSchedulerEvent::TaskUpdating(executor_id, tasks_status, offer) => {
                 debug!(
                     executor_id,
-                    "processing task status updates from {executor_id}: {:?}",
-                    tasks_status
+                    "processing task status updates: {:?}", tasks_status
                 );
+
+                // if we are using push-bases scheduling and the offer flag is set then
+                // offer the task slots for scheduling
+                if offer {
+                    // each task can consume multiple slots, so ensure here that we count each task partition
+                    let total_num_tasks = tasks_status
+                        .iter()
+                        .map(|status| status.partitions.len())
+                        .sum::<usize>();
+                    let reservations = (0..total_num_tasks)
+                        .map(|_| ExecutorReservation::new_free(executor_id.to_owned()))
+                        .collect();
+
+                    tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
+                        reservations,
+                    ));
+                } else {
+                    info!(
+                        executor_id,
+                        "not re-offering task slots for task status update"
+                    )
+                }
 
                 let num_status = tasks_status.len();
                 if let Err(e) = self
@@ -222,10 +244,39 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     .await
                 {
                     error!(
-                        "Failed to update {} task statuses for Executor {}: {:?}",
-                        num_status, executor_id, e
+                        executor_id,
+                        num_status,
+                        error = %e,
+                        "failed to update task status",
                     );
                     // TODO error handling
+                }
+            }
+            QueryStageSchedulerEvent::SchedulerLost(
+                scheduler_id,
+                executor_id,
+                task_status,
+            ) => {
+                if self.state.config.is_push_staged_scheduling() {
+                    let num_slots = task_status
+                        .into_iter()
+                        .map(|status| status.partitions.len())
+                        .sum::<usize>();
+
+                    let reservations = (0..num_slots)
+                        .map(|_| ExecutorReservation::new_free(executor_id.clone()))
+                        .collect();
+                    info!(
+                        num_slots,
+                        executor_id,
+                        scheduler_id,
+                        "returning task slots for lost scheduler"
+                    );
+
+                    // for now, just return the slots to the pool
+                    tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
+                        reservations,
+                    ));
                 }
             }
             QueryStageSchedulerEvent::ReservationOffering(mut reservations) => {
@@ -256,10 +307,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                         }
                     }
                     Err(e) => {
-                        let msg = format!(
-                            "TaskManager error to handle Executor {executor_id} lost: {e}"
-                        );
-                        error!(executor_id, "{msg}");
+                        error!(executor_id, error = %e, "error handling ExecutorLost event");
                     }
                 }
             }
@@ -349,12 +397,13 @@ mod tests {
     use ballista_core::config::TaskSchedulingPolicy;
     use ballista_core::error::Result;
     use ballista_core::event_loop::EventAction;
+    use ballista_core::serde::protobuf::job_status::Status;
+    use ballista_core::serde::protobuf::JobStatus;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::logical_expr::{col, sum, LogicalPlan};
     use datafusion::test_util::scan_empty_with_partitions;
     use std::sync::Arc;
     use std::time::Duration;
-    use tracing_subscriber::EnvFilter;
 
     #[ignore]
     #[tokio::test]
@@ -372,6 +421,7 @@ mod tests {
             0,
             0,
             None,
+            false,
         )
         .await?;
 
@@ -392,13 +442,13 @@ mod tests {
 
         let next_event = rx.recv_async().await.unwrap();
 
-        println!("receieved {next_event:?}");
+        println!("received {next_event:?}");
 
         assert!(matches!(next_event, QueryStageSchedulerEvent::Tick));
 
         let next_event = rx.recv_async().await.unwrap();
 
-        println!("receieved {next_event:?}");
+        println!("received {next_event:?}");
 
         assert!(matches!(next_event, QueryStageSchedulerEvent::Tick));
 
@@ -406,11 +456,71 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pending_task_metric() -> Result<()> {
-        tracing_subscriber::fmt()
-            .with_env_filter(EnvFilter::from_default_env())
-            .init();
+    async fn test_update_status_no_offer() -> Result<()> {
+        let plan = test_plan(10);
 
+        let metrics_collector = Arc::new(TestMetricsCollector::default());
+
+        let mut test = SchedulerTest::new(
+            SchedulerConfig::default()
+                .with_scheduler_policy(TaskSchedulingPolicy::PushStaged),
+            metrics_collector.clone(),
+            2,
+            1,
+            None,
+            false,
+        )
+        .await?;
+
+        test.submit("job-1", "", &plan).await?;
+
+        // First stage has 10 tasks, two of which should be scheduled immediately
+        expect_pending_tasks(&test, 8).await;
+
+        // Tick without re-offering the task slot
+        test.tick_with_offer(false).await?;
+
+        // // Since we didn't re-offer, all 9 pending tasks should still be pending
+        expect_pending_tasks(&test, 8).await;
+
+        test.tick().await?;
+
+        // New task should be scheduled on remaining executor which re-offered reservations
+        expect_pending_tasks(&test, 7).await;
+
+        // Complete the 8 remaining tasks in the first stage
+        for _ in 0..7 {
+            test.tick().await?;
+        }
+
+        // The second stage should be resolved so we should have a new pending task
+        expect_pending_tasks(&test, 1).await;
+
+        // complete the final task
+        test.tick().await?;
+
+        expect_pending_tasks(&test, 0).await;
+
+        // complete the final task by ticking twice
+        test.tick().await?;
+        test.tick().await?;
+
+        // Job should be finished now
+        let final_status = test.await_completion_timeout("job-1", 5_000).await?;
+
+        assert!(matches!(
+            final_status,
+            JobStatus {
+                status: Some(Status::Successful(_)),
+                ..
+            }
+        ));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pending_task_metric() -> Result<()> {
         let plan = test_plan(10);
 
         let metrics_collector = Arc::new(TestMetricsCollector::default());
@@ -422,6 +532,7 @@ mod tests {
             1,
             1,
             None,
+            false,
         )
         .await?;
 
@@ -448,11 +559,19 @@ mod tests {
 
         expect_pending_tasks(&test, 0).await;
 
-        // complete the final task
+        // complete the final task by ticking twice
         test.tick().await?;
 
         // Job should be finished now
-        let _ = test.await_completion_timeout("job-1", 5_000).await?;
+        let final_status = test.await_completion_timeout("job-1", 5_000).await?;
+
+        assert!(matches!(
+            final_status,
+            JobStatus {
+                status: Some(Status::Successful(_)),
+                ..
+            }
+        ));
 
         Ok(())
     }
@@ -471,6 +590,7 @@ mod tests {
             1,
             1,
             None,
+            false,
         )
         .await?;
 
