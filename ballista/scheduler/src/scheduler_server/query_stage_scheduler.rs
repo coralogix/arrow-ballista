@@ -168,7 +168,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
 
                 info!(job_id, "job_finished");
 
-                // self.state.circuit_breaker.
                 let is_tripped = self.state.circuit_breaker.is_tripped_for(&job_id);
                 self.state
                     .task_manager

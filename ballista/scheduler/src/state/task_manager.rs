@@ -29,7 +29,7 @@ use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, execution_error, job_status, JobStatus, KeyValuePair, SuccessfulJob,
+    self, execution_error, job_status, JobStatus, KeyValuePair,
     TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
@@ -615,22 +615,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         if let Some(graph) = self.remove_active_execution_graph(job_id) {
             let mut graph = graph.write().await.clone();
+
             graph.circuit_breaker_tripped = circuit_breaker_tripped;
+            graph.succeed_job()?;
 
-            if let Some(job_status::Status::Successful(status)) = graph.status().status {
-                // update circuit breaker tripped flag
-                let updated_status = SuccessfulJob {
-                    circuit_breaker_tripped,
-                    ..status
-                };
-
-                let updated_job_status = JobStatus {
-                    status: Some(job_status::Status::Successful(updated_status)),
-                    ..graph.status()
-                };
-
-                graph.update_status(updated_job_status);
-
+            if let Some(job_status::Status::Successful(_)) = graph.status().status {
                 self.state.save_job(job_id, &graph).await?;
             } else {
                 error!(job_id, "cannot complete job, not finished");

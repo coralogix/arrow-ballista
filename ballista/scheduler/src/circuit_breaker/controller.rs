@@ -54,7 +54,8 @@ impl CircuitBreakerController {
                     node_state
                         .partition_states
                         .values()
-                        .fold(0.0, |a, b| a + b.percent)
+                        .map(|s| s.percent)
+                        .sum::<f64>()
                         >= 1.0
                 })
             })
