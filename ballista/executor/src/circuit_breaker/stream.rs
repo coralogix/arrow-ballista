@@ -9,8 +9,7 @@ use arrow::record_batch::RecordBatch;
 use datafusion::error::Result;
 use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
-use log::info;
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use super::client::{CircuitBreakerClient, CircuitBreakerKey};
 
