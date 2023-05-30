@@ -320,7 +320,10 @@ async fn fetch_partition(
             .await
             .map_err(|e| match e {
                 BallistaError::DataFusionError(err) => err,
-                _ => DataFusionError::Execution(format!("{:?}", e)),
+                BallistaError::ArrowError(ArrowError::ExternalError(err)) => {
+                    DataFusionError::External(err)
+                }
+                _ => DataFusionError::Execution(format!("{e:?}")),
             })?;
 
     let map_partitions = location
