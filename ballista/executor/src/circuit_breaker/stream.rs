@@ -9,6 +9,7 @@ use arrow::record_batch::RecordBatch;
 use datafusion::error::Result;
 use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
+use log::info;
 use tracing::{error, warn};
 
 use super::client::{CircuitBreakerClient, CircuitBreakerKey};
@@ -72,7 +73,11 @@ impl Stream for CircuitBreakerStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
-        if self.circuit_breaker.load(Ordering::Acquire) {
+        if self.circuit_breaker.load(Ordering::Acquire) || self.percent >= 1.0 {
+            info!(
+                "Stopping CircuitBreakerStream early for key: {:?}",
+                self.key
+            );
             return Poll::Ready(None);
         }
 
