@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -73,7 +74,7 @@ impl Stream for CircuitBreakerStream {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
         if self.circuit_breaker.load(Ordering::Acquire) || self.percent >= 1.0 {
-            info!(key = self.key, "Stopping CircuitBreakerStream early",);
+            info!(key = ?self.key, "Stopping CircuitBreakerStream early");
             return Poll::Ready(None);
         }
 
