@@ -95,16 +95,6 @@ impl CircuitBreakerController {
         let should_trip =
             partition_states.values().map(|s| s.percent).sum::<f64>() >= 1.0;
 
-        if should_trip {
-            info!(
-                job_id = key.job_id,
-                task_id = key.task_id,
-                "sending circuit breaker signal to task"
-            );
-
-            // self.tx_event.post_event(QueryStageSchedulerEvent::CircuitBreakerTripped(key.job_id.to_owned()));
-        }
-
         Ok(should_trip)
     }
 }
