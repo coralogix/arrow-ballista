@@ -73,8 +73,13 @@ impl Stream for CircuitBreakerStream {
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<RecordBatch>>> {
-        if self.circuit_breaker.load(Ordering::Acquire) || self.percent >= 1.0 {
-            info!(key = ?self.key, "Stopping CircuitBreakerStream early");
+        if self.circuit_breaker.load(Ordering::Acquire) {
+            info!(key = ?self.key, "Stopping CircuitBreakerStream early (limit reached globally)");
+            return Poll::Ready(None);
+        }
+
+        if self.percent >= 1.0 {
+            warn!(key = ?self.key, "Stopping CircuitBreakerStream early (limit reached locally)");
             return Poll::Ready(None);
         }
 
