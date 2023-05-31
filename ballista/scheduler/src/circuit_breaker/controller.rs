@@ -37,32 +37,6 @@ impl Default for CircuitBreakerController {
 }
 
 impl CircuitBreakerController {
-    pub fn is_tripped_for(&self, job_id: &str) -> bool {
-        let job_states = self.job_states.read();
-
-        let stage_states = match job_states.get(job_id) {
-            Some(state) => &state.stage_states,
-            // If the registration hasn't happened yet
-            None => {
-                return false;
-            }
-        };
-
-        let is_tripped = stage_states.values().any(|stage_state| {
-            stage_state.attempt_states.values().any(|attempt_state| {
-                attempt_state.node_states.values().any(|node_state| {
-                    node_state
-                        .partition_states
-                        .values()
-                        .fold(0.0, |a, b| a + b.percent)
-                        >= 1.0
-                })
-            })
-        });
-
-        is_tripped
-    }
-
     pub fn create(&self, job_id: &str) {
         info!(job_id, "creating circuit breaker");
 
@@ -127,6 +101,8 @@ impl CircuitBreakerController {
                 task_id = key.task_id,
                 "sending circuit breaker signal to task"
             );
+
+            // self.tx_event.post_event(QueryStageSchedulerEvent::CircuitBreakerTripped(key.job_id.to_owned()));
         }
 
         Ok(should_trip)
