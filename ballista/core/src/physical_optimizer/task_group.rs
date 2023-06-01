@@ -81,11 +81,11 @@ impl OptimizeTaskGroup {
             }
 
             Ok(Transformed::Yes(new_plan))
-        } else if node.as_any().is::<UnionExec>()
-            || is_hash_join_no_partitioning(node.as_ref())
-                && children
-                    .iter()
-                    .all(|child| child.as_any().is::<CoalesceTasksExec>())
+        } else if (node.as_any().is::<UnionExec>()
+            || is_hash_join_no_partitioning(node.as_ref()))
+            && children
+                .iter()
+                .all(|child| child.as_any().is::<CoalesceTasksExec>())
         {
             let new_children =
                 children.iter().flat_map(|child| child.children()).collect();
