@@ -23,6 +23,7 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion::physical_plan::aggregates::{AggregateExec, AggregateMode};
 use datafusion::physical_plan::coalesce_batches::CoalesceBatchesExec;
 use datafusion::physical_plan::filter::FilterExec;
+use datafusion::physical_plan::joins::HashJoinExec;
 use datafusion::physical_plan::limit::LocalLimitExec;
 use datafusion::physical_plan::projection::ProjectionExec;
 use datafusion::physical_plan::union::UnionExec;
@@ -81,9 +82,10 @@ impl OptimizeTaskGroup {
 
             Ok(Transformed::Yes(new_plan))
         } else if node.as_any().is::<UnionExec>()
-            && children
-                .iter()
-                .all(|child| child.as_any().is::<CoalesceTasksExec>())
+            || node.as_any().is::<HashJoinExec>()
+                && children
+                    .iter()
+                    .all(|child| child.as_any().is::<CoalesceTasksExec>())
         {
             let new_children =
                 children.iter().flat_map(|child| child.children()).collect();
