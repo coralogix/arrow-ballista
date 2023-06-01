@@ -103,6 +103,8 @@ impl OptimizeTaskGroup {
 }
 
 fn is_hash_join_no_partitioning(node: &dyn ExecutionPlan) -> bool {
+    // only push down hash join if the input is unpartitioned
+    // (so parent nodes won't rely on the output partitioning)
     if let Some(hash_join) = node.as_any().downcast_ref::<HashJoinExec>() {
         return match hash_join.output_partitioning() {
             datafusion::physical_plan::Partitioning::UnknownPartitioning(_) => true,
