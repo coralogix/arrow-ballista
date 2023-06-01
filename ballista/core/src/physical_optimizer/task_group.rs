@@ -82,7 +82,7 @@ impl OptimizeTaskGroup {
 
             Ok(Transformed::Yes(new_plan))
         } else if node.as_any().is::<UnionExec>()
-            || node.as_any().is::<HashJoinExec>()
+            || is_hash_join_no_partitioning(node.as_ref())
                 && children
                     .iter()
                     .all(|child| child.as_any().is::<CoalesceTasksExec>())
@@ -100,6 +100,16 @@ impl OptimizeTaskGroup {
             Ok(Transformed::No(node))
         }
     }
+}
+
+fn is_hash_join_no_partitioning(node: &dyn ExecutionPlan) -> bool {
+    if let Some(hash_join) = node.as_any().downcast_ref::<HashJoinExec>() {
+        return match hash_join.output_partitioning() {
+            datafusion::physical_plan::Partitioning::UnknownPartitioning(_) => true,
+            _ => false,
+        };
+    }
+    false
 }
 
 impl PhysicalOptimizerRule for OptimizeTaskGroup {
