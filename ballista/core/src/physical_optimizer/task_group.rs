@@ -82,20 +82,20 @@ impl OptimizeTaskGroup {
 
             Ok(Transformed::Yes(new_plan))
         } else {
+            let is_union = node.as_any().is::<UnionExec>();
             let all_children_are_coalesce = node
                 .children()
                 .iter()
                 .all(|child| child.as_any().is::<CoalesceTasksExec>());
 
-            if node.as_any().is::<UnionExec>() && !all_children_are_coalesce {
+            if is_union && !all_children_are_coalesce {
                 return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
                     node,
                     self.partitions.clone(),
                 ))));
             }
 
-            if (node.as_any().is::<UnionExec>()
-                || is_hash_join_no_partitioning(node.as_ref()))
+            if (is_union || is_hash_join_no_partitioning(node.as_ref()))
                 && all_children_are_coalesce
             {
                 let new_children =
@@ -106,10 +106,10 @@ impl OptimizeTaskGroup {
                     self.partitions.clone(),
                 ));
 
-                Ok(Transformed::Yes(new_plan))
-            } else {
-                Ok(Transformed::No(node))
+                return Ok(Transformed::Yes(new_plan));
             }
+
+            Ok(Transformed::No(node))
         }
     }
 }
