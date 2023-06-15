@@ -164,41 +164,67 @@ fn is_partial_aggregate(plan: &dyn ExecutionPlan) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::{
-        arrow::datatypes::Schema,
-        physical_plan::{
-            coalesce_partitions::CoalescePartitionsExec, limit::GlobalLimitExec,
-            union::UnionExec,
-        },
-    };
+    use datafusion::{arrow::datatypes::Schema, physical_plan::union::UnionExec};
 
     use crate::execution_plans::{CoalesceTasksExec, ShuffleReaderExec};
 
     use super::OptimizeTaskGroup;
 
     #[test]
-    fn optimize_union_plan() {
+    fn test_optimize_union_plan() {
         let optimizer = OptimizeTaskGroup::new(Vec::default());
         let input = Arc::new(UnionExec::new(vec![
-            Arc::new(GlobalLimitExec::new(
-                Arc::new(CoalescePartitionsExec::new(Arc::new(
+            Arc::new(
+                ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
+                    .unwrap(),
+            ),
+            Arc::new(
+                ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
+                    .unwrap(),
+            ),
+        ]));
+
+        let optiized = optimizer.transform_node(input).unwrap().into();
+        let children = optiized.children();
+        assert_eq!(children.len(), 1);
+        assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
+
+        let nested_union = &children[0];
+        assert_eq!(nested_union.children().len(), 2);
+        assert!(nested_union.as_ref().as_any().is::<UnionExec>());
+    }
+
+    #[test]
+    fn test_optimize_union_plan_flat_children() {
+        let optimizer = OptimizeTaskGroup::new(Vec::default());
+        let input = Arc::new(UnionExec::new(vec![
+            Arc::new(CoalesceTasksExec::new(
+                Arc::new(
                     ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
                         .unwrap(),
-                ))),
-                0,
-                None,
+                ),
+                Vec::default(),
             )),
-            Arc::new(GlobalLimitExec::new(
-                Arc::new(CoalescePartitionsExec::new(Arc::new(
+            Arc::new(CoalesceTasksExec::new(
+                Arc::new(
                     ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
                         .unwrap(),
-                ))),
-                0,
-                None,
+                ),
+                Vec::default(),
             )),
         ]));
 
         let optiized = optimizer.transform_node(input).unwrap().into();
+        let children = optiized.children();
+        assert_eq!(children.len(), 1);
         assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
+
+        let nested_union = &children[0];
+        let children = nested_union.children();
+        assert_eq!(children.len(), 2);
+        assert!(nested_union.as_ref().as_any().is::<UnionExec>());
+        assert!(children
+            .iter()
+            .all(|c| c.as_any().is::<ShuffleReaderExec>()))
     }
 }
