@@ -132,7 +132,7 @@ impl PhysicalOptimizerRule for OptimizeTaskGroup {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        plan.transform_down(&|node| self.transform_node(node))
+        plan.transform(&|node| self.transform_node(node))
     }
 
     fn name(&self) -> &str {
