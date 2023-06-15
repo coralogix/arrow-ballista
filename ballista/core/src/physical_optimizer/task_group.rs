@@ -184,7 +184,7 @@ mod tests {
             ),
         ]));
 
-        let optiized = optimizer.transform_node(input).unwrap().into();
+        let optimized = optimizer.transform_node(input).unwrap().into();
         let children = optiized.children();
         assert_eq!(children.len(), 1);
         assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
