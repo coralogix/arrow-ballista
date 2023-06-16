@@ -40,6 +40,24 @@ impl OptimizeTaskGroup {
         Self { partitions }
     }
 
+    fn transform_down(
+        &self,
+        plan: Arc<dyn ExecutionPlan>,
+    ) -> Result<Arc<dyn ExecutionPlan>> {
+        match self.insert_coalesce(plan)? {
+            Transformed::Yes(new_node) => {
+                // we need to traverse on the children of the original node and not transformed, as we fall in a loop here
+                let original_node = new_node.children()[0].clone();
+                new_node.with_new_children(vec![
+                    original_node.map_children(|node| self.transform_down(node))?
+                ])
+            }
+            Transformed::No(old_node) => {
+                old_node.map_children(|node| self.transform_down(node))
+            }
+        }
+    }
+
     fn insert_coalesce(
         &self,
         node: Arc<dyn ExecutionPlan>,
@@ -131,8 +149,8 @@ impl PhysicalOptimizerRule for OptimizeTaskGroup {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        let inserted = plan.transform_down(&|node| self.insert_coalesce(node))?;
-        inserted.transform(&|node| self.optimize_node(node))
+        let inserted = self.transform_down(plan)?;
+        inserted.transform_up(&|node| self.optimize_node(node))
     }
 
     fn name(&self) -> &str {
@@ -166,7 +184,6 @@ mod tests {
 
     use datafusion::{
         arrow::datatypes::Schema,
-        common::tree_node::Transformed,
         physical_plan::{limit::LocalLimitExec, union::UnionExec},
     };
 
@@ -207,10 +224,10 @@ mod tests {
             ),
         ]));
 
-        let optimized = optimizer.transform_node(input).unwrap().into();
-        let children = optiized.children();
+        let optimized = optimizer.transform_down(input).unwrap();
+        let children = optimized.children();
         assert_eq!(children.len(), 1);
-        assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
+        assert!(optimized.as_ref().as_any().is::<CoalesceTasksExec>());
 
         let nested_union = &children[0];
         assert_eq!(nested_union.children().len(), 2);
@@ -228,10 +245,11 @@ mod tests {
             10,
         ));
 
-        assert!(matches!(
-            optimizer.insert_coalesce(input).unwrap(),
-            Transformed::No(_)
-        ))
+        assert!(optimizer
+            .transform_down(input)
+            .unwrap()
+            .as_any()
+            .is::<LocalLimitExec>())
     }
 
     #[test]
@@ -254,10 +272,10 @@ mod tests {
             )),
         ]));
 
-        let optimized = optimizer.transform_node(input).unwrap().into();
-        let children = optiized.children();
+        let optimized = optimizer.optimize_node(input).unwrap().into();
+        let children = optimized.children();
         assert_eq!(children.len(), 1);
-        assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
+        assert!(optimized.as_ref().as_any().is::<CoalesceTasksExec>());
 
         let nested_union = &children[0];
         let children = nested_union.children();
