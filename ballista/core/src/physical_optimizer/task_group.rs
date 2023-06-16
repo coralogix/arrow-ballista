@@ -45,17 +45,20 @@ impl OptimizeTaskGroup {
         plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
         match self.insert_coalesce(plan)? {
-            Transformed::Yes(new_node) => {
-                // we need to traverse on the children of the original node and not transformed,
-                // as we fall in to an infinite loop otherwise
-                let original_node = new_node.children()[0].clone();
-                new_node.with_new_children(vec![
-                    original_node.map_children(|node| self.transform_down(node))?
-                ])
+            Transformed::Yes(node) => {
+                if let Some(coalesce) = node.as_any().downcast_ref::<CoalesceTasksExec>()
+                {
+                    if let Some(original_node) = coalesce.children().first().cloned() {
+                        // we need to traverse on the children of the original node and not transformed,
+                        // as we fall in to an infinite loop otherwise
+                        return node.with_new_children(vec![original_node
+                            .map_children(|node| self.transform_down(node))?]);
+                    }
+                }
+
+                node.map_children(|node| self.transform_down(node))
             }
-            Transformed::No(old_node) => {
-                old_node.map_children(|node| self.transform_down(node))
-            }
+            Transformed::No(node) => node.map_children(|node| self.transform_down(node)),
         }
     }
 
