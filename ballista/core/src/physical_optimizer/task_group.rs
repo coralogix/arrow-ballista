@@ -46,7 +46,8 @@ impl OptimizeTaskGroup {
     ) -> Result<Arc<dyn ExecutionPlan>> {
         match self.insert_coalesce(plan)? {
             Transformed::Yes(new_node) => {
-                // we need to traverse on the children of the original node and not transformed, as we fall in a loop here
+                // we need to traverse on the children of the original node and not transformed,
+                // as we fall in to an infinite loop otherwise
                 let original_node = new_node.children()[0].clone();
                 new_node.with_new_children(vec![
                     original_node.map_children(|node| self.transform_down(node))?
