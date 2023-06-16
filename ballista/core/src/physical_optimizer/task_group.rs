@@ -40,7 +40,7 @@ impl OptimizeTaskGroup {
         Self { partitions }
     }
 
-    fn transform_node(
+    fn insert_coalesce(
         &self,
         node: Arc<dyn ExecutionPlan>,
     ) -> Result<Transformed<Arc<dyn ExecutionPlan>>> {
@@ -50,50 +50,49 @@ impl OptimizeTaskGroup {
             )));
         }
 
-        if node.children().is_empty() {
+        if node.children().is_empty() || node.as_any().is::<UnionExec>() {
             return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
                 node,
                 self.partitions.clone(),
             ))));
         }
 
+        Ok(Transformed::No(node))
+    }
+
+    fn optimize_node(
+        &self,
+        node: Arc<dyn ExecutionPlan>,
+    ) -> Result<Transformed<Arc<dyn ExecutionPlan>>> {
         let children = node.children();
 
-        if is_mapping(node.as_ref())
-            && children.len() == 1
-            && children[0].as_any().is::<CoalesceTasksExec>()
-        {
-            let coalesce = children[0]
-                .as_any()
-                .downcast_ref::<CoalesceTasksExec>()
-                .unwrap();
+        if is_mapping(node.as_ref()) && children.len() == 1 {
+            if let Some(coalesce) =
+                children[0].as_any().downcast_ref::<CoalesceTasksExec>()
+            {
+                let mut new_plan: Arc<dyn ExecutionPlan> =
+                    Arc::new(CoalesceTasksExec::new(
+                        node.clone().with_new_children(coalesce.children())?,
+                        self.partitions.clone(),
+                    ));
 
-            let mut new_plan: Arc<dyn ExecutionPlan> = Arc::new(CoalesceTasksExec::new(
-                node.clone().with_new_children(coalesce.children())?,
-                self.partitions.clone(),
-            ));
+                // As we combine partitions in CoalesceTasksExec, add another top-level
+                // LocalLimit to reduce the output size
+                // and potentially abort execution early
+                if node.as_any().is::<LocalLimitExec>() {
+                    new_plan = node.with_new_children(vec![new_plan])?;
+                }
 
-            // As we combine partitions in CoalesceTasksExec, add another top-level
-            // LocalLimit to reduce the output size
-            // and potentially abort execution early
-            if node.as_any().is::<LocalLimitExec>() {
-                new_plan = node.with_new_children(vec![new_plan])?;
+                Ok(Transformed::Yes(new_plan))
+            } else {
+                Ok(Transformed::No(node))
             }
-
-            Ok(Transformed::Yes(new_plan))
         } else {
             let is_union = node.as_any().is::<UnionExec>();
             let all_children_are_coalesce = node
                 .children()
                 .iter()
                 .all(|child| child.as_any().is::<CoalesceTasksExec>());
-
-            if is_union && !all_children_are_coalesce {
-                return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
-                    node,
-                    self.partitions.clone(),
-                ))));
-            }
 
             if (is_union || is_hash_join_no_partitioning(node.as_ref()))
                 && all_children_are_coalesce
@@ -132,7 +131,8 @@ impl PhysicalOptimizerRule for OptimizeTaskGroup {
         plan: Arc<dyn ExecutionPlan>,
         _config: &ConfigOptions,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        plan.transform(&|node| self.transform_node(node))
+        let inserted = plan.transform_down(&|node| self.insert_coalesce(node))?;
+        inserted.transform(&|node| self.optimize_node(node))
     }
 
     fn name(&self) -> &str {
@@ -164,14 +164,37 @@ fn is_partial_aggregate(plan: &dyn ExecutionPlan) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::{arrow::datatypes::Schema, physical_plan::union::UnionExec};
+    use datafusion::{
+        arrow::datatypes::Schema,
+        common::tree_node::Transformed,
+        physical_plan::{limit::LocalLimitExec, union::UnionExec},
+    };
 
     use crate::execution_plans::{CoalesceTasksExec, ShuffleReaderExec};
 
     use super::OptimizeTaskGroup;
 
     #[test]
-    fn test_optimize_union_plan() {
+    fn test_optimizer_insert_coalesce_on_top_of_the_leaf() {
+        let optimizer = OptimizeTaskGroup::new(Vec::default());
+        let input = Arc::new(
+            ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
+                .unwrap(),
+        );
+
+        let optiized = optimizer.insert_coalesce(input).unwrap().into();
+        assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
+
+        let children = optiized.children();
+        assert_eq!(children.len(), 1);
+
+        let original_node = &children[0];
+        assert_eq!(original_node.children().len(), 0);
+        assert!(original_node.as_ref().as_any().is::<ShuffleReaderExec>());
+    }
+
+    #[test]
+    fn test_optimizer_insert_coalesce_on_top_of_the_union() {
         let optimizer = OptimizeTaskGroup::new(Vec::default());
         let input = Arc::new(UnionExec::new(vec![
             Arc::new(
@@ -184,7 +207,7 @@ mod tests {
             ),
         ]));
 
-        let optiized = optimizer.transform_node(input).unwrap().into();
+        let optiized = optimizer.insert_coalesce(input).unwrap().into();
         let children = optiized.children();
         assert_eq!(children.len(), 1);
         assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
@@ -192,6 +215,23 @@ mod tests {
         let nested_union = &children[0];
         assert_eq!(nested_union.children().len(), 2);
         assert!(nested_union.as_ref().as_any().is::<UnionExec>());
+    }
+
+    #[test]
+    fn test_optimizer_insert_coalesce_should_do_nothing() {
+        let optimizer = OptimizeTaskGroup::new(Vec::default());
+        let input = Arc::new(LocalLimitExec::new(
+            Arc::new(
+                ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
+                    .unwrap(),
+            ),
+            10,
+        ));
+
+        assert!(matches!(
+            optimizer.insert_coalesce(input).unwrap(),
+            Transformed::No(_)
+        ))
     }
 
     #[test]
@@ -214,7 +254,7 @@ mod tests {
             )),
         ]));
 
-        let optiized = optimizer.transform_node(input).unwrap().into();
+        let optiized = optimizer.optimize_node(input).unwrap().into();
         let children = optiized.children();
         assert_eq!(children.len(), 1);
         assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());
