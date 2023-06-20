@@ -28,7 +28,7 @@ configure_me_codegen = { version = "0.4.4" }
 datafusion = { git = "https://github.com/fsdvh/arrow-datafusion.git", branch = "make-url-comparable" }
 datafusion-cli = { git = "https://github.com/fsdvh/arrow-datafusion.git", branch = "make-url-comparable" }
 datafusion-proto = { git = "https://github.com/fsdvh/arrow-datafusion.git", branch = "make-url-comparable" }
-object_store = "0.5.6"
+object_store = "0.6.1"
 sqlparser = "0.34.0"
 tonic = { version = "0.9" }
 tonic-build = { version = "0.9", default-features = false, features = ["transport", "prost"] }
