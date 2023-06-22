@@ -216,9 +216,9 @@ where
     T: Read + Seek,
 {
     if tx.is_closed() {
-        return FlightError::Tonic(Status::internal(
+        return Err(FlightError::Tonic(Status::internal(
             "Can't send a batch, channel is closed",
-        ));
+        )));
     }
 
     for batch in reader {
