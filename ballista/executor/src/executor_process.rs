@@ -87,6 +87,7 @@ pub struct ExecutorProcessConfig {
     /// Optional execution engine to use to execute physical plans, will default to
     /// DataFusion if none is provided.
     pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
+    pub executor_id: Option<String>,
 }
 
 pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
@@ -151,7 +152,9 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     };
 
     // assign this executor an unique ID
-    let executor_id = Uuid::new_v4().to_string();
+    let executor_id = opt
+        .executor_id
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
 
     info!("Running with config:");
     info!("work_dir: {}", work_dir);
