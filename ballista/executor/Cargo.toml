@@ -44,6 +44,8 @@ async-trait = "0.1.41"
 ballista-core = { path = "../core", version = "0.11.0", features = ["s3"] }
 chrono = { version = "0.4", default-features = false }
 configure_me = { workspace = true }
+core_affinity = "0.8.0"
+crossbeam-queue = "0.3.8"
 dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
@@ -53,6 +55,7 @@ lazy_static = "1.4.0"
 log = "0.4"
 mimalloc = { version = "0.1", default-features = false, optional = true }
 num_cpus = "1.13.0"
+once_cell = "1.18.0"
 parking_lot = "0.12"
 prometheus = { version = "0.13", features = ["process"] }
 tempfile = "3"

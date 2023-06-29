@@ -20,12 +20,15 @@
 //! This module contains a dedicated thread pool for running "cpu
 //! intensive" workloads as query plans
 
+use core_affinity::CoreId;
+use crossbeam_queue::SegQueue;
 use parking_lot::Mutex;
 use std::{pin::Pin, sync::Arc};
 use tokio::sync::oneshot::Receiver;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use futures::Future;
+use once_cell::sync::OnceCell;
 
 /// The type of thing that the dedicated executor runs
 type Task = Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -83,6 +86,8 @@ impl std::fmt::Debug for DedicatedExecutor {
     }
 }
 
+static CORES: OnceCell<SegQueue<CoreId>> = OnceCell::new();
+
 impl DedicatedExecutor {
     /// https://stackoverflow.com/questions/62536566
     /// Creates a new `DedicatedExecutor` with a dedicated tokio
@@ -97,6 +102,18 @@ impl DedicatedExecutor {
 
         let (tx, rx) = std::sync::mpsc::channel();
 
+        let _ = CORES.get_or_init(|| {
+            let q = SegQueue::new();
+
+            if let Some(cores) = core_affinity::get_core_ids() {
+                for core in cores {
+                    q.push(core);
+                }
+            }
+
+            q
+        });
+
         // Cannot create a separated tokio runtime in another tokio runtime,
         // So use std::thread to spawn a thread
         let thread = std::thread::spawn(move || {
@@ -104,7 +121,14 @@ impl DedicatedExecutor {
                 .enable_all()
                 .thread_name(&name_copy)
                 .worker_threads(num_threads)
-                .on_thread_start(move || set_current_thread_priority(WORKER_PRIORITY))
+                .on_thread_start(move || {
+                    if let Some(core) = CORES.get().and_then(|q| q.pop()) {
+                        info!("pinning task runner thread to core {}", core.id);
+                        core_affinity::set_for_current(core);
+                    }
+
+                    set_current_thread_priority(WORKER_PRIORITY)
+                })
                 .build()
                 .expect("Creating tokio runtime");
 
