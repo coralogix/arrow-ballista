@@ -625,16 +625,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                                 job_overview.queued_at
                             ))
                         })?
-                        .as_millis();
-                    let total_task_duration_ms = now
-                        .checked_sub(Duration::from_millis(job_overview.start_time))
-                        .ok_or_else(|| {
-                            Status::internal(format!(
-                                "invalid start_time: {}",
-                                job_overview.start_time
-                            ))
-                        })?
-                        .as_millis();
+                        .as_millis() as u64;
+                    let total_task_duration_ms =
+                        now.checked_sub(Duration::from_millis(job_overview.start_time))
+                            .ok_or_else(|| {
+                                Status::internal(format!(
+                                    "invalid start_time: {}",
+                                    job_overview.start_time
+                                ))
+                            })?
+                            .as_millis() as u64;
                     jobs.push(Job {
                         id: job_overview.job_id.clone(),
                         durations_ms,

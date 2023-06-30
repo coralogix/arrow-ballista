@@ -969,9 +969,9 @@ message ListJobsRequest {}
 message Job {
   string id = 1;
   // how long the query has been running (in wall clock time)
-  uint128 durations_ms = 2;
+  uint64 durations_ms = 2;
   // total aggregated duration of all completed tasks
-  uint128 total_task_duration_ms = 3;
+  uint64 total_task_duration_ms = 3;
   // How many tasks total in the query
   uint32 total_tasks = 4;
   // How many tasks are completed
