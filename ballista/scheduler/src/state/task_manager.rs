@@ -476,10 +476,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
     }
 
-    pub async fn list_jobs(&self) -> Result<Vec<(String, JobStatus)>> {
-        self.state.get_job_statuses().await
-    }
-
     /// Get the execution graph of of a job. First look in the active cache.
     /// If no one found, then in the Active/Completed jobs.
     pub(crate) async fn get_job_execution_graph(
