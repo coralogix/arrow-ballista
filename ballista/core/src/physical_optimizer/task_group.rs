@@ -62,7 +62,7 @@ impl OptimizeTaskGroup {
             )));
         }
 
-        if node.children().is_empty() || is_repartition(node.as_ref()) {
+        if insert_coalesce(node.as_ref()) {
             return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
                 node,
                 self.partitions.clone(),
@@ -105,17 +105,17 @@ impl OptimizeTaskGroup {
     }
 }
 
-fn is_hash_join_no_partitioning(node: &dyn ExecutionPlan) -> bool {
-    // only push down hash join if the input is unpartitioned
-    // (so parent nodes won't rely on the output partitioning)
-    if let Some(hash_join) = node.as_any().downcast_ref::<HashJoinExec>() {
-        return matches!(
-            hash_join.output_partitioning(),
-            datafusion::physical_plan::Partitioning::UnknownPartitioning(_)
-        );
-    }
-    false
-}
+// fn is_hash_join_no_partitioning(node: &dyn ExecutionPlan) -> bool {
+//     // only push down hash join if the input is unpartitioned
+//     // (so parent nodes won't rely on the output partitioning)
+//     if let Some(hash_join) = node.as_any().downcast_ref::<HashJoinExec>() {
+//         return matches!(
+//             hash_join.output_partitioning(),
+//             datafusion::physical_plan::Partitioning::UnknownPartitioning(_)
+//         );
+//     }
+//     false
+// }
 
 impl PhysicalOptimizerRule for OptimizeTaskGroup {
     fn optimize(
@@ -136,13 +136,13 @@ impl PhysicalOptimizerRule for OptimizeTaskGroup {
     }
 }
 
-/// Returns true for nodes that repartition the data. In the context of distributed execution plan
-/// this effectively mean operators which coalesce partitions or a union
-fn is_repartition(plan: &dyn ExecutionPlan) -> bool {
-    plan.as_any().is::<UnionExec>()
+/// Return whether we should insert a `CoalesceTasksExec` above this node.
+fn insert_coalesce(plan: &dyn ExecutionPlan) -> bool {
+    plan.children().is_empty()
+        || plan.as_any().is::<UnionExec>()
         || plan.as_any().is::<SortPreservingMergeExec>()
         || plan.as_any().is::<CoalescePartitionsExec>()
-        || is_hash_join_no_partitioning(plan)
+        || plan.as_any().is::<HashJoinExec>()
         || is_aggregation(plan, AggregateMode::Final)
         || is_aggregation(plan, AggregateMode::FinalPartitioned)
 }
