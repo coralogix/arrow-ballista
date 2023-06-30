@@ -27,10 +27,10 @@ use ballista_core::serde::protobuf::{
     CircuitBreakerUpdateResponse, CleanJobDataParams, CleanJobDataResult,
     ExecuteQueryParams, ExecuteQueryResult, ExecutorHeartbeat, ExecutorStoppedParams,
     ExecutorStoppedResult, GetFileMetadataParams, GetFileMetadataResult,
-    GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult,
-    PollWorkParams, PollWorkResult, RegisterExecutorParams, RegisterExecutorResult,
-    SchedulerLostParams, SchedulerLostResponse, UpdateTaskStatusParams,
-    UpdateTaskStatusResult,
+    GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult, Job,
+    ListJobsRequest, ListJobsResponse, PollWorkParams, PollWorkResult,
+    RegisterExecutorParams, RegisterExecutorResult, SchedulerLostParams,
+    SchedulerLostResponse, UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -47,7 +47,7 @@ use std::sync::Arc;
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use datafusion::prelude::SessionContext;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
 use crate::scheduler_server::SchedulerServer;
@@ -602,6 +602,55 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             ));
 
         Ok(Response::new(SchedulerLostResponse {}))
+    }
+
+    async fn list_jobs(
+        &self,
+        _request: Request<ListJobsRequest>,
+    ) -> Result<Response<ListJobsResponse>, Status> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+
+        match self.state.task_manager.get_jobs().await {
+            Ok(listed_jobs) => {
+                let mut jobs = Vec::with_capacity(listed_jobs.len());
+
+                for job_overview in listed_jobs.iter().filter(|o| o.is_running()) {
+                    let durations_ms = now
+                        .checked_sub(Duration::from_millis(job_overview.queued_at))
+                        .ok_or_else(|| {
+                            Status::internal(format!(
+                                "invalid queue_at: {}",
+                                job_overview.queued_at
+                            ))
+                        })?
+                        .as_millis();
+                    let total_task_duration_ms = now
+                        .checked_sub(Duration::from_millis(job_overview.start_time))
+                        .ok_or_else(|| {
+                            Status::internal(format!(
+                                "invalid start_time: {}",
+                                job_overview.start_time
+                            ))
+                        })?
+                        .as_millis();
+                    jobs.push(Job {
+                        id: job_overview.job_id.clone(),
+                        durations_ms,
+                        total_task_duration_ms,
+                        total_tasks: job_overview.num_stages as u32,
+                        completed_tasks: job_overview.completed_stages as u32,
+                    })
+                }
+
+                Ok(Response::new(ListJobsResponse { running_jobs: jobs }))
+            }
+            Err(e) => {
+                error!(error = %e, "failed to list jobs");
+                return Err(Status::internal("Unable to list jobs"));
+            }
+        }
     }
 }
 
