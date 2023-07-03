@@ -882,6 +882,7 @@ pub struct JobOverview {
     pub end_time: u64,
     pub num_stages: usize,
     pub completed_stages: usize,
+    pub total_task_duration_ms: u64,
 }
 
 impl JobOverview {
@@ -893,9 +894,24 @@ impl JobOverview {
 impl From<&ExecutionGraph> for JobOverview {
     fn from(value: &ExecutionGraph) -> Self {
         let mut completed_stages = 0;
+        let mut total_task_duration_ms = 0;
         for stage in value.stages().values() {
-            if let ExecutionStage::Successful(_) = stage {
+            if let ExecutionStage::Successful(stage) = stage {
                 completed_stages += 1;
+                for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
+            }
+
+            if let ExecutionStage::Running(stage) = stage {
+                for task in stage
+                    .task_infos
+                    .iter()
+                    .flatten()
+                    .filter(|t| t.is_finished())
+                {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
             }
         }
 
@@ -908,6 +924,7 @@ impl From<&ExecutionGraph> for JobOverview {
             end_time: value.end_time(),
             num_stages: value.stage_count(),
             completed_stages,
+            total_task_duration_ms,
         }
     }
 }
