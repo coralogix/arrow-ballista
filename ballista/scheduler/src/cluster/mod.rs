@@ -354,6 +354,8 @@ pub trait JobState: Send + Sync {
     async fn fail_unscheduled_job(
         &self,
         job_id: &str,
+        job_name: &str,
+        queued_at: u64,
         reason: Arc<BallistaError>,
     ) -> Result<()>;
 

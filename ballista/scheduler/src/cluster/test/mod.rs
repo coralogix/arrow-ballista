@@ -432,6 +432,8 @@ impl<S: JobState> JobStateTest<S> {
         self.state
             .fail_unscheduled_job(
                 job_id,
+                "name",
+                0,
                 Arc::new(BallistaError::Internal("failed planning".to_string())),
             )
             .await?;

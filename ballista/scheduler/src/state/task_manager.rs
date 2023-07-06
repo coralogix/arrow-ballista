@@ -683,9 +683,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     pub async fn fail_unscheduled_job(
         &self,
         job_id: &str,
+        job_name: &str,
+        queued_at: u64,
         job_error: Arc<BallistaError>,
     ) -> Result<()> {
-        self.state.fail_unscheduled_job(job_id, job_error).await
+        self.state
+            .fail_unscheduled_job(job_id, job_name, queued_at, job_error)
+            .await
     }
 
     pub async fn update_job(&self, job_id: &str) -> Result<usize> {

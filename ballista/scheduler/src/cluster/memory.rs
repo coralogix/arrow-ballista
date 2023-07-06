@@ -465,15 +465,18 @@ impl JobState for InMemoryJobState {
     async fn fail_unscheduled_job(
         &self,
         job_id: &str,
+        job_name: &str,
+        queued_at: u64,
         reason: Arc<BallistaError>,
     ) -> Result<()> {
-        if let Some((job_id, (job_name, queued_at))) = self.queued_jobs.remove(job_id) {
+        if self.queued_jobs.remove(job_id).is_some() {
+            let job_id = job_id.to_string();
             self.completed_jobs.insert(
                 job_id.clone(),
                 (
                     JobStatus {
                         job_id,
-                        job_name,
+                        job_name: job_name.to_string(),
                         status: Some(Status::Failed(FailedJob {
                             error: Some(ExecutionError {
                                 error: Some(reason.as_ref().into()),
