@@ -435,7 +435,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             job_name, session_id, "submitting execution graph: {:?}", graph
         );
 
-        self.state.submit_job(job_id.to_string(), &graph).await?;
+        self.state.submit_job(job_id, &graph).await?;
 
         graph.revive();
         self.active_job_queue.push(job_id.to_owned(), graph);

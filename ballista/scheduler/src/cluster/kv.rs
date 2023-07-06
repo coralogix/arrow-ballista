@@ -519,28 +519,29 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         Ok(())
     }
 
-    async fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()> {
-        if self.queued_jobs.get(&job_id).is_some() {
+    async fn submit_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
+        if self.queued_jobs.get(job_id).is_some() {
             let status = graph.status();
             let encoded_graph =
                 ExecutionGraph::encode_execution_graph(graph.clone(), &self.codec)?;
 
+            let job_id_owned = job_id.to_owned();
             self.store
                 .apply_txn(vec![
                     (
                         Operation::Put(status.encode_to_vec()),
                         Keyspace::JobStatus,
-                        job_id.clone(),
+                        job_id_owned.clone(),
                     ),
                     (
                         Operation::Put(encoded_graph.encode_to_vec()),
                         Keyspace::ExecutionGraph,
-                        job_id.clone(),
+                        job_id_owned,
                     ),
                 ])
                 .await?;
 
-            self.queued_jobs.remove(&job_id);
+            self.queued_jobs.remove(job_id);
 
             Ok(())
         } else {

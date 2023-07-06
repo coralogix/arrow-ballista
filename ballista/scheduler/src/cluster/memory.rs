@@ -298,13 +298,15 @@ impl InMemoryJobState {
 
 #[async_trait]
 impl JobState for InMemoryJobState {
-    async fn submit_job(&self, job_id: String, graph: &ExecutionGraph) -> Result<()> {
-        if self.queued_jobs.get(&job_id).is_some() {
-            self.running_jobs.insert(job_id.clone(), graph.status());
-            self.queued_jobs.remove(&job_id);
+    async fn submit_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
+        if self.queued_jobs.get(job_id).is_some() {
+            let job_id_owned = job_id.to_owned();
+            self.running_jobs
+                .insert(job_id_owned.clone(), graph.status());
+            self.queued_jobs.remove(job_id);
 
             self.job_event_sender.send(&JobStateEvent::JobAcquired {
-                job_id,
+                job_id: job_id_owned,
                 owner: self.scheduler.clone(),
             });
 
