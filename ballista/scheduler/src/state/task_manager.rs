@@ -889,6 +889,25 @@ impl JobOverview {
     pub fn is_running(&self) -> bool {
         matches!(self.status.status, Some(Status::Running(_)))
     }
+
+    pub fn queued(
+        job_id: String,
+        job_name: String,
+        status: JobStatus,
+        queued_at: u64,
+    ) -> Self {
+        Self {
+            job_id,
+            job_name,
+            status,
+            queued_at,
+            start_time: 0,
+            end_time: 0,
+            num_stages: 0,
+            completed_stages: 0,
+            total_task_duration_ms: 0,
+        }
+    }
 }
 
 impl From<&ExecutionGraph> for JobOverview {
