@@ -20,7 +20,7 @@ use crate::cluster::{
     reserve_slots_bias, reserve_slots_round_robin, ClusterState, ExecutorHeartbeatStream,
     JobState, JobStateEvent, JobStateEventStream, JobStatus, TaskDistribution,
 };
-use crate::scheduler_server::{timestamp_secs, SessionBuilder};
+use crate::scheduler_server::{timestamp_millis, timestamp_secs, SessionBuilder};
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::session_manager::create_datafusion_context;
@@ -636,7 +636,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                     }),
                     queued_at,
                     started_at: 0,
-                    ended_at: 0,
+                    ended_at: timestamp_millis(),
                 })),
             };
 

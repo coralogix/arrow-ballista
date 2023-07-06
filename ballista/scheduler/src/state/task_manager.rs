@@ -29,8 +29,8 @@ use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, execution_error, job_status, JobOverview, JobStatus, KeyValuePair, QueuedJob,
-    SuccessfulJob, TaskDefinition, TaskStatus,
+    self, execution_error, job_status, ExecutionError, FailedJob, JobOverview, JobStatus,
+    KeyValuePair, QueuedJob, SuccessfulJob, TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -879,6 +879,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 pub trait JobOverviewExt {
     fn is_running(&self) -> bool;
     fn queued(job_id: String, job_name: String, queued_at: u64) -> JobOverview;
+    fn failed(
+        job_id: String,
+        job_name: String,
+        queued_at: u64,
+        reason: Arc<BallistaError>,
+    ) -> JobOverview;
 }
 
 impl JobOverviewExt for JobOverview {
@@ -901,6 +907,38 @@ impl JobOverviewExt for JobOverview {
                 job_name,
                 status: Some(job_status::Status::Queued(QueuedJob { queued_at })),
             }),
+            queued_at,
+            start_time: 0,
+            end_time: 0,
+            num_stages: 0,
+            completed_stages: 0,
+            total_task_duration_ms: 0,
+        }
+    }
+
+    fn failed(
+        job_id: String,
+        job_name: String,
+        queued_at: u64,
+        reason: Arc<BallistaError>,
+    ) -> JobOverview {
+        let status = JobStatus {
+            job_id: job_id.clone(),
+            job_name: job_name.clone(),
+            status: Some(job_status::Status::Failed(FailedJob {
+                error: Some(ExecutionError {
+                    error: Some(reason.as_ref().into()),
+                }),
+                queued_at,
+                started_at: 0,
+                ended_at: timestamp_millis(),
+            })),
+        };
+
+        Self {
+            job_id,
+            job_name,
+            status: Some(status),
             queued_at,
             start_time: 0,
             end_time: 0,
