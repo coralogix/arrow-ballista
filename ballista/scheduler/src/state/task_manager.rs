@@ -24,14 +24,13 @@ use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
-use ballista_core::serde::protobuf::job_status::Status;
 use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, execution_error, job_status, JobStatus, KeyValuePair, SuccessfulJob,
-    TaskDefinition, TaskStatus,
+    self, execution_error, job_status, JobOverview, JobStatus, KeyValuePair,
+    SuccessfulJob, TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -873,24 +872,28 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 }
 
-pub struct JobOverview {
-    pub job_id: String,
-    pub job_name: String,
-    pub status: JobStatus,
-    pub queued_at: u64,
-    pub start_time: u64,
-    pub end_time: u64,
-    pub num_stages: usize,
-    pub completed_stages: usize,
-    pub total_task_duration_ms: u64,
+pub trait JobOverviewExt {
+    fn is_running(&self) -> bool;
+    fn queued(
+        job_id: String,
+        job_name: String,
+        status: JobStatus,
+        queued_at: u64,
+    ) -> JobOverview;
 }
 
-impl JobOverview {
-    pub fn is_running(&self) -> bool {
-        matches!(self.status.status, Some(Status::Running(_)))
+impl JobOverviewExt for JobOverview {
+    fn is_running(&self) -> bool {
+        matches!(
+            self.status,
+            Some(JobStatus {
+                status: Some(job_status::Status::Running(_)),
+                ..
+            })
+        )
     }
 
-    pub fn queued(
+    fn queued(
         job_id: String,
         job_name: String,
         status: JobStatus,
@@ -899,7 +902,7 @@ impl JobOverview {
         Self {
             job_id,
             job_name,
-            status,
+            status: Some(status),
             queued_at,
             start_time: 0,
             end_time: 0,
@@ -937,11 +940,11 @@ impl From<&ExecutionGraph> for JobOverview {
         Self {
             job_id: value.job_id().to_string(),
             job_name: value.job_name().to_string(),
-            status: value.status(),
+            status: Some(value.status()),
             queued_at: value.queued_at(),
             start_time: value.start_time(),
             end_time: value.end_time(),
-            num_stages: value.stage_count(),
+            num_stages: value.stage_count() as u32,
             completed_stages,
             total_task_duration_ms,
         }
