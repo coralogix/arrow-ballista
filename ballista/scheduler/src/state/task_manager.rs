@@ -29,7 +29,7 @@ use futures::future::try_join_all;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
-    self, execution_error, job_status, JobOverview, JobStatus, KeyValuePair,
+    self, execution_error, job_status, JobOverview, JobStatus, KeyValuePair, QueuedJob,
     SuccessfulJob, TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
@@ -878,12 +878,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
 pub trait JobOverviewExt {
     fn is_running(&self) -> bool;
-    fn queued(
-        job_id: String,
-        job_name: String,
-        status: JobStatus,
-        queued_at: u64,
-    ) -> JobOverview;
+    fn queued(job_id: String, job_name: String, queued_at: u64) -> JobOverview;
 }
 
 impl JobOverviewExt for JobOverview {
@@ -897,16 +892,15 @@ impl JobOverviewExt for JobOverview {
         )
     }
 
-    fn queued(
-        job_id: String,
-        job_name: String,
-        status: JobStatus,
-        queued_at: u64,
-    ) -> Self {
+    fn queued(job_id: String, job_name: String, queued_at: u64) -> Self {
         Self {
-            job_id,
-            job_name,
-            status: Some(status),
+            job_id: job_id.clone(),
+            job_name: job_name.clone(),
+            status: Some(JobStatus {
+                job_id,
+                job_name,
+                status: Some(job_status::Status::Queued(QueuedJob { queued_at })),
+            }),
             queued_at,
             start_time: 0,
             end_time: 0,
