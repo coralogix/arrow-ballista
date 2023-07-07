@@ -302,7 +302,7 @@ impl JobState for InMemoryJobState {
         if self.queued_jobs.get(job_id).is_some() {
             let job_id_owned = job_id.to_owned();
             self.running_jobs
-                .insert(job_id_owned.clone(), graph.status());
+                .insert(job_id_owned.clone(), graph.clone());
             self.queued_jobs.remove(job_id);
 
             self.job_event_sender.send(&JobStateEvent::JobAcquired {
