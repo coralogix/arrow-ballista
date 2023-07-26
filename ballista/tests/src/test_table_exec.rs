@@ -220,7 +220,7 @@ impl Stream for TestDataStream {
             return Poll::Pending;
         }
 
-        let mut self_mut = self.get_mut();
+        let self_mut = self.get_mut();
 
         self_mut.last_sent = current_time;
 
