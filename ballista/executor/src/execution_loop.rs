@@ -391,7 +391,7 @@ async fn sample_tasks_status(
     Ok(task_status)
 }
 
-struct SingleSchedulerClient {
+pub struct SingleSchedulerClient {
     scheduler: SchedulerGrpcClient<Channel>,
 }
 

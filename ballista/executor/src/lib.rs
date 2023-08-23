@@ -26,11 +26,11 @@ pub mod executor_process;
 pub mod executor_server;
 pub mod flight_service;
 pub mod metrics;
+pub mod scheduler_client_registry;
 pub mod shutdown;
 pub mod terminate;
 
 mod cpu_bound_executor;
-mod scheduler_client_registry;
 mod standalone;
 
 pub use standalone::new_standalone_executor;
