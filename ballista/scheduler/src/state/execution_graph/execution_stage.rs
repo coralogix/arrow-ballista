@@ -28,6 +28,7 @@ use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{ExecutionPlan, Metric, Partitioning};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use itertools::Itertools;
 use tracing::{debug, warn};
 
 use ballista_core::error::{BallistaError, Result};
@@ -799,8 +800,21 @@ impl RunningStage {
 
         let new_metrics_set = if let Some(combined_metrics) = &mut self.stage_metrics {
             if metrics.len() != combined_metrics.len() {
-                return Err(BallistaError::Internal(format!("Error updating task metrics to stage {}, task metrics array size {} does not equal \
-                with the stage metrics array size {}", self.stage_id, metrics.len(), combined_metrics.len())));
+                let metrics_name = metrics.iter().map(|ms| ms.name.clone()).join(",");
+                let combined_metrics_name =
+                    combined_metrics.iter().map(|ms| ms.name.clone()).join(",");
+                let message = format!(
+                    "Error updating task metrics to stage {}, task metrics array size {} does not equal \
+                    with the stage metrics array size {} \
+                    (task metrics array names: [{}], stage metrics array names: [{}])",
+                    self.stage_id,
+                    metrics.len(),
+                    combined_metrics.len(),
+                    metrics_name,
+                    combined_metrics_name
+                );
+
+                return Err(BallistaError::Internal(message));
             }
             let metrics_values_array = metrics
                 .into_iter()
