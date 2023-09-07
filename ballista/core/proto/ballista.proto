@@ -243,6 +243,7 @@ message ColumnStats {
 
 message OperatorMetricsSet {
   repeated OperatorMetric metrics = 1;
+  string name = 2;
 }
 
 message NamedCount {

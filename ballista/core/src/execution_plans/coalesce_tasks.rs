@@ -53,7 +53,7 @@ impl CoalesceTasksExec {
         Self {
             partitions,
             input,
-            metrics: ExecutionPlanMetricsSet::new(),
+            metrics: ExecutionPlanMetricsSet::new("CoalesceTasksExec".to_owned()),
         }
     }
 

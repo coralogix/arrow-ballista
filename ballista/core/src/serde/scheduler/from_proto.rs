@@ -184,7 +184,7 @@ impl TryInto<MetricsSet> for protobuf::OperatorMetricsSet {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<MetricsSet, Self::Error> {
-        let mut ms = MetricsSet::new();
+        let mut ms = MetricsSet::new(self.name);
         let metrics = self
             .metrics
             .into_iter()

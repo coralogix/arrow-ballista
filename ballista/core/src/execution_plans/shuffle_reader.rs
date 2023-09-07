@@ -74,7 +74,7 @@ impl ShuffleReaderExec {
         Ok(Self {
             partition,
             schema,
-            metrics: ExecutionPlanMetricsSet::new(),
+            metrics: ExecutionPlanMetricsSet::new("ShuffleReaderExec".to_owned()),
         })
     }
 }

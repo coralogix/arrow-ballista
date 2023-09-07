@@ -171,7 +171,10 @@ impl TryInto<protobuf::OperatorMetricsSet> for MetricsSet {
             .iter()
             .map(|m| m.value().try_into())
             .collect::<Result<Vec<_>, BallistaError>>()?;
-        Ok(protobuf::OperatorMetricsSet { metrics })
+        Ok(protobuf::OperatorMetricsSet {
+            metrics,
+            name: self.name,
+        })
     }
 }
 
