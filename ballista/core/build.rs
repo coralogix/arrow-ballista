@@ -36,24 +36,24 @@ fn main() -> Result<(), String> {
 
     // We don't include the proto files in releases so that downstreams
     // do not need to have PROTOC included
-    if Path::new("proto/datafusion.proto").exists() {
-        println!("cargo:rerun-if-changed=proto/datafusion.proto");
-        println!("cargo:rerun-if-changed=proto/ballista.proto");
-        tonic_build::configure()
-            .extern_path(".datafusion", "::datafusion_proto::protobuf")
-            .protoc_arg("--experimental_allow_proto3_optional")
-            .compile(&["proto/ballista.proto"], &["proto"])
-            .map_err(|e| format!("protobuf compilation failed: {e}"))?;
-        let generated_source_path = out.join("ballista.protobuf.rs");
-        let code = std::fs::read_to_string(generated_source_path).unwrap();
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .truncate(true)
-            .create(true)
-            .open(path)
-            .unwrap();
-        file.write_all(code.as_str().as_ref()).unwrap();
-    }
+    // if Path::new("proto/datafusion.proto").exists() {
+    //     println!("cargo:rerun-if-changed=proto/datafusion.proto");
+    //     println!("cargo:rerun-if-changed=proto/ballista.proto");
+    //     tonic_build::configure()
+    //         .extern_path(".datafusion", "::datafusion_proto::protobuf")
+    //         .protoc_arg("--experimental_allow_proto3_optional")
+    //         .compile(&["proto/ballista.proto"], &["proto"])
+    //         .map_err(|e| format!("protobuf compilation failed: {e}"))?;
+    //     let generated_source_path = out.join("ballista.protobuf.rs");
+    //     let code = std::fs::read_to_string(generated_source_path).unwrap();
+    //     let mut file = std::fs::OpenOptions::new()
+    //         .write(true)
+    //         .truncate(true)
+    //         .create(true)
+    //         .open(path)
+    //         .unwrap();
+    //     file.write_all(code.as_str().as_ref()).unwrap();
+    // }
 
     Ok(())
 }
