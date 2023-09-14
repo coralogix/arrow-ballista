@@ -31,10 +31,12 @@ impl CircuitBreakerStream {
         key: CircuitBreakerKey,
         client: Arc<CircuitBreakerClient>,
     ) -> Result<Self, Error> {
-        let circuit_breaker = Arc::new(AtomicBool::new(false));
+        let initially_tripped = client.get_initial_state(&key);
+        let circuit_breaker = Arc::new(AtomicBool::new(initially_tripped));
+
         client.register(key.clone(), circuit_breaker.clone())?;
 
-        Ok(Self {
+        let mut stream = Self {
             inner,
             calculate,
             key,
@@ -42,7 +44,27 @@ impl CircuitBreakerStream {
             is_lagging: false,
             circuit_breaker,
             client,
-        })
+        };
+
+        if !initially_tripped {
+            stream.try_send_update();
+        }
+
+        Ok(stream)
+    }
+
+    fn try_send_update(&mut self) {
+        let status_update = CircuitBreakerUpdate {
+            key: self.key.clone(),
+            percent: self.percent,
+        };
+
+        if let Err(e) = self.client.send_update(status_update) {
+            if !self.is_lagging {
+                self.is_lagging = true;
+                warn!("Stream could not send short circuit update to daemon, it might be running very fast! ({:?})", e);
+            }
+        }
     }
 }
 
@@ -55,7 +77,7 @@ impl Drop for CircuitBreakerStream {
 }
 
 pub trait CircuitBreakerCalculation {
-    fn calculate_delta(&mut self, batch: &RecordBatch) -> f64;
+    fn calculate_delta(&mut self, poll: &Poll<Option<Result<RecordBatch>>>) -> f64;
 }
 
 #[derive(Debug)]
@@ -89,23 +111,9 @@ impl Stream for CircuitBreakerStream {
 
         let poll = self.inner.poll_next_unpin(cx);
 
-        if let Poll::Ready(Some(Ok(record_batch))) = &poll {
-            let delta = self.calculate.calculate_delta(record_batch);
-
-            self.percent += delta;
-
-            let status_update = CircuitBreakerUpdate {
-                key: self.key.clone(),
-                percent: self.percent,
-            };
-
-            if let Err(e) = self.client.send_update(status_update) {
-                if !self.is_lagging {
-                    self.is_lagging = true;
-                    warn!("Stream could not send short circuit update to daemon, it might be running very fast! ({:?})", e);
-                }
-            }
-        }
+        let delta = self.calculate.calculate_delta(&poll);
+        self.percent += delta;
+        self.try_send_update();
 
         poll
     }

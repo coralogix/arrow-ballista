@@ -569,9 +569,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                                 "Get query stage event loop error due to {e:?}"
                             ))
                         })?
-                        .post_event(QueryStageSchedulerEvent::CircuitBreakerTripped(
-                            key.job_id.clone(),
-                        ));
+                        .post_event(QueryStageSchedulerEvent::CircuitBreakerTripped {
+                            job_id: key.job_id.clone(),
+                            stage_id: key.stage_id as usize,
+                        });
 
                     commands.push(CircuitBreakerCommand { key: Some(key) });
                 }

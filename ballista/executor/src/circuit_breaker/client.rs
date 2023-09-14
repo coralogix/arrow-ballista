@@ -3,6 +3,7 @@ use ballista_core::{
     error::BallistaError,
     serde::protobuf::{self, CircuitBreakerUpdateRequest},
 };
+use dashmap::DashMap;
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -63,8 +64,32 @@ pub struct CircuitBreakerMetadataExtension {
     pub attempt_number: u32,
 }
 
+#[derive(Eq, PartialEq, Hash, Debug, Clone)]
+pub struct CacheKey {
+    pub job_id: String,
+    pub stage_id: u32,
+    pub node_id: String,
+}
+
+pub struct CircuitBreakerClientConfig {
+    pub send_interval: Duration,
+    pub cache_cleanup_frequency: Duration,
+    pub cache_ttl_seconds: u64,
+}
+
+impl Default for CircuitBreakerClientConfig {
+    fn default() -> Self {
+        Self {
+            send_interval: Duration::from_secs(1),
+            cache_cleanup_frequency: Duration::from_secs(15),
+            cache_ttl_seconds: 60,
+        }
+    }
+}
+
 pub struct CircuitBreakerClient {
     update_sender: Sender<ClientUpdate>,
+    tripped_cache: Arc<DashMap<CacheKey, u64>>,
 }
 
 struct CircuitBreakerTaskState {
@@ -104,18 +129,29 @@ enum ClientUpdate {
 
 impl CircuitBreakerClient {
     pub fn new(
-        send_interval: Duration,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
+        config: CircuitBreakerClientConfig,
     ) -> Self {
         let (update_sender, update_receiver) = channel(99);
 
-        tokio::spawn(Self::run_daemon(
+        tokio::spawn(Self::run_sender_daemon(
             update_receiver,
-            send_interval,
+            config.send_interval,
             get_scheduler,
         ));
 
-        Self { update_sender }
+        let tripped_cache = Arc::new(DashMap::new());
+
+        tokio::spawn(Self::run_cache_cleanup_daemon(
+            tripped_cache.clone(),
+            config.cache_ttl_seconds,
+            config.cache_cleanup_frequency,
+        ));
+
+        Self {
+            update_sender,
+            tripped_cache,
+        }
     }
 
     pub fn register(
@@ -181,7 +217,28 @@ impl CircuitBreakerClient {
         })
     }
 
-    async fn run_daemon(
+    async fn run_cache_cleanup_daemon(
+        tripped_cache: Arc<DashMap<CacheKey, u64>>,
+        cache_ttl_seconds: u64,
+        cache_cleanup_frequency: Duration,
+    ) {
+        loop {
+            tokio::time::sleep(cache_cleanup_frequency).await;
+
+            let now = chrono::Utc::now().timestamp() as u64;
+
+            for entry in tripped_cache.iter() {
+                let key = entry.key().clone();
+                let timestamp = entry.value();
+
+                if now - timestamp > cache_ttl_seconds {
+                    tripped_cache.remove(&key);
+                }
+            }
+        }
+    }
+
+    async fn run_sender_daemon(
         update_receiver: Receiver<ClientUpdate>,
         send_interval: Duration,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
@@ -307,5 +364,17 @@ impl CircuitBreakerClient {
                 state_per_task.remove(&deregistration.key);
             }
         }
+    }
+
+    pub fn get_initial_state(&self, key: &CircuitBreakerKey) -> bool {
+        if let Some(_) = self.tripped_cache.get(&CacheKey {
+            job_id: key.job_id.clone(),
+            stage_id: key.stage_id,
+            node_id: key.node_id.clone(),
+        }) {
+            return true;
+        }
+
+        false
     }
 }
