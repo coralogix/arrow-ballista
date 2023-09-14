@@ -200,8 +200,12 @@ struct TestCalculation {
 }
 
 impl CircuitBreakerCalculation for TestCalculation {
-    fn calculate_delta(&mut self, f: &RecordBatch) -> f64 {
-        f.num_rows() as f64 / self.limit as f64
+    fn calculate_delta(&mut self, f: &Poll<Option<Result<RecordBatch>>>) -> f64 {
+        if let Poll::Ready(Some(Ok(batch))) = f {
+            batch.num_rows() as f64 / self.limit as f64
+        } else {
+            0.0
+        }
     }
 }
 
