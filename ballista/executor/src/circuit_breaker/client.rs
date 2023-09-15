@@ -331,6 +331,10 @@ impl CircuitBreakerClient {
                     }
                 };
 
+                if request_updates.is_empty() {
+                    continue;
+                }
+
                 let request = CircuitBreakerUpdateRequest {
                     updates: request_updates,
                 };
