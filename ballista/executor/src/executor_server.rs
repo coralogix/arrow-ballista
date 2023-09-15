@@ -87,6 +87,7 @@ struct CuratorTaskStatus {
     task_status: Vec<TaskStatus>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
     mut scheduler: SchedulerGrpcClient<Channel>,
     bind_host: String,

@@ -380,7 +380,7 @@ impl CircuitBreakerClient {
     }
 
     pub fn get_initial_state(&self, key: &CircuitBreakerKey) -> bool {
-        if let Some(_) = self.tripped_cache.get(&CacheKey {
+        if self.tripped_cache.contains_key(&CacheKey {
             job_id: key.job_id.clone(),
             stage_id: key.stage_id,
             node_id: key.node_id.clone(),
