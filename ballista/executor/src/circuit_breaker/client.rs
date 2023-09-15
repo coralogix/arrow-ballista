@@ -134,13 +134,14 @@ impl CircuitBreakerClient {
     ) -> Self {
         let (update_sender, update_receiver) = channel(99);
 
+        let tripped_cache = Arc::new(DashMap::new());
+
         tokio::spawn(Self::run_sender_daemon(
             update_receiver,
             config.send_interval,
             get_scheduler,
+            tripped_cache.clone(),
         ));
-
-        let tripped_cache = Arc::new(DashMap::new());
 
         tokio::spawn(Self::run_cache_cleanup_daemon(
             tripped_cache.clone(),
@@ -242,6 +243,7 @@ impl CircuitBreakerClient {
         update_receiver: Receiver<ClientUpdate>,
         send_interval: Duration,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
+        cache: Arc<DashMap<CacheKey, u64>>,
     ) {
         let mut state_per_task = HashMap::new();
         let mut scheduler_ids = HashMap::new();
@@ -350,6 +352,17 @@ impl CircuitBreakerClient {
                                 } else {
                                     warn!("No state found for task {:?}", key);
                                 }
+
+                                // Update the cache
+                                let cache_key = CacheKey {
+                                    job_id: key.job_id.clone(),
+                                    stage_id: key.stage_id,
+                                    node_id: key.node_id.clone(),
+                                };
+                                cache.insert(
+                                    cache_key,
+                                    chrono::Utc::now().timestamp() as u64,
+                                );
                             }
                         }
                     }
