@@ -12,12 +12,12 @@ use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
 use tracing::{error, info, warn};
 
-use super::client::{CircuitBreakerClient, CircuitBreakerKey};
+use super::client::{CircuitBreakerClient, CircuitBreakerTaskKey};
 
 pub struct CircuitBreakerStream {
     inner: Pin<Box<dyn RecordBatchStream + Send>>,
     calculate: Box<dyn CircuitBreakerCalculation + Send>,
-    key: CircuitBreakerKey,
+    key: CircuitBreakerTaskKey,
     percent: f64,
     is_lagging: bool,
     circuit_breaker: Arc<AtomicBool>,
@@ -28,13 +28,10 @@ impl CircuitBreakerStream {
     pub fn new(
         inner: Pin<Box<dyn RecordBatchStream + Send>>,
         calculate: Box<dyn CircuitBreakerCalculation + Send>,
-        key: CircuitBreakerKey,
+        key: CircuitBreakerTaskKey,
         client: Arc<CircuitBreakerClient>,
     ) -> Result<Self, Error> {
-        let initially_tripped = client.get_initial_state(&key);
-        let circuit_breaker = Arc::new(AtomicBool::new(initially_tripped));
-
-        client.register(key.clone(), circuit_breaker.clone())?;
+        let circuit_breaker = client.register(key.stage_key.clone())?;
 
         let mut stream = Self {
             inner,
@@ -46,9 +43,7 @@ impl CircuitBreakerStream {
             client,
         };
 
-        if !initially_tripped {
-            stream.try_send_update();
-        }
+        stream.try_send_update();
 
         Ok(stream)
     }
@@ -70,7 +65,7 @@ impl CircuitBreakerStream {
 
 impl Drop for CircuitBreakerStream {
     fn drop(&mut self) {
-        if let Err(e) = self.client.deregister(self.key.clone()) {
+        if let Err(e) = self.client.deregister(self.key.stage_key.clone()) {
             error!("Failed to deregister circuit breaker: {:?}", e);
         }
     }
@@ -82,7 +77,7 @@ pub trait CircuitBreakerCalculation {
 
 #[derive(Debug)]
 pub struct CircuitBreakerUpdate {
-    pub key: CircuitBreakerKey,
+    pub key: CircuitBreakerTaskKey,
     pub percent: f64,
 }
 

@@ -548,20 +548,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
         for update in updates {
             if let Some(key) = update.key {
-                let circuit_breaker = self
-                    .state
-                    .circuit_breaker
-                    .update(key.clone(), update.percent)
-                    .map_err(Status::internal)?;
+                if let Some(stage_key) = &key.stage_key {
+                    let circuit_breaker = self
+                        .state
+                        .circuit_breaker
+                        .update(key.clone(), update.percent)
+                        .map_err(Status::internal)?;
 
-                if circuit_breaker {
-                    info!(
-                        job_id = key.job_id,
-                        task_id = key.task_id,
-                        "sending circuit breaker signal to task"
-                    );
+                    if circuit_breaker {
+                        info!(
+                            job_id = stage_key.job_id,
+                            stage = stage_key.stage_id,
+                            "sending circuit breaker signal to stage"
+                        );
 
-                    self.query_stage_event_loop
+                        self.query_stage_event_loop
                         .get_sender()
                         .map_err(|e| {
                             error!(error = %e, "failed to get query stage event loop");
@@ -570,11 +571,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                             ))
                         })?
                         .post_event(QueryStageSchedulerEvent::CircuitBreakerTripped {
-                            job_id: key.job_id.clone(),
-                            stage_id: key.stage_id as usize,
+                            job_id: stage_key.job_id.clone(),
+                            stage_id: stage_key.stage_id as usize,
                         });
 
-                    commands.push(CircuitBreakerCommand { key: Some(key) });
+                        commands.push(CircuitBreakerCommand {
+                            key: Some(stage_key.clone()),
+                        });
+                    }
                 }
             }
         }

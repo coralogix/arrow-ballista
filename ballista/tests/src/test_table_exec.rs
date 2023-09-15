@@ -1,8 +1,9 @@
 use crate::proto;
 use crate::test_table::TestTable;
 use ballista_executor::circuit_breaker::client::CircuitBreakerClient;
-use ballista_executor::circuit_breaker::client::CircuitBreakerKey;
 use ballista_executor::circuit_breaker::client::CircuitBreakerMetadataExtension;
+use ballista_executor::circuit_breaker::client::CircuitBreakerStageKey;
+use ballista_executor::circuit_breaker::client::CircuitBreakerTaskKey;
 use ballista_executor::circuit_breaker::stream::CircuitBreakerCalculation;
 use ballista_executor::circuit_breaker::stream::CircuitBreakerStream;
 use ballista_scheduler::scheduler_server::timestamp_millis;
@@ -123,13 +124,16 @@ impl ExecutionPlan for TestTableExec {
         {
             let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
 
-            let key = CircuitBreakerKey {
-                task_id,
-                partition: partition as u32,
+            let stage_key = CircuitBreakerStageKey {
                 job_id: metadata.job_id.clone(),
                 stage_id: metadata.stage_id,
+            };
+
+            let key = CircuitBreakerTaskKey {
+                stage_key,
+                partition: partition as u32,
                 attempt_num: metadata.attempt_number,
-                node_id: "test_table_exec".to_owned(),
+                task_id,
             };
 
             let limit = self.global_limit;
