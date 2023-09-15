@@ -105,7 +105,7 @@ impl FlightService for BallistaFlightService {
                 let (tx, rx) = channel(2);
 
                 let executor_id = self.executor_id.clone();
-                task::spawn(async move {
+                task::spawn_blocking(async move {
                     if let Err(e) = read_partition(reader, tx).await {
                         warn!(executor_id, error = %e, "error streaming shuffle partition");
                     }
