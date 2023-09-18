@@ -21,6 +21,7 @@ struct StageState {
 struct AttemptState {
     partition_states: HashMap<u32, PartitionState>,
     executor_trip_state: HashMap<String, bool>,
+    percent: f64,
 }
 
 struct PartitionState {
@@ -96,6 +97,7 @@ impl CircuitBreakerController {
                 AttemptState {
                     partition_states: HashMap::new(),
                     executor_trip_state,
+                    percent: 0.0,
                 }
             });
 
@@ -106,38 +108,51 @@ impl CircuitBreakerController {
 
         let partition_states = &mut attempt_state.partition_states;
 
+        let old_sum_percentage = attempt_state.percent;
+
         partition_states
             .entry(key.partition)
             .or_insert_with(|| PartitionState { percent })
             .percent = percent;
 
-        let sum_percentage = partition_states.values().map(|s| s.percent).sum::<f64>();
+        attempt_state.percent = partition_states.values().map(|s| s.percent).sum::<f64>();
 
-        let should_trip = sum_percentage >= 1.0;
+        let should_trip = attempt_state.percent >= 1.0 && old_sum_percentage < 1.0;
 
         Ok(should_trip)
     }
 
-    pub fn get_tripped_stages(&self, executor_id: &str) -> Vec<CircuitBreakerStageKey> {
+    pub fn retrieve_tripped_stages(
+        &self,
+        executor_id: &str,
+    ) -> Vec<CircuitBreakerStageKey> {
         self.job_states
-            .read()
-            .iter()
+            .write()
+            .iter_mut()
             .flat_map(|(job_id, job_state)| {
                 job_state
                     .stage_states
-                    .iter()
+                    .iter_mut()
                     .flat_map(|(stage_num, stage_state)| {
-                        stage_state.attempt_states.iter().flat_map(
+                        stage_state.attempt_states.iter_mut().flat_map(
                             |(attempt_num, attempt_state)| {
-                                attempt_state
-                                    .executor_trip_state
-                                    .get(executor_id)
-                                    .filter(|tripped| **tripped)
-                                    .map(|_| CircuitBreakerStageKey {
-                                        job_id: job_id.clone(),
-                                        stage_id: *stage_num,
-                                        attempt_num: *attempt_num,
-                                    })
+                                if let Some(tripped) =
+                                    attempt_state.executor_trip_state.get_mut(executor_id)
+                                {
+                                    if !*tripped && attempt_state.percent >= 1.0 {
+                                        *tripped = true;
+
+                                        Some(CircuitBreakerStageKey {
+                                            job_id: job_id.clone(),
+                                            stage_id: *stage_num,
+                                            attempt_num: *attempt_num,
+                                        })
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
                             },
                         )
                     })

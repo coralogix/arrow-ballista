@@ -584,8 +584,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             }
         }
 
-        let tripped_stage_keys =
-            self.state.circuit_breaker.get_tripped_stages(&executor_id);
+        let tripped_stage_keys = self
+            .state
+            .circuit_breaker
+            .retrieve_tripped_stages(&executor_id);
+
+        info!(
+            executor_id,
+            tripped_stage_keys = ?tripped_stage_keys,
+            "Sending circuit breaker signals to executor",
+        );
 
         let mut commands = vec![];
 
