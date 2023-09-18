@@ -3,13 +3,11 @@ use std::collections::HashMap;
 use ballista_core::circuit_breaker::model::{
     CircuitBreakerStageKey, CircuitBreakerTaskKey,
 };
-use dashmap::{DashMap, DashSet};
 use parking_lot::RwLock;
 use tracing::{debug, info};
 
 pub struct CircuitBreakerController {
     job_states: RwLock<HashMap<String, JobState>>,
-    executor_messages: DashMap<String, DashSet<CircuitBreakerStageKey>>,
 }
 
 struct JobState {
@@ -22,22 +20,18 @@ struct StageState {
 
 struct AttemptState {
     partition_states: HashMap<u32, PartitionState>,
+    executor_trip_state: HashMap<String, bool>,
 }
 
 struct PartitionState {
     percent: f64,
-    executor: String,
 }
 
 impl Default for CircuitBreakerController {
     fn default() -> Self {
         let job_states = RwLock::new(HashMap::new());
-        let executor_messages = DashMap::new();
 
-        Self {
-            job_states,
-            executor_messages,
-        }
+        Self { job_states }
     }
 }
 
@@ -59,16 +53,7 @@ impl CircuitBreakerController {
         let mut job_states = self.job_states.write();
         job_states.remove(job_id);
 
-        self.executor_messages.retain(|_, v| {
-            v.retain(|stage_key| stage_key.job_id != job_id);
-            !v.is_empty()
-        });
-
-        info!(
-            job_id,
-            message = "deleted circuit breaker",
-            executor_messages_len = self.executor_messages.len(),
-        );
+        info!(job_id, "deleted circuit breaker",);
     }
 
     pub fn update(
@@ -81,8 +66,8 @@ impl CircuitBreakerController {
 
         let stage_key = key.stage_key.clone();
 
-        let stage_states = match job_states.get_mut(&stage_key.job_id) {
-            Some(state) => &mut state.stage_states,
+        let job_state = match job_states.get_mut(&stage_key.job_id) {
+            Some(state) => state,
             None => {
                 debug!(
                     job_id = stage_key.job_id,
@@ -92,58 +77,71 @@ impl CircuitBreakerController {
             }
         };
 
-        let attempt_states = &mut stage_states
-            .entry(stage_key.stage_id)
-            .or_insert_with(|| StageState {
-                attempt_states: HashMap::new(),
-            })
-            .attempt_states;
+        let stage_states = &mut job_state.stage_states;
 
-        let partition_states = &mut attempt_states
+        let stage_state =
+            &mut stage_states
+                .entry(stage_key.stage_id)
+                .or_insert_with(|| StageState {
+                    attempt_states: HashMap::new(),
+                });
+
+        let attempt_states = &mut stage_state.attempt_states;
+
+        let attempt_state = attempt_states
             .entry(key.stage_key.attempt_num)
-            .or_insert_with(|| AttemptState {
-                partition_states: HashMap::new(),
-            })
-            .partition_states;
+            .or_insert_with(|| {
+                let mut executor_trip_state = HashMap::new();
+                executor_trip_state.insert(executor_id.clone(), false);
+                AttemptState {
+                    partition_states: HashMap::new(),
+                    executor_trip_state,
+                }
+            });
 
-        let sum_percentage_before =
-            partition_states.values().map(|s| s.percent).sum::<f64>();
+        attempt_state
+            .executor_trip_state
+            .entry(executor_id.clone())
+            .or_insert_with(|| false);
+
+        let partition_states = &mut attempt_state.partition_states;
 
         partition_states
             .entry(key.partition)
-            .or_insert_with(|| PartitionState {
-                percent,
-                executor: executor_id,
-            })
+            .or_insert_with(|| PartitionState { percent })
             .percent = percent;
 
         let sum_percentage = partition_states.values().map(|s| s.percent).sum::<f64>();
 
-        let should_trip = sum_percentage_before < 1.0 && sum_percentage >= 1.0;
-
-        if should_trip {
-            for executor_id in attempt_states
-                .values()
-                .flat_map(|p| p.partition_states.values())
-                .map(|p| p.executor.clone())
-            {
-                self.executor_messages
-                    .entry(executor_id)
-                    .or_insert_with(DashSet::new)
-                    .insert(stage_key.clone());
-            }
-        }
+        let should_trip = sum_percentage >= 1.0;
 
         Ok(should_trip)
     }
 
     pub fn get_tripped_stages(&self, executor_id: &str) -> Vec<CircuitBreakerStageKey> {
-        let mut tripped_stages = Vec::new();
-        if let Some((_, stages)) = self.executor_messages.remove(executor_id) {
-            for stage in stages.iter() {
-                tripped_stages.push(stage.clone());
-            }
-        }
-        tripped_stages
+        self.job_states
+            .read()
+            .iter()
+            .flat_map(|(job_id, job_state)| {
+                job_state
+                    .stage_states
+                    .iter()
+                    .flat_map(|(stage_num, stage_state)| {
+                        stage_state.attempt_states.iter().flat_map(
+                            |(attempt_num, attempt_state)| {
+                                attempt_state
+                                    .executor_trip_state
+                                    .get(executor_id)
+                                    .filter(|tripped| **tripped)
+                                    .map(|_| CircuitBreakerStageKey {
+                                        job_id: job_id.clone(),
+                                        stage_id: *stage_num,
+                                        attempt_num: *attempt_num,
+                                    })
+                            },
+                        )
+                    })
+            })
+            .collect::<Vec<_>>()
     }
 }
