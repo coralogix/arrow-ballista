@@ -355,9 +355,17 @@ impl CircuitBreakerClient {
                     }
                 }
 
+                let mut removed_count = 0;
                 for key in to_remove {
+                    removed_count += 1;
                     state_per_stage.remove(&key);
                 }
+
+                info!(
+                    "Cleaned up {} inactive stages, {} left",
+                    removed_count,
+                    state_per_stage.len()
+                );
 
                 last_cleanup = Instant::now();
             }

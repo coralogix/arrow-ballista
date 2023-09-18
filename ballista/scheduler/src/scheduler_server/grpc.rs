@@ -588,9 +588,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             });
         }
 
-        Ok(Response::new(CircuitBreakerUpdateResponse {
-            commands,
-        }))
+        Ok(Response::new(CircuitBreakerUpdateResponse { commands }))
     }
 
     async fn scheduler_lost(
