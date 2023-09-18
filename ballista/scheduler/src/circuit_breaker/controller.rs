@@ -29,8 +29,8 @@ struct PartitionState {
     executor: String,
 }
 
-impl CircuitBreakerController {
-    pub fn default() -> Self {
+impl Default for CircuitBreakerController {
+    fn default() -> Self {
         let job_states = RwLock::new(HashMap::new());
         let executor_messages = DashMap::new();
 
@@ -39,7 +39,9 @@ impl CircuitBreakerController {
             executor_messages,
         }
     }
+}
 
+impl CircuitBreakerController {
     pub fn create(&self, job_id: &str) {
         info!(job_id, "creating circuit breaker");
 
@@ -123,7 +125,7 @@ impl CircuitBreakerController {
             {
                 self.executor_messages
                     .entry(executor_id)
-                    .or_insert_with(|| DashSet::new())
+                    .or_insert_with(DashSet::new)
                     .insert(stage_key.clone());
             }
         }

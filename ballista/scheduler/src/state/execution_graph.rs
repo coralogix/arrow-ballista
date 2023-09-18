@@ -1532,8 +1532,10 @@ impl ExecutionGraph {
 
         let current_time = timestamp_millis() as u128;
 
+        let mut num_stopped = 0;
         for i in 0..running_stage.task_infos.len() {
             if running_stage.task_infos.get(i).is_none() {
+                num_stopped += 1;
                 running_stage.task_infos.insert(
                     i,
                     Some(TaskInfo {
@@ -1553,6 +1555,13 @@ impl ExecutionGraph {
                 task_id_gen += 1;
             }
         }
+
+        info!(
+            "Stopped scheduling of {} tasks due to tripped circuit breaker for stage {} in job {}",
+            num_stopped,
+            stage_id,
+            self.job_id,
+        );
 
         self.task_id_gen = task_id_gen;
     }
