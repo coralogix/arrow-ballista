@@ -106,6 +106,9 @@ impl CircuitBreakerController {
             })
             .partition_states;
 
+        let sum_percentage_before =
+            partition_states.values().map(|s| s.percent).sum::<f64>();
+
         partition_states
             .entry(key.partition)
             .or_insert_with(|| PartitionState {
@@ -114,8 +117,9 @@ impl CircuitBreakerController {
             })
             .percent = percent;
 
-        let should_trip =
-            partition_states.values().map(|s| s.percent).sum::<f64>() >= 1.0;
+        let sum_percentage = partition_states.values().map(|s| s.percent).sum::<f64>();
+
+        let should_trip = sum_percentage_before < 1.0 && sum_percentage >= 1.0;
 
         if should_trip {
             for executor_id in attempt_states

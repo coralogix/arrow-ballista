@@ -554,13 +554,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     key_proto.try_into().map_err(Status::internal)?;
 
                 let stage_key = &key.stage_key;
-                let circuit_breaker = self
+                let should_trip = self
                     .state
                     .circuit_breaker
                     .update(key.clone(), update.percent, executor_id.clone())
                     .map_err(Status::internal)?;
 
-                if circuit_breaker {
+                if should_trip {
+                    info!(
+                        job_id = stage_key.job_id,
+                        stage_id = stage_key.stage_id,
+                        attempt_num = stage_key.attempt_num,
+                        "Circuit breaker tripped!",
+                    );
+
                     self.query_stage_event_loop
                         .get_sender()
                         .map_err(|e| {
