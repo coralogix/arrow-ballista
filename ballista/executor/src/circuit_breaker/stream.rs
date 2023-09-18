@@ -12,7 +12,8 @@ use datafusion::physical_plan::RecordBatchStream;
 use futures::{Stream, StreamExt};
 use tracing::{error, info, warn};
 
-use super::client::{CircuitBreakerClient, CircuitBreakerTaskKey};
+use super::client::CircuitBreakerClient;
+use ballista_core::circuit_breaker::model::CircuitBreakerTaskKey;
 
 pub struct CircuitBreakerStream {
     inner: Pin<Box<dyn RecordBatchStream + Send>>,

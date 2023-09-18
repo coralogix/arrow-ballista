@@ -1,9 +1,9 @@
 use crate::proto;
 use crate::test_table::TestTable;
+use ballista_core::circuit_breaker::model::CircuitBreakerStageKey;
+use ballista_core::circuit_breaker::model::CircuitBreakerTaskKey;
 use ballista_executor::circuit_breaker::client::CircuitBreakerClient;
 use ballista_executor::circuit_breaker::client::CircuitBreakerMetadataExtension;
-use ballista_executor::circuit_breaker::client::CircuitBreakerStageKey;
-use ballista_executor::circuit_breaker::client::CircuitBreakerTaskKey;
 use ballista_executor::circuit_breaker::stream::CircuitBreakerCalculation;
 use ballista_executor::circuit_breaker::stream::CircuitBreakerStream;
 use ballista_scheduler::scheduler_server::timestamp_millis;
@@ -127,12 +127,12 @@ impl ExecutionPlan for TestTableExec {
             let stage_key = CircuitBreakerStageKey {
                 job_id: metadata.job_id.clone(),
                 stage_id: metadata.stage_id,
+                attempt_num: metadata.attempt_number,
             };
 
             let key = CircuitBreakerTaskKey {
                 stage_key,
                 partition: partition as u32,
-                attempt_num: metadata.attempt_number,
                 task_id,
             };
 

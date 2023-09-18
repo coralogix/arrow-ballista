@@ -1,5 +1,6 @@
 use anyhow::Error;
 use ballista_core::{
+    circuit_breaker::model::CircuitBreakerStageKey,
     error::BallistaError,
     serde::protobuf::{self, CircuitBreakerUpdateRequest},
 };
@@ -22,60 +23,6 @@ use crate::{
     circuit_breaker::stream::CircuitBreakerUpdate,
     scheduler_client_registry::SchedulerClientRegistry,
 };
-
-#[derive(Eq, PartialEq, Hash, Debug, Clone)]
-pub struct CircuitBreakerStageKey {
-    pub job_id: String,
-    pub stage_id: u32,
-}
-
-impl From<CircuitBreakerStageKey> for protobuf::CircuitBreakerStageKey {
-    fn from(val: CircuitBreakerStageKey) -> Self {
-        protobuf::CircuitBreakerStageKey {
-            job_id: val.job_id,
-            stage_id: val.stage_id,
-        }
-    }
-}
-
-impl From<protobuf::CircuitBreakerStageKey> for CircuitBreakerStageKey {
-    fn from(key: protobuf::CircuitBreakerStageKey) -> Self {
-        Self {
-            job_id: key.job_id,
-            stage_id: key.stage_id,
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Hash, Debug, Clone)]
-pub struct CircuitBreakerTaskKey {
-    pub stage_key: CircuitBreakerStageKey,
-    pub attempt_num: u32,
-    pub partition: u32,
-    pub task_id: String,
-}
-
-impl From<CircuitBreakerTaskKey> for protobuf::CircuitBreakerTaskKey {
-    fn from(val: CircuitBreakerTaskKey) -> Self {
-        protobuf::CircuitBreakerTaskKey {
-            stage_key: Some(val.stage_key.into()),
-            attempt_num: val.attempt_num,
-            partition: val.partition,
-            task_id: val.task_id,
-        }
-    }
-}
-
-impl From<protobuf::CircuitBreakerTaskKey> for CircuitBreakerTaskKey {
-    fn from(key: protobuf::CircuitBreakerTaskKey) -> Self {
-        Self {
-            stage_key: key.stage_key.unwrap().into(),
-            attempt_num: key.attempt_num,
-            partition: key.partition,
-            task_id: key.task_id,
-        }
-    }
-}
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub struct CircuitBreakerMetadataExtension {
@@ -153,6 +100,8 @@ impl CircuitBreakerClient {
     ) -> Self {
         let (update_sender, update_receiver) = channel(99);
 
+        let executor_id = uuid::Uuid::new_v4().to_string();
+
         let state_per_stage = Arc::new(DashMap::new());
 
         tokio::spawn(Self::run_sender_daemon(
@@ -162,6 +111,7 @@ impl CircuitBreakerClient {
             config.cache_ttl,
             get_scheduler,
             state_per_stage.clone(),
+            executor_id,
         ));
 
         Self {
@@ -255,6 +205,7 @@ impl CircuitBreakerClient {
         cache_ttl: Duration,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
         state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        executor_id: String,
     ) {
         let mut scheduler_ids = HashMap::new();
         let mut inactive_stages = HashMap::new();
@@ -350,6 +301,7 @@ impl CircuitBreakerClient {
 
                 let request = CircuitBreakerUpdateRequest {
                     updates: request_updates,
+                    executor_id: executor_id.clone(),
                 };
 
                 match scheduler.send_circuit_breaker_update(request).await {

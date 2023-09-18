@@ -1812,14 +1812,14 @@ pub struct CircuitBreakerStageKey {
     pub job_id: ::prost::alloc::string::String,
     #[prost(uint32, tag = "2")]
     pub stage_id: u32,
+    #[prost(uint32, tag = "3")]
+    pub attempt_num: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerTaskKey {
     #[prost(message, optional, tag = "1")]
     pub stage_key: ::core::option::Option<CircuitBreakerStageKey>,
-    #[prost(uint32, tag = "2")]
-    pub attempt_num: u32,
     #[prost(uint32, tag = "3")]
     pub partition: u32,
     #[prost(string, tag = "4")]
@@ -1830,6 +1830,8 @@ pub struct CircuitBreakerTaskKey {
 pub struct CircuitBreakerUpdateRequest {
     #[prost(message, repeated, tag = "1")]
     pub updates: ::prost::alloc::vec::Vec<CircuitBreakerUpdate>,
+    #[prost(string, tag = "2")]
+    pub executor_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

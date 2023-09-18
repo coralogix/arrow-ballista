@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::circuit_breaker::model::CircuitBreakerTaskKey;
 use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
 use ballista_core::serde::protobuf::execute_query_params::{OptionalSessionId, Query};
 use datafusion::config::Extensions;
@@ -542,27 +543,25 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         &self,
         request: Request<CircuitBreakerUpdateRequest>,
     ) -> Result<Response<CircuitBreakerUpdateResponse>, Status> {
-        let CircuitBreakerUpdateRequest { updates } = request.into_inner();
-
-        let mut commands = vec![];
+        let CircuitBreakerUpdateRequest {
+            updates,
+            executor_id,
+        } = request.into_inner();
 
         for update in updates {
-            if let Some(key) = update.key {
-                if let Some(stage_key) = &key.stage_key {
-                    let circuit_breaker = self
-                        .state
-                        .circuit_breaker
-                        .update(key.clone(), update.percent)
-                        .map_err(Status::internal)?;
+            if let Some(key_proto) = update.key {
+                let key: CircuitBreakerTaskKey =
+                    key_proto.try_into().map_err(Status::internal)?;
 
-                    if circuit_breaker {
-                        info!(
-                            job_id = stage_key.job_id,
-                            stage = stage_key.stage_id,
-                            "sending circuit breaker signal to stage"
-                        );
+                let stage_key = &key.stage_key;
+                let circuit_breaker = self
+                    .state
+                    .circuit_breaker
+                    .update(key.clone(), update.percent, executor_id.clone())
+                    .map_err(Status::internal)?;
 
-                        self.query_stage_event_loop
+                if circuit_breaker {
+                    self.query_stage_event_loop
                         .get_sender()
                         .map_err(|e| {
                             error!(error = %e, "failed to get query stage event loop");
@@ -574,16 +573,24 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                             job_id: stage_key.job_id.clone(),
                             stage_id: stage_key.stage_id as usize,
                         });
-
-                        commands.push(CircuitBreakerCommand {
-                            key: Some(stage_key.clone()),
-                        });
-                    }
                 }
             }
         }
 
-        Ok(Response::new(CircuitBreakerUpdateResponse { commands }))
+        let tripped_stage_keys =
+            self.state.circuit_breaker.get_tripped_stages(&executor_id);
+
+        let mut commands = vec![];
+
+        for stage_key in tripped_stage_keys {
+            commands.push(CircuitBreakerCommand {
+                key: Some(stage_key.clone().into()),
+            });
+        }
+
+        Ok(Response::new(CircuitBreakerUpdateResponse {
+            commands,
+        }))
     }
 
     async fn scheduler_lost(
