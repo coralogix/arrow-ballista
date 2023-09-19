@@ -124,20 +124,14 @@ impl CircuitBreakerClient {
         &self,
         key: CircuitBreakerStageKey,
     ) -> Result<Arc<AtomicBool>, Error> {
-        let circuit_breaker = if let Some(state) = self.state_per_stage.get(&key) {
-            state.circuit_breaker.clone()
-        } else {
-            let circuit_breaker = Arc::new(AtomicBool::new(false));
-
-            let state = CircuitBreakerStageState {
-                circuit_breaker: circuit_breaker.clone(),
+        let state = self.state_per_stage.entry(key.clone()).or_insert_with(|| {
+            CircuitBreakerStageState {
+                circuit_breaker: Arc::new(AtomicBool::new(false)),
                 active_tasks: 0,
-            };
+            }
+        });
 
-            self.state_per_stage.insert(key.clone(), state);
-
-            circuit_breaker
-        };
+        let circuit_breaker = state.circuit_breaker.clone();
 
         let registration = CircuitBreakerRegistration { key };
 
