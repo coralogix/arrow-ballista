@@ -589,18 +589,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             .circuit_breaker
             .retrieve_tripped_stages(&executor_id);
 
-        info!(
-            executor_id,
-            tripped_stage_keys = ?tripped_stage_keys,
-            "Sending circuit breaker signals to executor",
-        );
-
         let mut commands = vec![];
 
-        for stage_key in tripped_stage_keys {
-            commands.push(CircuitBreakerCommand {
-                key: Some(stage_key.clone().into()),
-            });
+        if !tripped_stage_keys.is_empty() {
+            info!(
+                executor_id,
+                tripped_stage_keys = ?tripped_stage_keys,
+                "Sending circuit breaker signals to executor",
+            );
+
+            for stage_key in tripped_stage_keys {
+                commands.push(CircuitBreakerCommand {
+                    key: Some(stage_key.clone().into()),
+                });
+            }
         }
 
         Ok(Response::new(CircuitBreakerUpdateResponse { commands }))
