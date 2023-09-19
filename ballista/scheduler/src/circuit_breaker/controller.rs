@@ -18,8 +18,14 @@ struct StageState {
     attempt_states: HashMap<u32, AttemptState>,
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+struct PartitionKey {
+    task_id: String,
+    partition: u32,
+}
+
 struct AttemptState {
-    partition_states: HashMap<u32, PartitionState>,
+    partition_states: HashMap<PartitionKey, PartitionState>,
     executor_trip_state: HashMap<String, bool>,
     percent: f64,
 }
@@ -110,8 +116,13 @@ impl CircuitBreakerController {
 
         let old_sum_percentage = attempt_state.percent;
 
+        let partition_key = PartitionKey {
+            task_id: key.task_id.clone(),
+            partition: key.partition,
+        };
+
         partition_states
-            .entry(key.partition)
+            .entry(partition_key)
             .or_insert_with(|| PartitionState { percent })
             .percent = percent;
 

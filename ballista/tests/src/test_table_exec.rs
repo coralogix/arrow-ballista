@@ -93,7 +93,6 @@ impl ExecutionPlan for TestTableExec {
 
     fn execute(
         &self,
-        // Each partition behaves exactly the same
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
