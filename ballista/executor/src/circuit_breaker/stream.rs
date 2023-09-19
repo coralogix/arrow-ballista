@@ -108,8 +108,15 @@ impl Stream for CircuitBreakerStream {
         let poll = self.inner.poll_next_unpin(cx);
 
         let delta = self.calculate.calculate_delta(&poll);
-        self.percent += delta;
-        self.try_send_update();
+
+        // We don't have to send an update here if the delta is zero,
+        // as even a batch update without this key will receive all trip signals from the controller.
+        // Note that we initially have to send an update with a zero delta
+        // in the constructor for this to work.
+        if delta > 0.0 {
+            self.percent += delta;
+            self.try_send_update();
+        }
 
         poll
     }
