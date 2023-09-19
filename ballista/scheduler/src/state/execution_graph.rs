@@ -1533,24 +1533,22 @@ impl ExecutionGraph {
         let current_time = timestamp_millis() as u128;
 
         let mut num_stopped = 0;
+
         for i in 0..running_stage.task_infos.len() {
-            if running_stage.task_infos.get(i).is_none() {
+            if running_stage.task_infos[i].is_none() {
                 num_stopped += 1;
-                running_stage.task_infos.insert(
-                    i,
-                    Some(TaskInfo {
-                        task_id: task_id_gen,
-                        scheduled_time: current_time,
-                        launch_time: current_time,
-                        start_exec_time: current_time,
-                        end_exec_time: current_time,
-                        finish_time: current_time,
-                        task_status: task_status::Status::Successful(SuccessfulTask {
-                            executor_id: "<circuit-breaker>".to_owned(),
-                            partitions: vec![],
-                        }),
+                running_stage.task_infos[i] = Some(TaskInfo {
+                    task_id: task_id_gen,
+                    scheduled_time: current_time,
+                    launch_time: current_time,
+                    start_exec_time: current_time,
+                    end_exec_time: current_time,
+                    finish_time: current_time,
+                    task_status: task_status::Status::Successful(SuccessfulTask {
+                        executor_id: "<circuit-breaker>".to_owned(),
+                        partitions: vec![],
                     }),
-                );
+                });
 
                 task_id_gen += 1;
             }
