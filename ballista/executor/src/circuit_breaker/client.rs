@@ -231,12 +231,13 @@ impl CircuitBreakerClient {
             }
 
             let mut updates_per_scheduler = HashMap::new();
-            let mut seen_keys = HashSet::new();
+            let mut seen_task_keys = HashSet::new();
+            let mut seen_stage_keys = HashSet::new();
 
             for update in updates.into_iter().rev() {
                 // Per request only one update per task is sent
                 // This is why we go from newest to oldest
-                if seen_keys.insert(update.key.clone()) {
+                if seen_task_keys.insert(update.key.clone()) {
                     let scheduler_id: &String = match scheduler_ids
                         .get(&update.key.task_id)
                     {
@@ -247,16 +248,18 @@ impl CircuitBreakerClient {
                         }
                     };
 
-                    state_per_stage
-                        .entry(update.key.stage_key.clone())
-                        .and_modify(|state| {
-                            state.last_updated = Instant::now();
-                        });
+                    seen_stage_keys.insert(update.key.stage_key.clone());
 
                     updates_per_scheduler
                         .entry(scheduler_id.clone())
                         .or_insert_with(Vec::new)
                         .push(update);
+                }
+            }
+
+            for stage_key in seen_stage_keys {
+                if let Some(mut state) = state_per_stage.get_mut(&stage_key) {
+                    state.last_updated = Instant::now();
                 }
             }
 
