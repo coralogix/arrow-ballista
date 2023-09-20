@@ -6,7 +6,7 @@ use ballista_core::{
 };
 use dashmap::DashMap;
 use lazy_static::lazy_static;
-use prometheus::{register_histogram, Histogram};
+use prometheus::{register_gauge, register_histogram, Gauge, Histogram};
 use std::{
     collections::{HashMap, HashSet},
     ops::Add,
@@ -103,13 +103,18 @@ lazy_static! {
     static ref BATCH_SIZE: Histogram = register_histogram!(
         "ballista_circuit_breaker_client_batch_size",
         "Number of updates in a batch sent to the scheduler",
-        vec![1.0, 10.0, 100.0, 1000.0, 10000.0, 100000.0]
+        vec![0.0, 1.0, 10.0, 100.0, 500.0, 1000.0]
     )
     .unwrap();
     static ref UPDATE_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_circuit_breaker_client_update_latency",
         "Latency of sending updates to the scheduler in seconds",
         vec![0.001, 0.01, 0.1, 1.0, 10.0]
+    )
+    .unwrap();
+    static ref CACHE_SIZE: Gauge = register_gauge!(
+        "ballista_circuit_breaker_client_cache_size",
+        "Number active stages in cache"
     )
     .unwrap();
 }
@@ -381,6 +386,8 @@ impl CircuitBreakerClient {
                     removed_count,
                     state_per_stage.len()
                 );
+
+                CACHE_SIZE.set(state_per_stage.len() as f64);
 
                 last_cleanup = Instant::now();
             }
