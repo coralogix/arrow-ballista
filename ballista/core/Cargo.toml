@@ -77,6 +77,8 @@ url = "2.2"
 uuid = { version = "1.0", features = ["v4"] }
 walkdir = "2.3.2"
 
+tokio-metrics = "0.3.0"
+
 [dev-dependencies]
 tempfile = "3"
 

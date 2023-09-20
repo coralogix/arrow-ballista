@@ -112,6 +112,10 @@ impl ExecutionPlan for CoalesceTasksExec {
         partition: usize,
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
+        let monitor = context
+            .session_config()
+            .get_extension::<tokio_metrics::TaskMonitor>();
+
         let input_partitions = self.input.output_partitioning().partition_count();
 
         let baseline_metrics = BaselineMetrics::new(&self.metrics, partition);
@@ -138,7 +142,7 @@ impl ExecutionPlan for CoalesceTasksExec {
             let context = context.clone();
             let output = sender.clone();
 
-            join_handles.push(tokio::spawn(async move {
+            let task = async move {
                 let mut stream = match input.execute(partition, context) {
                     Err(e) => {
                         // If send fails, plan being torn down,
@@ -164,7 +168,13 @@ impl ExecutionPlan for CoalesceTasksExec {
                         return;
                     }
                 }
-            }));
+            };
+
+            if let Some(monitor) = monitor.as_deref() {
+                join_handles.push(tokio::spawn(monitor.instrument(task)));
+            } else {
+                join_handles.push(tokio::spawn(task));
+            }
         }
 
         Ok(Box::pin(MergeStream {
