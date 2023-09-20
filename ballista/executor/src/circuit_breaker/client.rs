@@ -6,7 +6,7 @@ use ballista_core::{
 };
 use dashmap::DashMap;
 use lazy_static::lazy_static;
-use prometheus::{register_gauge, register_histogram, Gauge, Histogram};
+use prometheus::{register_histogram, register_int_gauge, Histogram, IntGauge};
 use std::{
     collections::{HashMap, HashSet},
     ops::Add,
@@ -100,12 +100,12 @@ lazy_static! {
         vec![0.001, 0.01, 0.1, 1.0, 10.0]
     )
     .unwrap();
-    static ref CACHE_SIZE: Gauge = register_gauge!(
+    static ref CACHE_SIZE: IntGauge = register_int_gauge!(
         "ballista_circuit_breaker_client_cache_size",
         "Number active stages in cache"
     )
     .unwrap();
-    static ref SCHEDULER_LOOKUP_SIZE: Gauge = register_gauge!(
+    static ref SCHEDULER_LOOKUP_SIZE: IntGauge = register_int_gauge!(
         "ballista_circuit_breaker_client_scheduler_lookup_size",
         "Number of schedulers in lookup"
     )
@@ -351,10 +351,10 @@ impl CircuitBreakerClient {
                     );
                 }
 
-                CACHE_SIZE.set(state_per_stage.len() as f64);
+                CACHE_SIZE.set(state_per_stage.len() as i64);
 
                 // Not actually related to cleanup but good timing
-                SCHEDULER_LOOKUP_SIZE.set(scheduler_ids.len() as f64);
+                SCHEDULER_LOOKUP_SIZE.set(scheduler_ids.len() as i64);
 
                 last_cleanup = now;
             }
