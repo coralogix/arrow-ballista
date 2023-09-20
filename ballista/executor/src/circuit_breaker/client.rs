@@ -105,6 +105,11 @@ lazy_static! {
         "Number active stages in cache"
     )
     .unwrap();
+    static ref SCHEDULER_LOOKUP_SIZE: Gauge = register_gauge!(
+        "ballista_circuit_breaker_client_scheduler_lookup_size",
+        "Number of schedulers in lookup"
+    )
+    .unwrap();
 }
 
 impl CircuitBreakerClient {
@@ -344,6 +349,9 @@ impl CircuitBreakerClient {
                 }
 
                 CACHE_SIZE.set(state_per_stage.len() as f64);
+
+                // Not actually related to cleanup but good timing
+                SCHEDULER_LOOKUP_SIZE.set(scheduler_ids.len() as f64);
 
                 last_cleanup = now;
             }
