@@ -37,7 +37,7 @@ path = "src/bin/main.rs"
 default = ["etcd", "sled", "prometheus-metrics", "flight-sql"]
 etcd = ["etcd-client"]
 flight-sql = []
-prometheus-metrics = ["prometheus", "once_cell","lazy_static"]
+prometheus-metrics = ["prometheus", "once_cell", "lazy_static"]
 sled = ["sled_package", "tokio-stream"]
 
 
