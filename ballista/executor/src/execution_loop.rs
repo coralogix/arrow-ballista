@@ -408,6 +408,6 @@ impl SchedulerClientRegistry for SingleSchedulerClient {
         _scheduler_id: &str,
         _client: SchedulerGrpcClient<Channel>,
     ) {
-        panic!("Tried to insert scheduler into SingleSchedulerClient")
+        error!("Tried to insert scheduler into SingleSchedulerClient")
     }
 }

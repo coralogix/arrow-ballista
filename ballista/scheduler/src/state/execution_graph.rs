@@ -1004,6 +1004,7 @@ impl ExecutionGraph {
                         task_id,
                         plan: stage.plan.clone(),
                         output_partitioning: stage.output_partitioning.clone(),
+                        resolved_at: stage.resolved_at,
                     })
                 } else {
                     Err(BallistaError::General(format!("Stage {stage_id} is not a running stage")))
@@ -1701,6 +1702,7 @@ pub struct TaskDescription {
     pub task_id: usize,
     pub plan: Arc<dyn ExecutionPlan>,
     pub output_partitioning: Option<Partitioning>,
+    pub resolved_at: u64,
 }
 
 impl TaskDescription {
@@ -1715,13 +1717,14 @@ impl Debug for TaskDescription {
         let plan = DisplayableExecutionPlan::new(self.plan.as_ref()).indent(false);
         write!(
             f,
-            "TaskDescription[session_id: {},job: {}, stage: {}.{}, partitions: {:?} task_id {}]\n{}",
+            "TaskDescription[session_id: {},job: {}, stage: {}.{}, partitions: {:?} task_id: {}, resolved_at: {}]\n{}",
             self.session_id,
             self.partitions.job_id,
             self.partitions.stage_id,
             self.stage_attempt_num,
             self.partitions.partitions,
             self.task_id,
+            self.resolved_at,
             plan
         )
     }
