@@ -54,9 +54,9 @@ crossbeam-queue = "0.3.8"
 dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
-etcd-client = { version = "0.10", optional = true }
-flatbuffers = { version = "22.9.29" }
 flume = { version = "0.10.14", features = ["async"] }
+etcd-client = { version = "0.12", optional = true }
+flatbuffers = { version = "23.5.26" }
 futures = "0.3"
 graphviz-rust = "0.6.1"
 http = "0.2"
@@ -70,7 +70,7 @@ parking_lot = "0.12"
 parse_arg = "0.1.3"
 prometheus = { version = "0.13", features = ["process"], optional = true }
 prost = "0.12"
-prost-types = { version = "0.11.0" }
+prost-types = { version = "0.12.0" }
 rand = "0.8"
 regex = "1.8.1"
 serde = { version = "1", features = ["derive"] }
