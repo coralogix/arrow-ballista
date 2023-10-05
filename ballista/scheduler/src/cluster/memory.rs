@@ -16,15 +16,9 @@
 // under the License.
 
 use crate::cluster::{
-<<<<<<< HEAD
-    reserve_slots_bias, reserve_slots_round_robin, ClusterState, JobState, JobStateEvent,
-    JobStateEventStream, JobStatus, TaskDistribution,
-=======
-    bind_task_bias, bind_task_consistent_hash, bind_task_round_robin, get_scan_files,
-    is_skip_consistent_hash, BoundTask, ClusterState, ExecutorSlot, JobState,
-    JobStateEvent, JobStateEventStream, JobStatus, TaskDistributionPolicy, TopologyNode,
->>>>>>> 479208b0 (refactor: port get_scan_files to Ballista (#877))
+    ClusterState, JobState, JobStateEvent, JobStateEventStream, JobStatus,
 };
+use crate::config::TaskDistribution;
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 use async_trait::async_trait;
@@ -48,14 +42,11 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::ops::DerefMut;
 
-<<<<<<< HEAD
 use datafusion::config::Extensions;
-=======
-use ballista_core::consistent_hash::node::Node;
-use datafusion::physical_plan::ExecutionPlan;
->>>>>>> 479208b0 (refactor: port get_scan_files to Ballista (#877))
 use std::sync::Arc;
 use tracing::debug;
+
+use super::{reserve_slots_bias, reserve_slots_round_robin};
 
 #[derive(Default)]
 pub struct InMemoryClusterState {

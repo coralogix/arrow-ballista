@@ -17,11 +17,10 @@
 
 use crate::cluster::storage::{KeyValueStore, Keyspace, Lock, Operation, WatchEvent};
 use crate::cluster::{
-    bind_task_bias, bind_task_consistent_hash, bind_task_round_robin, get_scan_files,
-    is_skip_consistent_hash, BoundTask, ClusterState, ExecutorHeartbeatStream,
-    ExecutorSlot, JobState, JobStateEvent, JobStateEventStream, JobStatus,
-    TaskDistributionPolicy, TopologyNode,
+    ClusterState, ExecutorHeartbeatStream, JobState, JobStateEvent, JobStateEventStream,
+    JobStatus,
 };
+use crate::config::TaskDistribution;
 use crate::scheduler_server::{timestamp_millis, timestamp_secs, SessionBuilder};
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
@@ -39,7 +38,6 @@ use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
 use ballista_core::serde::BallistaCodec;
 use dashmap::DashMap;
 use datafusion::config::{ConfigOptions, Extensions};
-use datafusion::physical_plan::ExecutionPlan;
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
@@ -51,6 +49,8 @@ use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
+
+use super::{reserve_slots_bias, reserve_slots_round_robin};
 
 /// State implementation based on underlying `KeyValueStore`
 pub struct KeyValueState<

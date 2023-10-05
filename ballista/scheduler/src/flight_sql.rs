@@ -17,7 +17,7 @@
 
 use arrow_flight::flight_descriptor::DescriptorType;
 use arrow_flight::flight_service_server::FlightService;
-use arrow_flight::sql::server::FlightSqlService;
+use arrow_flight::sql::server::{FlightSqlService, PeekableFlightDataStream};
 use arrow_flight::sql::{
     ActionBeginSavepointRequest, ActionBeginSavepointResult,
     ActionBeginTransactionRequest, ActionBeginTransactionResult,
@@ -35,7 +35,9 @@ use arrow_flight::{
     Action, FlightData, FlightDescriptor, FlightEndpoint, FlightInfo, HandshakeRequest,
     HandshakeResponse, Location, Ticket,
 };
+use base64::Engine;
 use datafusion::config::Extensions;
+use futures::Stream;
 use log::{debug, error, warn};
 use std::convert::TryFrom;
 use std::pin::Pin;
@@ -72,7 +74,6 @@ use prost::Message;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::time::sleep;
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::codegen::futures_core::Stream;
 use tonic::metadata::MetadataValue;
 use uuid::Uuid;
 
@@ -499,9 +500,9 @@ impl FlightSqlService for FlightSqlServiceImpl {
             Err(Status::invalid_argument(format!(
                 "Auth type not implemented: {authorization}"
             )))?;
-        }
-        let base64 = &authorization[basic.len()..];
-        let bytes = base64::decode(base64)
+        };
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(&authorization[basic.len()..])
             .map_err(|_| Status::invalid_argument("authorization not parsable"))?;
         let str = String::from_utf8(bytes)
             .map_err(|_| Status::invalid_argument("authorization not parsable"))?;
@@ -843,7 +844,7 @@ impl FlightSqlService for FlightSqlServiceImpl {
     async fn do_put_statement_update(
         &self,
         _ticket: CommandStatementUpdate,
-        _request: Request<Streaming<FlightData>>,
+        _request: tonic::Request<PeekableFlightDataStream>,
     ) -> Result<i64, Status> {
         debug!("do_put_statement_update");
         Err(Status::unimplemented("Implement do_put_statement_update"))
@@ -851,7 +852,7 @@ impl FlightSqlService for FlightSqlServiceImpl {
     async fn do_put_prepared_statement_query(
         &self,
         _query: CommandPreparedStatementQuery,
-        _request: Request<Streaming<FlightData>>,
+        _request: tonic::Request<PeekableFlightDataStream>,
     ) -> Result<Response<<Self as FlightService>::DoPutStream>, Status> {
         debug!("do_put_prepared_statement_query");
         Err(Status::unimplemented(
@@ -861,7 +862,7 @@ impl FlightSqlService for FlightSqlServiceImpl {
     async fn do_put_prepared_statement_update(
         &self,
         handle: CommandPreparedStatementUpdate,
-        request: Request<Streaming<FlightData>>,
+        request: tonic::Request<PeekableFlightDataStream>,
     ) -> Result<i64, Status> {
         debug!("do_put_prepared_statement_update");
         let ctx = self.get_ctx(&request)?;
@@ -924,7 +925,7 @@ impl FlightSqlService for FlightSqlServiceImpl {
     async fn do_put_substrait_plan(
         &self,
         _query: CommandStatementSubstraitPlan,
-        _request: Request<Streaming<FlightData>>,
+        _request: tonic::Request<PeekableFlightDataStream>,
     ) -> Result<i64, Status> {
         debug!("do_put_substrait_plan");
         Err(Status::unimplemented("Implement do_put_substrait_plan"))
