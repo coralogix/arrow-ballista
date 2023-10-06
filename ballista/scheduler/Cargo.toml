@@ -54,9 +54,9 @@ crossbeam-queue = "0.3.8"
 dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
-flume = { version = "0.10.14", features = ["async"] }
 etcd-client = { version = "0.12", optional = true }
 flatbuffers = { version = "23.5.26" }
+flume = { version = "0.10.14", features = ["async"] }
 futures = "0.3"
 graphviz-rust = "0.6.1"
 http = "0.2"
