@@ -16,23 +16,9 @@
 # under the License.
 
 [workspace]
-<<<<<<< HEAD
 exclude = ["python"]
-members = ["ballista-cli", "ballista/client", "ballista/core", "ballista/executor", "ballista/scheduler", "ballista/tests", "benchmarks", "examples"]
-
-[workspace.dependencies]
-arrow = { git = "https://github.com/coralogix/arrow-rs.git", tag = "v43.0.0-cx.1" }
-arrow-flight = { git = "https://github.com/coralogix/arrow-rs.git", tag = "v43.0.0-cx.1", features = ["flight-sql-experimental"]}
-arrow-schema = { git = "https://github.com/coralogix/arrow-rs.git", tag = "v43.0.0-cx.1", default-features = false}
-configure_me = {version = "0.4.0"}
-configure_me_codegen = {version = "0.4.4"}
-datafusion = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v28.0.0-cx.13", features = ["avro"] }
-datafusion-cli = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v28.0.0-cx.13" }
-datafusion-proto = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v28.0.0-cx.13" }
-=======
 members = [
     "ballista-cli",
-    "ballista/cache",
     "ballista/client",
     "ballista/core",
     "ballista/executor",
@@ -51,7 +37,6 @@ configure_me_codegen = { version = "0.4.4" }
 datafusion = "30.0.0"
 datafusion-cli = "30.0.0"
 datafusion-proto = "30.0.0"
->>>>>>> 948d0777 (Upgrade datafusion to 30.0.0 (#866))
 object_store = "0.6.1"
 sqlparser = "0.36.1"
 tonic = { version = "0.9" }
