@@ -21,7 +21,6 @@ use std::{
     time::Instant,
 };
 use tokio::sync::mpsc::{channel, Receiver, Sender};
-use tokio_stream::{wrappers::ReceiverStream, StreamExt};
 use tracing::{info, warn};
 
 use crate::{
@@ -203,7 +202,7 @@ impl CircuitBreakerClient {
     }
 
     async fn run_sender_daemon(
-        update_receiver: Receiver<ClientUpdate>,
+        mut update_receiver: Receiver<ClientUpdate>,
         config: CircuitBreakerClientConfig,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
         state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
@@ -214,11 +213,7 @@ impl CircuitBreakerClient {
         let mut updates = HashMap::new();
         let mut scheduler_deregistrations = Vec::new();
 
-        let updates_stream = ReceiverStream::new(update_receiver);
-
-        tokio::pin!(updates_stream);
-
-        while let Some(update) = updates_stream.next().await {
+        while let Some(update) = update_receiver.recv().await {
             Self::handle_update(
                 update,
                 &mut updates,
@@ -274,7 +269,7 @@ impl CircuitBreakerClient {
                         .updates
                         .entry(update.key)
                         .and_modify(|percent| {
-                            *percent = percent.add(update.percent);
+                            *percent = update.percent.max(*percent);
                         })
                         .or_insert(update.percent);
 
@@ -413,16 +408,6 @@ impl CircuitBreakerClient {
 
         for key in keys_to_delete.iter() {
             state_per_stage.remove(key);
-        }
-
-        let removed_count = keys_to_delete.len();
-
-        if removed_count > 0 {
-            info!(
-                "Cleaned up {} inactive stages, {} left",
-                removed_count,
-                state_per_stage.len()
-            );
         }
 
         CACHE_SIZE.set(state_per_stage.len() as i64);
