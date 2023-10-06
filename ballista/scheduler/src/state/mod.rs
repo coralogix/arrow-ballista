@@ -318,7 +318,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                     for (executor_id, task) in assignments.into_iter() {
                         let tasks = executor_stage_assignments
                             .entry(executor_id)
-                            .or_insert_with(Vec::new);
+                            .or_default();
                         tasks.push(task);
                     }
 
