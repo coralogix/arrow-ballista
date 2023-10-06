@@ -45,7 +45,6 @@ use crate::scheduler_server::SessionBuilder;
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 
-
 pub mod event;
 pub mod kv;
 pub mod memory;
