@@ -298,8 +298,7 @@ impl ExecutionGraph {
         let mut job_task_statuses: HashMap<usize, Vec<TaskStatus>> = HashMap::new();
         for task_status in task_statuses {
             let stage_id = task_status.stage_id as usize;
-            let stage_task_statuses =
-                job_task_statuses.entry(stage_id).or_default();
+            let stage_task_statuses = job_task_statuses.entry(stage_id).or_default();
             stage_task_statuses.push(task_status);
         }
 
@@ -391,10 +390,11 @@ impl ExecutionGraph {
                                                             &executor_id,
                                                         )?;
 
-                                                let failure_reasons: &mut HashSet<String> =
-                                                    rollback_running_stages
-                                                        .entry(stage_id)
-                                                        .or_default();
+                                                let failure_reasons: &mut HashSet<
+                                                    String,
+                                                > = rollback_running_stages
+                                                    .entry(stage_id)
+                                                    .or_default();
                                                 failure_reasons.insert(executor_id);
 
                                                 let missing_inputs =
