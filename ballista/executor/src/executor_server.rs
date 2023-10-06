@@ -896,7 +896,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                         Ok(task_status) => {
                             let task_status_vec = curator_task_status_map
                                 .entry(task_status.scheduler_id)
-                                .or_insert_with(Vec::new);
+                                .or_default();
                             fetched_task_num += task_status.task_status.len();
                             task_status_vec.extend(task_status.task_status);
                         }

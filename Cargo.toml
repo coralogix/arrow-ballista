@@ -26,7 +26,7 @@ arrow-flight = { git = "https://github.com/apache/arrow-rs.git", rev = "4320a753
 arrow-schema = { git = "https://github.com/apache/arrow-rs.git", rev = "4320a753beaee0a1a6870c59ef46b59e88c9c323", default-features = false }
 configure_me = { version = "0.4.0" }
 configure_me_codegen = { version = "0.4.4" }
-datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "1cf808d0e081221cc31b5f92fc414de7c76cf5c4" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", rev = "1cf808d0e081221cc31b5f92fc414de7c76cf5c4", features=["avro"] }
 datafusion-cli = { git = "https://github.com/apache/arrow-datafusion.git", rev = "1cf808d0e081221cc31b5f92fc414de7c76cf5c4" }
 datafusion-proto = { git = "https://github.com/apache/arrow-datafusion.git", rev = "1cf808d0e081221cc31b5f92fc414de7c76cf5c4" }
 object_store = "0.7.0"
