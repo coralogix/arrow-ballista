@@ -153,7 +153,10 @@ impl TryInto<protobuf::OperatorMetric> for &MetricValue {
                 metric: Some(operator_metric::Metric::StartTimestamp(
                     timestamp
                         .value()
-                        .and_then(|m| m.timestamp_nanos_opt())
+                        .map(|m| {
+                            m.timestamp_nanos_opt()
+                                .expect("value can't be represented in nanos")
+                        })
                         .unwrap_or(0),
                 )),
             }),
@@ -161,7 +164,10 @@ impl TryInto<protobuf::OperatorMetric> for &MetricValue {
                 metric: Some(operator_metric::Metric::EndTimestamp(
                     timestamp
                         .value()
-                        .and_then(|m| m.timestamp_nanos_opt())
+                        .map(|m| {
+                            m.timestamp_nanos_opt()
+                                .expect("value can't be represented in nanos")
+                        })
                         .unwrap_or(0),
                 )),
             }),
