@@ -37,10 +37,10 @@ pub fn init_load_avg(shutdown_noti: &ShutdownNotifier) {
                     LOAD_AVG_1MIN.set(current * EXP_1 + num_tasks * (1. - EXP_1));
 
                     let current = LOAD_AVG_5MIN.get();
-                    LOAD_AVG_1MIN.set(current * EXP_5 + num_tasks * (1. - EXP_5));
+                    LOAD_AVG_5MIN.set(current * EXP_5 + num_tasks * (1. - EXP_5));
 
                     let current = LOAD_AVG_15MIN.get();
-                    LOAD_AVG_1MIN.set(current * EXP_15 + num_tasks * (1. - EXP_15));
+                    LOAD_AVG_15MIN.set(current * EXP_15 + num_tasks * (1. - EXP_15));
                 },
                 _ = shutdown.recv() => {
                     info!("stopping load average monitor");
