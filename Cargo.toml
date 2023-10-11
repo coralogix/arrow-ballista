@@ -55,3 +55,9 @@ opt-level = 3
 overflow-checks = false
 panic = 'unwind'
 rpath = false
+
+[patch.crates-io]
+arrow = { git = "https://github.com/fsdvh/arrow-rs.git", branch = "test" }
+arrow-array = { git = "https://github.com/fsdvh/arrow-rs.git", branch = "test" }
+arrow-flight = { git = "https://github.com/fsdvh/arrow-rs.git", branch = "test" }
+arrow-schema = { git = "https://github.com/fsdvh/arrow-rs.git", branch = "test" }
