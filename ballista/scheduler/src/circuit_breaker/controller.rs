@@ -89,7 +89,6 @@ impl CircuitBreakerController {
         percent: f64,
         executor_id: String,
     ) -> Result<bool, String> {
-
         RECEIVED_UPDATES.inc();
 
         let mut job_states = self.job_states.write();
@@ -109,8 +108,9 @@ impl CircuitBreakerController {
 
         let shared_states = &mut job_state.shared_states;
 
-        let shared_state =
-            shared_states.entry(key.stage_key.shared_state_id.clone()).or_insert_with(|| {
+        let shared_state = shared_states
+            .entry(key.stage_key.shared_state_id.clone())
+            .or_insert_with(|| {
                 let mut executor_trip_state = HashMap::new();
                 executor_trip_state.insert(executor_id.clone(), false);
                 SharedState {
@@ -188,7 +188,8 @@ impl CircuitBreakerController {
         &self,
         executor_id: &str,
     ) -> Vec<CircuitBreakerStageKey> {
-        let results = self.job_states
+        let results = self
+            .job_states
             .write()
             .iter_mut()
             .flat_map(|(job_id, job_state)| {
