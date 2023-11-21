@@ -21,8 +21,9 @@
 //! will use the ShuffleReaderExec to read these results.
 
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
+use tokio::sync::mpsc;
 
-use crate::utils;
+use crate::{replicator, utils};
 use std::any::Any;
 use std::future::Future;
 use std::iter::Iterator;
@@ -55,7 +56,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -77,6 +78,7 @@ pub struct ShuffleWriterExec {
     shuffle_output_partitioning: Option<Partitioning>,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
+    sender: Option<mpsc::Sender<replicator::Command>>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,7 +107,6 @@ impl ShuffleWriteMetrics {
         }
     }
 }
-
 impl ShuffleWriterExec {
     /// Create a new shuffle writer
     pub fn try_new(
@@ -115,6 +116,7 @@ impl ShuffleWriterExec {
         plan: Arc<dyn ExecutionPlan>,
         work_dir: String,
         shuffle_output_partitioning: Option<Partitioning>,
+        sender: Option<mpsc::Sender<replicator::Command>>,
     ) -> Result<Self> {
         Ok(Self {
             job_id,
@@ -124,6 +126,7 @@ impl ShuffleWriterExec {
             work_dir,
             shuffle_output_partitioning,
             metrics: ExecutionPlanMetricsSet::new(),
+            sender,
         })
     }
 
@@ -141,6 +144,10 @@ impl ShuffleWriterExec {
         &self.partitions
     }
 
+    pub fn sender(&self) -> Option<mpsc::Sender<replicator::Command>> {
+        self.sender.clone()
+    }
+
     pub fn with_partitions(&self, partitions: Vec<usize>) -> Result<Self> {
         Self::try_new(
             self.job_id.clone(),
@@ -149,6 +156,7 @@ impl ShuffleWriterExec {
             self.plan.clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
+            self.sender.clone(),
         )
     }
 
@@ -160,6 +168,7 @@ impl ShuffleWriterExec {
             self.plan.clone(),
             work_dir.into(),
             self.shuffle_output_partitioning.clone(),
+            self.sender.clone(),
         )
     }
 
@@ -184,6 +193,7 @@ impl ShuffleWriterExec {
 
         // add unique id for output
         let shuffle_id = uuid::Uuid::new_v4();
+        let sender = self.sender();
 
         async move {
             let now = Instant::now();
@@ -208,6 +218,16 @@ impl ShuffleWriterExec {
                     )
                     .await
                     .map_err(DataFusionError::from)?;
+
+                    if let Some(sender) = sender {
+                        let cmd = replicator::Command::Replicate {
+                            path: path.to_string(),
+                        };
+
+                        if sender.send(cmd).await.is_err() {
+                            warn!("Failed to send path for replication {}", path);
+                        }
+                    }
 
                     write_metrics
                         .input_rows
@@ -379,6 +399,7 @@ impl ExecutionPlan for ShuffleWriterExec {
             children[0].clone(),
             self.work_dir.clone(),
             self.shuffle_output_partitioning.clone(),
+            self.sender.clone(),
         )?))
     }
 
@@ -482,7 +503,6 @@ mod tests {
     async fn test() -> Result<()> {
         let session_ctx = SessionContext::new();
         let task_ctx = session_ctx.task_ctx();
-
         let input_plan = Arc::new(CoalescePartitionsExec::new(create_input_plan()?));
         let work_dir = TempDir::new()?;
         let query_stage = ShuffleWriterExec::try_new(
@@ -492,6 +512,7 @@ mod tests {
             input_plan,
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
+            None,
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)
@@ -540,7 +561,6 @@ mod tests {
     async fn test_partitioned() -> Result<()> {
         let session_ctx = SessionContext::new();
         let task_ctx = session_ctx.task_ctx();
-
         let input_plan = create_input_plan()?;
         let work_dir = TempDir::new()?;
         let query_stage = ShuffleWriterExec::try_new(
@@ -550,6 +570,7 @@ mod tests {
             input_plan,
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 2)),
+            None,
         )?;
         let mut stream = query_stage.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream)

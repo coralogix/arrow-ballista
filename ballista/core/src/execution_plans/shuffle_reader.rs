@@ -420,6 +420,7 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
+
     Ok(Box::pin(LocalShuffleStream::new(reader)))
 }
 
@@ -592,6 +593,7 @@ mod tests {
             create_test_data_plan().unwrap(),
             work_dir.into_path().to_str().unwrap().to_owned(),
             Some(Partitioning::Hash(vec![Arc::new(Column::new("a", 0))], 1)),
+            None,
         )
         .unwrap();
 

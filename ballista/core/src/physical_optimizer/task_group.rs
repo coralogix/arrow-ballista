@@ -217,6 +217,7 @@ mod tests {
                 plan,
                 "/work".into(),
                 None,
+                None,
             )
             .unwrap(),
         )

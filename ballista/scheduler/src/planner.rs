@@ -297,6 +297,7 @@ fn create_shuffle_writer(
         plan,
         "".to_owned(), // executor will decide on the work_dir path
         partitioning,
+        None,
     )?))
 }
 

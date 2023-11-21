@@ -294,6 +294,7 @@ mod tests {
             let executor = Executor::new(
                 metadata,
                 work_dir,
+                None,
                 runtime.clone(),
                 metrics_collector,
                 concurrent_tasks,

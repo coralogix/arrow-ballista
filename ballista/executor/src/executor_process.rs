@@ -26,6 +26,7 @@ use std::{env, io};
 use anyhow::{Context, Result};
 use arrow_flight::flight_service_server::FlightServiceServer;
 use datafusion::config::Extensions;
+use datafusion::execution::object_store::ObjectStoreUrl;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use tempfile::TempDir;
@@ -54,7 +55,7 @@ use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::{
     create_grpc_client_connection, create_grpc_server, with_object_store_provider,
 };
-use ballista_core::BALLISTA_VERSION;
+use ballista_core::{replicator, BALLISTA_VERSION};
 
 use crate::circuit_breaker::client::CircuitBreakerClientConfig;
 use crate::execution_engine::ExecutionEngine;
@@ -181,11 +182,25 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         BallistaError::Internal("Failed to init Executor RuntimeEnv".to_owned())
     })?);
 
+    let mut service_handlers: FuturesUnordered<JoinHandle<Result<(), BallistaError>>> =
+        FuturesUnordered::new();
+
     let metrics_collector = Arc::new(LoggingMetricsCollector::default());
+
+    let (replicator_send, replicator_recv) = mpsc::channel::<replicator::Command>(10);
+    let replication_url =
+        ObjectStoreUrl::parse("authority").expect("Invalid default catalog url");
+
+    service_handlers.push(tokio::spawn(replicator::start_replication(
+        "",
+        runtime.object_store(replication_url)?,
+        replicator_recv,
+    )));
 
     let executor = Arc::new(Executor::new(
         executor_meta,
         &work_dir,
+        Some(replicator_send.clone()),
         runtime,
         metrics_collector,
         concurrent_tasks,
@@ -272,9 +287,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             }
         });
     }
-
-    let mut service_handlers: FuturesUnordered<JoinHandle<Result<(), BallistaError>>> =
-        FuturesUnordered::new();
 
     // Channels used to receive stop requests from Executor grpc service.
     let (stop_send, mut stop_recv) = mpsc::channel::<bool>(10);

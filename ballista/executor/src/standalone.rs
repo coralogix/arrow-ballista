@@ -82,6 +82,7 @@ pub async fn new_standalone_executor<
     let executor = Arc::new(Executor::new(
         executor_meta,
         &work_dir,
+        None,
         Arc::new(RuntimeEnv::new(config).unwrap()),
         Arc::new(LoggingMetricsCollector::default()),
         concurrent_tasks,
