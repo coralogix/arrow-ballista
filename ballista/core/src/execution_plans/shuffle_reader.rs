@@ -420,7 +420,6 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
-
     Ok(Box::pin(LocalShuffleStream::new(reader)))
 }
 
