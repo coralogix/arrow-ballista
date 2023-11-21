@@ -52,8 +52,8 @@ pub async fn start_replication(
                     warn!("Failed to open file for replication: {}", path);
                 }
             },
-            Err(_) => {
-                warn!("Failed to parse replication path: {}", path);
+            Err(error) => {
+                warn!(?error, ?path, "Failed to parse replication path");
             }
         }
     }
