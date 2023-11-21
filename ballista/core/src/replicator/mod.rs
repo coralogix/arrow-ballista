@@ -42,8 +42,8 @@ pub async fn start_replication(
                                     );
                                 }
                             }
-                            Err(_) => {
-                                warn!("Failed to parse final replication path: {}", path);
+                            Err(error) => {
+                                warn!(?path, ?error, "Failed to parse final replication path");
                             }
                         }
                     }
