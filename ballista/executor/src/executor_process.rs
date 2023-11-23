@@ -192,7 +192,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         ObjectStoreUrl::parse("authority").expect("Invalid default catalog url");
 
     service_handlers.push(tokio::spawn(replicator::start_replication(
-        "",
+        executor_id.clone(),
         runtime.object_store(replication_url)?,
         replicator_recv,
     )));

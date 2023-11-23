@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::Result;
 use bytes::Bytes;
 use log::warn;
 use object_store::{path::Path, ObjectStore};
@@ -14,15 +13,16 @@ pub enum Command {
 }
 
 pub async fn start_replication(
-    base_path: &str,
+    base_path: String,
     object_store: Arc<dyn ObjectStore>,
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
     while let Some(Command::Replicate { path }) = receiver.recv().await {
-        match Path::parse(base_path) {
+        match Path::parse(base_path.as_str()) {
             Ok(location) => match File::open(path.as_str()).await {
                 Ok(mut file) => {
-                    let mut content = Vec::default();
+                    let size = file.metadata().await.map_or(1024, |m| m.len());
+                    let mut content = Vec::with_capacity(size as usize);
 
                     if file.read_to_end(&mut content).await.is_err() {
                         warn!(
