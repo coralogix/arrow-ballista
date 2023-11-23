@@ -29,11 +29,11 @@ pub mod error;
 pub mod event_loop;
 pub mod execution_plans;
 pub mod physical_optimizer;
-pub mod replicator;
 /// some plugins
 
 #[allow(improper_ctypes_definitions)]
 pub mod plugin;
+pub mod replicator;
 pub mod utils;
 
 #[macro_use]
