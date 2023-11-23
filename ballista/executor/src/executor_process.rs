@@ -89,6 +89,7 @@ pub struct ExecutorProcessConfig {
     /// Optional execution engine to use to execute physical plans, will default to
     /// DataFusion if none is provided.
     pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
+    pub replication_url: Option<String>,
 }
 
 pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
@@ -187,20 +188,33 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
 
     let metrics_collector = Arc::new(LoggingMetricsCollector::default());
 
-    let (replicator_send, replicator_recv) = mpsc::channel::<replicator::Command>(10);
-    let replication_url =
-        ObjectStoreUrl::parse("authority").expect("Invalid default catalog url");
+    let mut replicator_send = None;
 
-    service_handlers.push(tokio::spawn(replicator::start_replication(
-        executor_id.clone(),
-        runtime.object_store(replication_url)?,
-        replicator_recv,
-    )));
+    match opt.replication_url {
+        Some(replication_url) => match ObjectStoreUrl::parse(replication_url.as_str()) {
+            Ok(url) => {
+                let (send, recv) = mpsc::channel::<replicator::Command>(10);
+                replicator_send = Some(send.clone());
+
+                service_handlers.push(tokio::spawn(replicator::start_replication(
+                    executor_id.clone(),
+                    runtime.object_store(url)?,
+                    recv,
+                )));
+            }
+            _ => {
+                warn!("Invalid replication URL: {}", replication_url);
+            }
+        },
+        _ => {
+            info!("No replication configured")
+        }
+    }
 
     let executor = Arc::new(Executor::new(
         executor_meta,
         &work_dir,
-        Some(replicator_send.clone()),
+        replicator_send.clone(),
         runtime,
         metrics_collector,
         concurrent_tasks,
