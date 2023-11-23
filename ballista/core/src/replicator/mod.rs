@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
 use bytes::Bytes;
-use log::warn;
 use object_store::{path::Path, ObjectStore};
 use tokio::io::AsyncReadExt;
 use tokio::{fs::File, sync::mpsc};
+use tracing::warn;
 
 use crate::error::BallistaError;
 
@@ -44,8 +44,8 @@ pub async fn start_replication(
                             }
                             Err(error) => {
                                 warn!(
-                                    ?path,
                                     ?error,
+                                    ?path,
                                     "Failed to parse final replication path"
                                 );
                             }
