@@ -38,7 +38,7 @@ use arrow_flight::{
 use datafusion::arrow::{
     error::ArrowError, ipc::reader::FileReader, record_batch::RecordBatch,
 };
-use futures::{Stream, StreamExt, TryStreamExt};
+use futures::{Stream, TryStreamExt};
 use object_store::path::Path;
 use object_store::ObjectStore;
 use std::io::{Read, Seek};
