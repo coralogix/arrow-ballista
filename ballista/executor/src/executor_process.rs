@@ -207,8 +207,8 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
                     recv,
                 )));
             }
-            _ => {
-                warn!("Invalid replication URL: {}", replication_url);
+            Err(error) => {
+                warn!(?error, replication_url, "Invalid replication url");
             }
         },
         _ => {
