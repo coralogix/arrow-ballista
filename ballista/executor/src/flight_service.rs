@@ -325,10 +325,18 @@ impl FlightService for BallistaFlightServiceWithFallback {
                     .as_ref()
                     .get(&path)
                     .await
-                    .unwrap()
+                    .map_err(|err| {
+                        Status::internal(format!(
+                            "Failed to fetch partition from object store: {err:?}"
+                        ))
+                    })?
                     .bytes()
                     .await
-                    .unwrap();
+                    .map_err(|err| {
+                        Status::internal(format!(
+                            "Failed to fetch bytes from response: {err:?}"
+                        ))
+                    })?;
                 let reader = FileReader::try_new(std::io::Cursor::new(bytes), None)
                     .map_err(|e| from_arrow_err(&e))?;
                 let schema = reader.schema();
@@ -342,9 +350,14 @@ impl FlightService for BallistaFlightServiceWithFallback {
                     }
                 });
 
+                let write_options = IpcWriteOptions::default()
+                    .try_with_compression(Some(CompressionType::LZ4_FRAME))
+                    .map_err(|e| from_arrow_err(&e))?;
+
                 let flight_data_stream = FlightDataEncoderBuilder::new()
                     .with_max_flight_data_size(MAX_MESSAGE_SIZE)
                     .with_schema(schema)
+                    .with_options(write_options)
                     .build(ReceiverStream::new(rx))
                     .map_err(|err| Status::from_error(Box::new(err)));
 
