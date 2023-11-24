@@ -103,10 +103,14 @@ async fn do_get_aux(
             warn!(executor_id, error = %e, "error streaming shuffle partition");
         }
     });
+    let write_options = IpcWriteOptions::default()
+        .try_with_compression(Some(CompressionType::LZ4_FRAME))
+        .map_err(|e| from_arrow_err(&e))?;
 
     let flight_data_stream = FlightDataEncoderBuilder::new()
         .with_max_flight_data_size(MAX_MESSAGE_SIZE)
         .with_schema(schema)
+        .with_options(write_options)
         .build(ReceiverStream::new(rx))
         .map_err(|err| Status::from_error(Box::new(err)));
 
