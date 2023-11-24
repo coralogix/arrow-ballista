@@ -24,21 +24,24 @@ pub async fn start_replication(
                     let size = file.metadata().await.map_or(1024, |m| m.len());
                     let mut content = Vec::with_capacity(size as usize);
 
-                    if file.read_to_end(&mut content).await.is_err() {
-                        warn!(
-                            "Failed to read content of the file for replication: {}",
-                            path
-                        );
-                    } else {
-                        match Path::parse(format!("{}/{}", base_path, location)) {
+                    match file.read_to_end(&mut content).await {
+                        Err(error) => {
+                            warn!(
+                                ?error,
+                                ?path,
+                                "Failed to read content of the file for replication"
+                            );
+                        }
+                        _ => match Path::parse(format!("{}/{}", base_path, location)) {
                             Ok(final_path) => {
-                                if let Err(err) = object_store
+                                if let Err(error) = object_store
                                     .put(&final_path, Bytes::from(content))
                                     .await
                                 {
                                     warn!(
-                                        "Failed to replicate file to object store - {}",
-                                        err
+                                        ?error,
+                                        ?final_path,
+                                        "Failed to replicate file to object store"
                                     );
                                 }
                             }
@@ -49,11 +52,11 @@ pub async fn start_replication(
                                     "Failed to parse final replication path"
                                 );
                             }
-                        }
+                        },
                     }
                 }
-                Err(_) => {
-                    warn!("Failed to open file for replication: {}", path);
+                Err(error) => {
+                    warn!(?error, ?path, "Failed to open file for replication");
                 }
             },
             Err(error) => {
