@@ -38,7 +38,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tonic::transport::Channel;
 
-type ExecutorClients = Arc<DashMap<String, ExecutorGrpcClient<Channel>>>;
+type ExecutorClients = Arc<DashMap<String, (String, ExecutorGrpcClient<Channel>)>>;
 
 /// Represents a task slot that is reserved (i.e. available for scheduling but not visible to the
 /// rest of the system).
@@ -144,23 +144,23 @@ impl ExecutorManager {
     }
 
     /// Send rpc to Executors to cancel the running tasks
-    pub async fn cancel_running_tasks(&self, tasks: Vec<RunningTaskInfo>) -> Result<()> {
-        let mut tasks_to_cancel: HashMap<&str, Vec<protobuf::RunningTaskInfo>> =
+    pub fn cancel_running_tasks(&self, tasks: Vec<RunningTaskInfo>) {
+        let mut tasks_to_cancel: HashMap<String, Vec<protobuf::RunningTaskInfo>> =
             Default::default();
 
-        for task_info in &tasks {
+        for task_info in tasks {
             if let Some(infos) = tasks_to_cancel.get_mut(task_info.executor_id.as_str()) {
                 infos.push(protobuf::RunningTaskInfo {
                     task_id: task_info.task_id as u32,
-                    job_id: task_info.job_id.clone(),
+                    job_id: task_info.job_id,
                     stage_id: task_info.stage_id as u32,
                 })
             } else {
                 tasks_to_cancel.insert(
-                    task_info.executor_id.as_str(),
+                    task_info.executor_id,
                     vec![protobuf::RunningTaskInfo {
                         task_id: task_info.task_id as u32,
-                        job_id: task_info.job_id.clone(),
+                        job_id: task_info.job_id,
                         stage_id: task_info.stage_id as u32,
                     }],
                 );
@@ -168,18 +168,38 @@ impl ExecutorManager {
         }
 
         for (executor_id, infos) in tasks_to_cancel {
-            if let Ok(mut client) = self.get_client(executor_id).await {
-                client
-                    .cancel_tasks(CancelTasksParams { task_infos: infos })
-                    .await?;
-            } else {
+            let executor_manager = self.clone();
+            tokio::spawn(async move {
+                executor_manager
+                    .cancel_running_tasks_inner(&executor_id, infos)
+                    .await;
+            });
+        }
+    }
+
+    async fn cancel_running_tasks_inner(
+        &self,
+        executor_id: &str,
+        task_infos: Vec<protobuf::RunningTaskInfo>,
+    ) {
+        match self.get_client(executor_id).await {
+            Ok(mut client) => {
+                if let Err(error) =
+                    client.cancel_tasks(CancelTasksParams { task_infos }).await
+                {
+                    error!(
+                        "Failed to cancel tasks on executor ID {}: {:?}",
+                        executor_id, error,
+                    )
+                }
+            }
+            Err(error) => {
                 error!(
-                    "Failed to get client for executor ID {} to cancel tasks",
-                    executor_id
+                    "Failed to get client for executor ID {} to cancel tasks: {:?}",
+                    executor_id, error,
                 )
             }
         }
-        Ok(())
     }
 
     /// Send rpc to Executors to clean up the job data by delayed clean_up_interval seconds
@@ -240,22 +260,20 @@ impl ExecutorManager {
         &self,
         executor_id: &str,
     ) -> Result<ExecutorGrpcClient<Channel>> {
-        let client = self.clients.get(executor_id).map(|value| value.clone());
+        let executor_metadata = self.get_executor_metadata(executor_id).await?;
+        let endpoint = executor_metadata.endpoint();
+        let client = self.clients.get(&endpoint).as_deref().cloned();
 
-        if let Some(client) = client {
+        if let Some((_, client)) = client {
             Ok(client)
         } else {
-            let executor_metadata = self.get_executor_metadata(executor_id).await?;
-            let executor_url = format!(
-                "http://{}:{}",
-                executor_metadata.host, executor_metadata.grpc_port
-            );
-            let connection = create_grpc_client_connection(executor_url).await?;
+            let connection = create_grpc_client_connection(endpoint.clone()).await?;
             let client = ExecutorGrpcClient::new(connection);
-
-            {
-                self.clients.insert(executor_id.to_owned(), client.clone());
-            }
+            let (_, client) = self
+                .clients
+                .entry(endpoint)
+                .or_insert((executor_id.to_string(), client))
+                .clone();
             Ok(client)
         }
     }
@@ -347,7 +365,9 @@ impl ExecutorManager {
         reason: Option<String>,
     ) -> Result<()> {
         info!("Removing executor {}: {:?}", executor_id, reason);
-        self.cluster_state.remove_executor(executor_id).await
+        self.cluster_state.remove_executor(executor_id).await?;
+        self.clients.retain(|_, (id, _)| id != executor_id);
+        Ok(())
     }
 
     #[cfg(not(test))]

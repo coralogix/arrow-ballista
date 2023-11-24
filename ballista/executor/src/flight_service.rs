@@ -22,6 +22,8 @@ use std::fs::File;
 use std::pin::Pin;
 use std::sync::Arc;
 
+use arrow::ipc::writer::IpcWriteOptions;
+use arrow::ipc::CompressionType;
 use ballista_core::error::BallistaError;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
