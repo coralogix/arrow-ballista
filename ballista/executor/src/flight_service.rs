@@ -217,25 +217,15 @@ impl FlightService for BallistaFlightService {
 
     async fn do_put(
         &self,
-        request: Request<Streaming<FlightData>>,
+        _request: Request<Streaming<FlightData>>,
     ) -> Result<Response<Self::DoPutStream>, Status> {
-        let mut request = request.into_inner();
-
-        while let Some(data) = request.next().await {
-            let _data = data?;
-        }
-
         Err(Status::unimplemented("do_put"))
     }
 
     async fn do_action(
         &self,
-        request: Request<Action>,
+        _request: Request<Action>,
     ) -> Result<Response<Self::DoActionStream>, Status> {
-        let action = request.into_inner();
-
-        let _action = decode_protobuf(&action.body).map_err(|e| from_ballista_err(&e))?;
-
         Err(Status::unimplemented("do_action"))
     }
 
@@ -412,25 +402,15 @@ impl FlightService for BallistaFlightServiceWithFallback {
 
     async fn do_put(
         &self,
-        request: Request<Streaming<FlightData>>,
+        _request: Request<Streaming<FlightData>>,
     ) -> Result<Response<Self::DoPutStream>, Status> {
-        let mut request = request.into_inner();
-
-        while let Some(data) = request.next().await {
-            let _data = data?;
-        }
-
         Err(Status::unimplemented("do_put"))
     }
 
     async fn do_action(
         &self,
-        request: Request<Action>,
+        _request: Request<Action>,
     ) -> Result<Response<Self::DoActionStream>, Status> {
-        let action = request.into_inner();
-
-        let _action = decode_protobuf(&action.body).map_err(|e| from_ballista_err(&e))?;
-
         Err(Status::unimplemented("do_action"))
     }
 
