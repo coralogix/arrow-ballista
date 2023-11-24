@@ -269,7 +269,11 @@ impl ExecutorManager {
         } else {
             let connection = create_grpc_client_connection(endpoint.clone()).await?;
             let client = ExecutorGrpcClient::new(connection);
-            let (_, client) = self.clients.entry(endpoint).or_insert((executor_id.to_string(), client)).clone();
+            let (_, client) = self
+                .clients
+                .entry(endpoint)
+                .or_insert((executor_id.to_string(), client))
+                .clone();
             Ok(client)
         }
     }
