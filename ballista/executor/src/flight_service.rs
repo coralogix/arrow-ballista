@@ -30,7 +30,6 @@ use arrow::datatypes::{Schema, SchemaRef};
 use arrow::ipc::reader::{read_dictionary, read_record_batch};
 use arrow::ipc::writer::IpcWriteOptions;
 use arrow::ipc::{convert, root_as_message, CompressionType, MessageHeader};
-use ballista_core::error::BallistaError;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
 
@@ -81,7 +80,9 @@ type BoxedFlightStream<T> =
     Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
 fn decode_partition_location(ticket: &Ticket) -> Result<String, Status> {
-    match &decode_protobuf(&ticket.ticket).map_err(|e| from_ballista_err(&e))? {
+    match &decode_protobuf(&ticket.ticket)
+        .map_err(|e| Status::internal(format!("Ballista Error: {e:?}")))?
+    {
         BallistaAction::FetchPartition { path, .. } => Ok(path.clone()),
     }
 }
@@ -94,14 +95,10 @@ async fn do_get_aux(
         executor_id = executor_id,
         path, "fetching shuffle partition"
     );
-    let file = File::open(path)
-        .map_err(|e| {
-            BallistaError::General(format!(
-                "Failed to open partition file at {path}: {e:?}"
-            ))
-        })
-        .map_err(|e| from_ballista_err(&e))?;
-    let reader = FileReader::try_new(file, None).map_err(|e| from_arrow_err(&e))?;
+    let file = File::open(path).map_err(|e| {
+        Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
+    })?;
+    let reader = FileReader::try_new(file, None).map_err(from_arrow_err)?;
     let schema = reader.schema();
 
     let (tx, rx) = channel(2);
@@ -114,7 +111,7 @@ async fn do_get_aux(
     });
     let write_options = IpcWriteOptions::default()
         .try_with_compression(Some(CompressionType::LZ4_FRAME))
-        .map_err(|e| from_arrow_err(&e))?;
+        .map_err(from_arrow_err)?;
 
     let flight_data_stream = FlightDataEncoderBuilder::new()
         .with_max_flight_data_size(MAX_MESSAGE_SIZE)
@@ -149,14 +146,10 @@ impl FlightService for BallistaFlightService {
             executor_id = self.executor_id,
             path, "fetching shuffle partition"
         );
-        let file = File::open(path.as_str())
-            .map_err(|e| {
-                BallistaError::General(format!(
-                    "Failed to open partition file at {path}: {e:?}"
-                ))
-            })
-            .map_err(|e| from_ballista_err(&e))?;
-        let reader = FileReader::try_new(file, None).map_err(|e| from_arrow_err(&e))?;
+        let file = File::open(path.as_str()).map_err(|e| {
+            Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
+        })?;
+        let reader = FileReader::try_new(file, None).map_err(from_arrow_err)?;
         let schema = reader.schema();
 
         let (tx, rx) = channel(2);
@@ -308,12 +301,8 @@ async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
     Ok(())
 }
 
-fn from_arrow_err(e: &ArrowError) -> Status {
+fn from_arrow_err(e: ArrowError) -> Status {
     Status::internal(format!("ArrowError: {e:?}"))
-}
-
-fn from_ballista_err(e: &BallistaError) -> Status {
-    Status::internal(format!("Ballista Error: {e:?}"))
 }
 
 /// Service implementing the Apache Arrow Flight Protocol
@@ -366,12 +355,13 @@ impl FlightService for BallistaFlightServiceWithFallback {
                             "Failed to fetch partition from object store: {err:?}"
                         ))
                     })?
-                    .into_stream()
-                    .map_err(|e| e.into())
-                    .into_async_read();
+                    .into_stream();
 
+                let async_reader = stream.map_err(|e| e.into()).into_async_read();
                 let (tx, rx) = channel(2);
-                let reader = AsyncStreamReader::try_new(stream, None).await.unwrap();
+                let reader = AsyncStreamReader::try_new(async_reader, None)
+                    .await
+                    .map_err(from_arrow_err)?;
                 let schema = reader.schema();
                 let executor_id = self.executor_id.clone();
                 task::spawn(async move {
@@ -382,7 +372,7 @@ impl FlightService for BallistaFlightServiceWithFallback {
 
                 let write_options = IpcWriteOptions::default()
                     .try_with_compression(Some(CompressionType::LZ4_FRAME))
-                    .map_err(|e| from_arrow_err(&e))?;
+                    .map_err(from_arrow_err)?;
 
                 let flight_data_stream = FlightDataEncoderBuilder::new()
                     .with_max_flight_data_size(MAX_MESSAGE_SIZE)
