@@ -309,6 +309,7 @@ impl UnresolvedStage {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new_with_inputs(
         stage_id: usize,
         stage_attempt_num: usize,
@@ -498,6 +499,7 @@ impl Debug for UnresolvedStage {
 }
 
 impl ResolvedStage {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         stage_id: usize,
         stage_attempt_num: usize,

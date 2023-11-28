@@ -362,10 +362,16 @@ trait PartitionReader: Send + Sync + Clone {
 
 #[derive(Clone)]
 enum PartitionReaderEnum {
+    #[allow(dead_code)]
     Local,
     FlightRemote,
-    ObjectStoreRemote { object_store: Arc<dyn ObjectStore> },
-    LocalWithFallbackToObjectStore { object_store: Arc<dyn ObjectStore> },
+    #[allow(dead_code)]
+    ObjectStoreRemote {
+        object_store: Arc<dyn ObjectStore>,
+    },
+    LocalWithFallbackToObjectStore {
+        object_store: Arc<dyn ObjectStore>,
+    },
 }
 
 #[async_trait]
