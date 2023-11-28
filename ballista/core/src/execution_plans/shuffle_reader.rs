@@ -299,15 +299,11 @@ fn send_fetch_partitions(
     );
 
     // keep local shuffle files reading in serial order for memory control.
-    let response_sender_c = response_sender.clone();
-    let join_handle = tokio::spawn(async move {
+    let sender_for_local = response_sender.clone();
+    join_handles.push(tokio::spawn(async move {
         for p in local_locations {
-            let r = PartitionReaderEnum::LocalWithFallbackToObjectStore {
-                object_store: object_store.clone(),
-            }
-            .fetch_partition(&p)
-            .await;
-            if let Err(e) = response_sender_c.send(r).await {
+            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
+            if let Err(e) = sender_for_local.send(r).await {
                 warn!(
                     job_id = p.job_id,
                     stage_id = p.stage_id,
@@ -317,31 +313,82 @@ fn send_fetch_partitions(
                 );
             }
         }
-    });
-    join_handles.push(join_handle);
+    }));
 
-    for p in remote_locations.into_iter() {
-        let semaphore = semaphore.clone();
-        let response_sender = response_sender.clone();
-        let join_handle = tokio::spawn(async move {
+    let (failed_partition_sender, mut failed_partition_receiver) = mpsc::channel(2);
+    let sender_to_remote = response_sender.clone();
+    let semaphore_for_remote: Arc<Semaphore> = semaphore.clone();
+    join_handles.push(tokio::spawn(async move {
+        for p in remote_locations.into_iter() {
+            let failed_partition_sender = failed_partition_sender.clone();
+
             // Block if exceeds max request number
-            let permit = semaphore.acquire_owned().await.unwrap();
-            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
-            // Block if the channel buffer is ful
+            let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
+            match PartitionReaderEnum::FlightRemote.fetch_partition(&p).await {
+                Ok(batch_stream) => {
+                    // Block if the channel buffer is ful
+                    if let Err(e) = sender_to_remote.send(Ok(batch_stream)).await {
+                        warn!(
+                            job_id = p.job_id,
+                            stage_id = p.stage_id,
+                            partition_id = p.output_partition,
+                            "Fail to send response event to the channel due to {}",
+                            e
+                        );
+                    }
+                }
+                Err(error) => {
+                    warn!(
+                        job_id = p.job_id,
+                        stage_id = p.stage_id,
+                        partition_id = p.output_partition,
+                        ?error,
+                        "Fail to fetch remote partition",
+                    );
+                    if let Err(error) = failed_partition_sender.send(p.clone()).await {
+                        warn!(
+                            job_id = p.job_id,
+                            stage_id = p.stage_id,
+                            partition_id = p.output_partition,
+                            ?error,
+                            "Fail to send failed partition to channel",
+                        );
+                    }
+                }
+            }
+
+            // Increase semaphore by dropping existing permits.
+            drop(permit);
+        }
+    }));
+
+    let semaphore_for_object_store: Arc<Semaphore> = semaphore.clone();
+    join_handles.push(tokio::spawn(async move {
+        while let Some(partition) = failed_partition_receiver.recv().await {
+            let permit = semaphore_for_object_store
+                .clone()
+                .acquire_owned()
+                .await
+                .unwrap();
+            let r = PartitionReaderEnum::ObjectStoreRemote {
+                object_store: object_store.clone(),
+            }
+            .fetch_partition(&partition)
+            .await;
+
             if let Err(e) = response_sender.send(r).await {
                 warn!(
-                    job_id = p.job_id,
-                    stage_id = p.stage_id,
-                    partition_id = p.output_partition,
+                    job_id = partition.job_id,
+                    stage_id = partition.stage_id,
+                    partition_id = partition.output_partition,
                     "Fail to send response event to the channel due to {}",
                     e
                 );
             }
-            // Increase semaphore by dropping existing permits.
-            drop(permit);
-        });
-        join_handles.push(join_handle);
-    }
+
+            drop(permit)
+        }
+    }));
 
     AbortableReceiverStream::create(response_receiver, join_handles)
 }
@@ -362,16 +409,9 @@ trait PartitionReader: Send + Sync + Clone {
 
 #[derive(Clone)]
 enum PartitionReaderEnum {
-    #[allow(dead_code)]
     Local,
     FlightRemote,
-    #[allow(dead_code)]
-    ObjectStoreRemote {
-        object_store: Arc<dyn ObjectStore>,
-    },
-    LocalWithFallbackToObjectStore {
-        object_store: Arc<dyn ObjectStore>,
-    },
+    ObjectStoreRemote { object_store: Arc<dyn ObjectStore> },
 }
 
 #[async_trait]
@@ -382,19 +422,10 @@ impl PartitionReader for PartitionReaderEnum {
         location: &PartitionLocation,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
-            PartitionReaderEnum::FlightRemote => fetch_partition_remote(location).await,
             PartitionReaderEnum::Local => fetch_partition_local(location).await,
+            PartitionReaderEnum::FlightRemote => fetch_partition_remote(location).await,
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
                 fetch_partition_object_store(location, object_store.clone()).await
-            }
-            PartitionReaderEnum::LocalWithFallbackToObjectStore { object_store } => {
-                match fetch_partition_local(location).await {
-                    Ok(result) => Ok(result),
-                    Err(err) => {
-                        warn!(?err, ?location, "Failed to read local partition data");
-                        fetch_partition_object_store(location, object_store.clone()).await
-                    }
-                }
             }
         }
     }
