@@ -268,7 +268,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     let mut scheduler = SchedulerGrpcClient::new(connection);
 
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-        BallistaCodec::default(replicator_object_store.unwrap());
+        BallistaCodec::new_with_object_store(replicator_object_store.unwrap());
 
     let scheduler_policy = opt.task_scheduling_policy;
     let job_data_ttl_seconds = opt.job_data_ttl_seconds;

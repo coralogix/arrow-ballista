@@ -783,7 +783,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster,
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
                 Arc::new(TestMetricsCollector::default()),
                 Arc::new(LocalFileSystem::new()),

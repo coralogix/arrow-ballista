@@ -65,7 +65,7 @@ pub async fn start_server(
         SchedulerServer::new(
             config.scheduler_name(),
             cluster,
-            BallistaCodec::default(object_store.clone()),
+            BallistaCodec::new_with_object_store(object_store.clone()),
             config,
             metrics_collector,
             object_store,

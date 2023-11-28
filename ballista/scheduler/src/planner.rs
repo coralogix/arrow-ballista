@@ -639,7 +639,7 @@ order by
         plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>, BallistaError> {
         let codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::default(Arc::new(LocalFileSystem::new()));
+            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new()));
         let proto: datafusion_proto::protobuf::PhysicalPlanNode =
             datafusion_proto::protobuf::PhysicalPlanNode::try_from_physical_plan(
                 plan.clone(),

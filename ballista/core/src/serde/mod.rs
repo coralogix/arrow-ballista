@@ -83,7 +83,7 @@ pub struct BallistaCodec<
 }
 
 impl BallistaCodec {
-    pub fn default(object_store: Arc<dyn ObjectStore>) -> Self {
+    pub fn new_with_object_store(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
             physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {

@@ -318,7 +318,7 @@ async fn setup_env(
 
     let metrics = Arc::new(NoopMetricsCollector::default());
     let object_store = Arc::new(LocalFileSystem::new());
-    let codec = BallistaCodec::default(object_store.clone());
+    let codec = BallistaCodec::new_with_object_store(object_store.clone());
 
     let (status_tx, mut status_rx) = mpsc::channel(10_000);
 

@@ -483,7 +483,7 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_default_scheduler_name(
                 test_cluster_context(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 Arc::new(LocalFileSystem::new()),
             ));
 
@@ -522,7 +522,7 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_task_launcher(
                 test_cluster_context(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 TEST_SCHEDULER_NAME.into(),
                 SchedulerConfig::default(),
                 Arc::new(BlackholeTaskLauncher::default()),

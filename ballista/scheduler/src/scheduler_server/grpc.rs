@@ -721,7 +721,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 Arc::new(LocalFileSystem::new()),
@@ -749,7 +749,7 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 Arc::new(LocalFileSystem::new()),
             );
         state.init().await?;
@@ -782,7 +782,7 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 Arc::new(LocalFileSystem::new()),
             );
         state.init().await?;
@@ -810,7 +810,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
                 Arc::new(LocalFileSystem::new()),
@@ -899,7 +899,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster,
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 Arc::new(LocalFileSystem::new()),
@@ -952,7 +952,7 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 Arc::new(LocalFileSystem::new()),

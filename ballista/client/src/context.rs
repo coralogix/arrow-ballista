@@ -194,7 +194,7 @@ impl BallistaContext {
         };
 
         let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::default(Arc::new(LocalFileSystem::new()));
+            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new()));
 
         ballista_executor::new_standalone_executor(
             scheduler,

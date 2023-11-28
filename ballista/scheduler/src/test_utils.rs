@@ -459,7 +459,7 @@ impl SchedulerTest {
             SchedulerServer::new_with_task_launcher(
                 "localhost:50050".to_owned(),
                 cluster,
-                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 config,
                 metrics_collector,
                 Arc::new(launcher),
