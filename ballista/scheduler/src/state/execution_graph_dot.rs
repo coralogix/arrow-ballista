@@ -419,6 +419,7 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
     use datafusion::prelude::{SessionConfig, SessionContext};
+    use object_store::local::LocalFileSystem;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -642,7 +643,15 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::new("scheduler_id", "job_id", "job_name", "session_id", plan, 0)
+        ExecutionGraph::new(
+            "scheduler_id",
+            "job_id",
+            "job_name",
+            "session_id",
+            plan,
+            0,
+            Arc::new(LocalFileSystem::new()),
+        )
     }
 
     // With the improvement of https://github.com/apache/arrow-datafusion/pull/4122,
@@ -667,6 +676,14 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::new("scheduler_id", "job_id", "job_name", "session_id", plan, 0)
+        ExecutionGraph::new(
+            "scheduler_id",
+            "job_id",
+            "job_name",
+            "session_id",
+            plan,
+            0,
+            Arc::new(LocalFileSystem::new()),
+        )
     }
 }

@@ -34,6 +34,7 @@ use ballista_core::serde::protobuf::{AvailableTaskSlots, ExecutorHeartbeat, JobS
 use ballista_core::serde::scheduler::{ExecutorData, ExecutorMetadata};
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::default_session_builder;
+use object_store::ObjectStore;
 
 use crate::cluster::kv::KeyValueState;
 use crate::cluster::memory::{InMemoryClusterState, InMemoryJobState};
@@ -114,6 +115,7 @@ impl BallistaCluster {
         session_builder: SessionBuilder,
         codec: BallistaCodec<T, U>,
         default_extensions: Extensions,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let kv_state = Arc::new(KeyValueState::new(
             scheduler,
@@ -121,6 +123,7 @@ impl BallistaCluster {
             codec,
             session_builder,
             default_extensions,
+            object_store,
         ));
         Self {
             cluster_state: kv_state.clone(),
@@ -128,7 +131,10 @@ impl BallistaCluster {
         }
     }
 
-    pub async fn new_from_config(config: &SchedulerConfig) -> Result<Self> {
+    pub async fn new_from_config(
+        config: &SchedulerConfig,
+        object_store: Arc<dyn ObjectStore>,
+    ) -> Result<Self> {
         let scheduler = config.scheduler_name();
 
         match &config.cluster_storage {
@@ -146,8 +152,9 @@ impl BallistaCluster {
                     EtcdClient::new(config.namespace.clone(), etcd),
                     scheduler,
                     default_session_builder,
-                    BallistaCodec::default(),
+                    BallistaCodec::default(object_store.clone()),
                     Extensions::default(),
+                    object_store,
                 ))
             }
             #[cfg(not(feature = "etcd"))]
@@ -166,8 +173,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::default(),
+                        BallistaCodec::default(object_store.clone()),
                         Extensions::default(),
+                        object_store,
                     ))
                 } else {
                     info!("Initializing Sled database in temp directory");
@@ -177,8 +185,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::default(),
+                        BallistaCodec::default(object_store.clone()),
                         Extensions::default(),
+                        object_store,
                     ))
                 }
             }

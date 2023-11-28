@@ -32,6 +32,7 @@ use datafusion_proto::physical_plan::PhysicalExtensionCodec;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use log::info;
+use object_store::local::LocalFileSystem;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -51,6 +52,7 @@ pub async fn new_standalone_scheduler_with_codec(
             BallistaCodec::new(logical_codec, physical_codec),
             SchedulerConfig::default(),
             metrics_collector,
+            Arc::new(LocalFileSystem::new()),
         );
 
     scheduler_server.init().await?;
@@ -75,7 +77,9 @@ pub async fn new_standalone_scheduler_with_codec(
 
 pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
     new_standalone_scheduler_with_codec(
-        Arc::new(BallistaPhysicalExtensionCodec {}),
+        Arc::new(BallistaPhysicalExtensionCodec::new(Arc::new(
+            LocalFileSystem::new(),
+        ))),
         Arc::new(DefaultLogicalExtensionCodec {}),
     )
     .await

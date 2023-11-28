@@ -29,7 +29,6 @@ use datafusion::config::Extensions;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use object_store::ObjectStore;
 use tempfile::TempDir;
 use tokio::fs::DirEntry;
 use tokio::signal;
@@ -62,7 +61,7 @@ use crate::circuit_breaker::client::CircuitBreakerClientConfig;
 use crate::execution_engine::ExecutionEngine;
 use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
-use crate::flight_service::{BallistaFlightService, BallistaFlightServiceWithFallback};
+use crate::flight_service::BallistaFlightService;
 use crate::metrics::LoggingMetricsCollector;
 use crate::shutdown::Shutdown;
 use crate::shutdown::ShutdownNotifier;
@@ -269,7 +268,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     let mut scheduler = SchedulerGrpcClient::new(connection);
 
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-        BallistaCodec::default();
+        BallistaCodec::default(replicator_object_store.unwrap());
 
     let scheduler_policy = opt.task_scheduling_policy;
     let job_data_ttl_seconds = opt.job_data_ttl_seconds;
@@ -340,7 +339,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         executor_id.clone(),
         addr,
         shutdown_noti.subscribe_for_shutdown(),
-        replicator_object_store,
     )));
 
     let tasks_drained = executor.wait_drained();
@@ -445,7 +443,6 @@ async fn flight_server_run(
     executor_id: String,
     addr: SocketAddr,
     mut grpc_shutdown: Shutdown,
-    object_store: Option<Arc<dyn ObjectStore>>,
 ) -> Result<(), BallistaError> {
     info!(
         executor_id,
@@ -455,37 +452,15 @@ async fn flight_server_run(
     );
 
     let shutdown_signal = grpc_shutdown.recv();
-
-    match object_store {
-        Some(store) => {
-            info!("Starting flight server with fallback");
-            let svc = FlightServiceServer::new(BallistaFlightServiceWithFallback::new(
-                executor_id.clone(),
-                store,
-            ));
-            create_grpc_server()
-                .add_service(svc)
-                .serve_with_shutdown(addr, shutdown_signal)
-                .await
-                .map_err(|e| {
-                    error!(executor_id, error = %e, "failed to start flight server");
-                    BallistaError::TonicError(e)
-                })
-        }
-        _ => {
-            info!("Starting flight server without fallback");
-            let svc =
-                FlightServiceServer::new(BallistaFlightService::new(executor_id.clone()));
-            create_grpc_server()
-                .add_service(svc)
-                .serve_with_shutdown(addr, shutdown_signal)
-                .await
-                .map_err(|e| {
-                    error!(executor_id, error = %e, "failed to start flight server");
-                    BallistaError::TonicError(e)
-                })
-        }
-    }
+    let svc = FlightServiceServer::new(BallistaFlightService::new(executor_id.clone()));
+    create_grpc_server()
+        .add_service(svc)
+        .serve_with_shutdown(addr, shutdown_signal)
+        .await
+        .map_err(|e| {
+            error!(executor_id, error = %e, "failed to start flight server");
+            BallistaError::TonicError(e)
+        })
 }
 
 // Check the status of long running services

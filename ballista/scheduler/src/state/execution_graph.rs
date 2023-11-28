@@ -28,6 +28,7 @@ use datafusion::physical_plan::{
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
@@ -153,6 +154,7 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -160,7 +162,7 @@ impl ExecutionGraph {
 
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-        let builder = ExecutionStageBuilder::new();
+        let builder = ExecutionStageBuilder::new(object_store);
         let stages = builder.build(shuffle_stages)?;
 
         let started_at = timestamp_millis();
@@ -1363,6 +1365,7 @@ impl ExecutionGraph {
         proto: protobuf::ExecutionGraph,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Result<ExecutionGraph> {
         let mut stages: HashMap<usize, ExecutionStage> = HashMap::new();
         for graph_stage in proto.stages {
@@ -1370,18 +1373,30 @@ impl ExecutionGraph {
 
             let execution_stage = match stage_type {
                 StageType::UnresolvedStage(stage) => {
-                    let stage: UnresolvedStage =
-                        UnresolvedStage::decode(stage, codec, session_ctx)?;
+                    let stage: UnresolvedStage = UnresolvedStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::UnResolved(stage))
                 }
                 StageType::ResolvedStage(stage) => {
-                    let stage: ResolvedStage =
-                        ResolvedStage::decode(stage, codec, session_ctx)?;
+                    let stage: ResolvedStage = ResolvedStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::Resolved(stage))
                 }
                 StageType::SuccessfulStage(stage) => {
-                    let stage: SuccessfulStage =
-                        SuccessfulStage::decode(stage, codec, session_ctx)?;
+                    let stage: SuccessfulStage = SuccessfulStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::Successful(stage))
                 }
                 StageType::FailedStage(stage) => {
@@ -1591,14 +1606,16 @@ struct ExecutionStageBuilder {
     stage_dependencies: HashMap<usize, Vec<usize>>,
     /// Map from Stage ID -> output link
     output_links: HashMap<usize, Vec<usize>>,
+    object_store: Arc<dyn ObjectStore>,
 }
 
 impl ExecutionStageBuilder {
-    pub fn new() -> Self {
+    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             current_stage_id: 0,
             stage_dependencies: HashMap::new(),
             output_links: HashMap::new(),
+            object_store,
         }
     }
 
@@ -1632,6 +1649,7 @@ impl ExecutionStageBuilder {
                     output_links,
                     HashMap::new(),
                     HashSet::new(),
+                    self.object_store.clone(),
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1640,6 +1658,7 @@ impl ExecutionStageBuilder {
                     partitioning,
                     output_links,
                     child_stages,
+                    self.object_store.clone(),
                 ))
             };
             execution_stages.insert(stage_id, stage);

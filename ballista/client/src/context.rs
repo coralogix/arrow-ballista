@@ -146,6 +146,7 @@ impl BallistaContext {
     ) -> ballista_core::error::Result<Self> {
         use ballista_core::serde::BallistaCodec;
         use datafusion_proto::protobuf::PhysicalPlanNode;
+        use object_store::local::LocalFileSystem;
 
         log::info!("Running in local mode. Scheduler will be run in-proc");
 
@@ -193,7 +194,7 @@ impl BallistaContext {
         };
 
         let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::default();
+            BallistaCodec::default(Arc::new(LocalFileSystem::new()));
 
         ballista_executor::new_standalone_executor(
             scheduler,

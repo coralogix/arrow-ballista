@@ -173,6 +173,7 @@ mod tests {
         arrow::datatypes::Schema,
         physical_plan::{limit::LocalLimitExec, union::UnionExec},
     };
+    use object_store::local::LocalFileSystem;
 
     use crate::execution_plans::{
         CoalesceTasksExec, ShuffleReaderExec, ShuffleWriterExec,
@@ -255,6 +256,7 @@ mod tests {
                     Field::new("b", DataType::UInt32, false),
                     Field::new("c", DataType::UInt32, false),
                 ])),
+                Arc::new(LocalFileSystem::new()),
             )
             .unwrap(),
         )
@@ -331,8 +333,12 @@ mod tests {
     fn test_optimizer_insert_coalesce_on_top_of_the_leaf() {
         let optimizer = OptimizeTaskGroup::new(Vec::default());
         let input = Arc::new(
-            ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
-                .unwrap(),
+            ShuffleReaderExec::try_new(
+                Vec::default(),
+                Arc::new(Schema::empty()),
+                Arc::new(LocalFileSystem::new()),
+            )
+            .unwrap(),
         );
 
         let optiized = optimizer.insert_coalesce(input).unwrap().into();

@@ -33,6 +33,7 @@ use datafusion_proto::{
     physical_plan::{AsExecutionPlan, PhysicalExtensionCodec},
 };
 
+use object_store::ObjectStore;
 use prost::Message;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -81,11 +82,13 @@ pub struct BallistaCodec<
     physical_plan_repr: PhantomData<U>,
 }
 
-impl Default for BallistaCodec {
-    fn default() -> Self {
+impl BallistaCodec {
+    pub fn default(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
-            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {}),
+            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
+                object_store,
+            }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,
         }
@@ -115,7 +118,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
 }
 
 #[derive(Debug)]
-pub struct BallistaPhysicalExtensionCodec {}
+pub struct BallistaPhysicalExtensionCodec {
+    pub object_store: Arc<dyn ObjectStore>,
+}
+
+impl BallistaPhysicalExtensionCodec {
+    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
+        Self { object_store }
+    }
+}
 
 impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
     fn try_decode(
@@ -180,8 +191,11 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let shuffle_reader =
-                    ShuffleReaderExec::try_new(partition_location, schema)?;
+                let shuffle_reader = ShuffleReaderExec::try_new(
+                    partition_location,
+                    schema,
+                    self.object_store.clone(),
+                )?;
                 Ok(Arc::new(shuffle_reader))
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {

@@ -19,6 +19,7 @@ use datafusion::common::tree_node::{TreeNode, VisitRecursion};
 use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
 use datafusion::datasource::source_as_provider;
+use object_store::ObjectStore;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -104,12 +105,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     pub fn new_with_default_scheduler_name(
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         SchedulerState::new(
             cluster,
             codec,
             "localhost:50050".to_owned(),
             SchedulerConfig::default(),
+            object_store,
         )
     }
 
@@ -118,6 +121,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
         config: SchedulerConfig,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -128,6 +132,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 cluster.job_state(),
                 codec.clone(),
                 scheduler_name,
+                object_store,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -143,6 +148,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         scheduler_name: String,
         config: SchedulerConfig,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -153,6 +159,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 cluster.job_state(),
                 scheduler_name,
                 dispatcher,
+                object_store,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -452,6 +459,7 @@ mod test {
     };
     use ballista_core::serde::BallistaCodec;
     use datafusion::config::Extensions;
+    use object_store::local::LocalFileSystem;
 
     use crate::config::SchedulerConfig;
 
@@ -475,7 +483,8 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_default_scheduler_name(
                 test_cluster_context(),
-                BallistaCodec::default(),
+                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
+                Arc::new(LocalFileSystem::new()),
             ));
 
         let (tx, _rx) = flume::unbounded();
@@ -513,10 +522,11 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_task_launcher(
                 test_cluster_context(),
-                BallistaCodec::default(),
+                BallistaCodec::default(Arc::new(LocalFileSystem::new())),
                 TEST_SCHEDULER_NAME.into(),
                 SchedulerConfig::default(),
                 Arc::new(BlackholeTaskLauncher::default()),
+                Arc::new(LocalFileSystem::new()),
             ));
 
         let session_ctx = state

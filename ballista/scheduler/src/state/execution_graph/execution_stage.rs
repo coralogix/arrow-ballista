@@ -28,6 +28,7 @@ use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{ExecutionPlan, Metric, Partitioning};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use object_store::ObjectStore;
 use tracing::{debug, warn};
 
 use ballista_core::error::{BallistaError, Result};
@@ -134,6 +135,8 @@ pub(crate) struct UnresolvedStage {
     pub(crate) plan: Arc<dyn ExecutionPlan>,
     /// Record last attempt's failure reasons to avoid duplicate resubmits
     pub(crate) last_attempt_failure_reasons: HashSet<String>,
+
+    pub(crate) object_store: Arc<dyn ObjectStore>,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
@@ -160,6 +163,8 @@ pub(crate) struct ResolvedStage {
     pub(crate) last_attempt_failure_reasons: HashSet<String>,
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
+
+    pub(crate) object_store: Arc<dyn ObjectStore>,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -194,6 +199,7 @@ pub(crate) struct RunningStage {
     pub(crate) stage_metrics: Option<Vec<MetricsSet>>,
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
+    pub(crate) object_store: Arc<dyn ObjectStore>,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
@@ -220,6 +226,7 @@ pub(crate) struct SuccessfulStage {
     pub(crate) task_infos: Vec<TaskInfo>,
     /// Combined metrics of the already finished tasks in the stage.
     pub(crate) stage_metrics: Vec<MetricsSet>,
+    pub(crate) object_store: Arc<dyn ObjectStore>,
 }
 
 /// If a stage fails, it will be with an error message
@@ -283,6 +290,7 @@ impl UnresolvedStage {
         output_partitioning: Option<Partitioning>,
         output_links: Vec<usize>,
         child_stage_ids: Vec<usize>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
         for input_stage_id in child_stage_ids {
@@ -297,6 +305,7 @@ impl UnresolvedStage {
             inputs,
             plan,
             last_attempt_failure_reasons: Default::default(),
+            object_store,
         }
     }
 
@@ -308,6 +317,7 @@ impl UnresolvedStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         Self {
             stage_id,
@@ -317,6 +327,7 @@ impl UnresolvedStage {
             inputs,
             plan,
             last_attempt_failure_reasons,
+            object_store,
         }
     }
 
@@ -388,6 +399,7 @@ impl UnresolvedStage {
         let plan = crate::planner::remove_unresolved_shuffles(
             self.plan.clone(),
             &input_locations,
+            self.object_store.clone(),
         )?;
 
         // Optimize join order based on new resolved statistics
@@ -403,6 +415,7 @@ impl UnresolvedStage {
             self.output_links.clone(),
             self.inputs.clone(),
             self.last_attempt_failure_reasons.clone(),
+            self.object_store.clone(),
         ))
     }
 
@@ -410,6 +423,7 @@ impl UnresolvedStage {
         stage: protobuf::UnResolvedStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Result<UnresolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -436,6 +450,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons: HashSet::from_iter(
                 stage.last_attempt_failure_reasons,
             ),
+            object_store,
         })
     }
 
@@ -491,6 +506,7 @@ impl ResolvedStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
 
@@ -504,6 +520,7 @@ impl ResolvedStage {
             plan,
             last_attempt_failure_reasons,
             resolved_at: timestamp_millis(),
+            object_store,
         }
     }
 
@@ -518,6 +535,7 @@ impl ResolvedStage {
             self.output_links.clone(),
             self.inputs.clone(),
             self.resolved_at,
+            self.object_store.clone(),
         )
     }
 
@@ -533,6 +551,7 @@ impl ResolvedStage {
             self.output_links.clone(),
             self.inputs.clone(),
             self.last_attempt_failure_reasons.clone(),
+            self.object_store.clone(),
         );
         Ok(unresolved)
     }
@@ -541,6 +560,7 @@ impl ResolvedStage {
         stage: protobuf::ResolvedStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Result<ResolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -569,6 +589,7 @@ impl ResolvedStage {
                 stage.last_attempt_failure_reasons,
             ),
             resolved_at: stage.resolved_at,
+            object_store,
         })
     }
 
@@ -624,6 +645,7 @@ impl RunningStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         resolved_at: u64,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         Self {
             stage_id,
@@ -637,6 +659,7 @@ impl RunningStage {
             task_failures: 0,
             stage_metrics: None,
             resolved_at,
+            object_store,
         }
     }
 
@@ -668,6 +691,7 @@ impl RunningStage {
             plan: self.plan.clone(),
             task_infos,
             stage_metrics,
+            object_store: self.object_store.clone(),
         }
     }
 
@@ -695,6 +719,7 @@ impl RunningStage {
             self.output_links.clone(),
             self.inputs.clone(),
             HashSet::new(),
+            self.object_store.clone(),
         )
     }
 
@@ -713,6 +738,7 @@ impl RunningStage {
             self.output_links.clone(),
             self.inputs.clone(),
             failure_reasons,
+            self.object_store.clone(),
         );
         Ok(unresolved)
     }
@@ -966,6 +992,7 @@ impl SuccessfulStage {
             task_infos,
             stage_metrics,
             resolved_at: timestamp_millis(),
+            object_store: self.object_store.clone(),
         }
     }
 
@@ -1013,6 +1040,7 @@ impl SuccessfulStage {
         stage: protobuf::SuccessfulStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Result<SuccessfulStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -1050,6 +1078,7 @@ impl SuccessfulStage {
             plan,
             task_infos,
             stage_metrics,
+            object_store,
         })
     }
 

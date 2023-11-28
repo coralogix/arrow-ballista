@@ -26,6 +26,7 @@ use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
+use object_store::ObjectStore;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
@@ -302,6 +303,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     launcher: Arc<dyn TaskLauncher<T, U>>,
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
+    object_store: Arc<dyn ObjectStore>,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -376,11 +378,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
 
-        Self::with_launcher(state, scheduler_id, Arc::new(launcher))
+        Self::with_launcher(state, scheduler_id, Arc::new(launcher), object_store)
     }
 
     #[allow(dead_code)]
@@ -388,6 +391,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         scheduler_id: String,
         launcher: Arc<dyn TaskLauncher<T, U>>,
+        object_store: Arc<dyn ObjectStore>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -398,6 +402,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             launcher,
             drained: Arc::new(drained),
             check_drained,
+            object_store,
         }
     }
 
@@ -440,6 +445,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             session_id,
             plan,
             queued_at,
+            self.object_store.clone(),
         )?;
         info!(
             job_id,
