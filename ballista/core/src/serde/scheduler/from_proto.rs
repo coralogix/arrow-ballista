@@ -32,8 +32,8 @@ use crate::serde::scheduler::{
 };
 
 use crate::serde::protobuf;
-use protobuf::{operator_metric, NamedCount, NamedGauge, NamedTime};
 use crate::serde::protobuf::executor_resource::Resource;
+use protobuf::{operator_metric, NamedCount, NamedGauge, NamedTime};
 
 impl TryInto<Action> for protobuf::Action {
     type Error = BallistaError;
@@ -228,7 +228,10 @@ impl Into<ExecutorSpecification> for protobuf::ExecutorSpecification {
             }
         }
 
-        ExecutorSpecification { task_slots, version }
+        ExecutorSpecification {
+            task_slots,
+            version,
+        }
     }
 }
 

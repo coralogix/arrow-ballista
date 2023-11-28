@@ -1057,7 +1057,10 @@ pub fn mock_executor(executor_id: String) -> ExecutorMetadata {
         host: "localhost2".to_string(),
         port: 8080,
         grpc_port: 9090,
-        specification: ExecutorSpecification { task_slots: 1, version: "0".to_string() },
+        specification: ExecutorSpecification {
+            task_slots: 1,
+            version: "0".to_string(),
+        },
     }
 }
 
