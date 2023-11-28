@@ -470,20 +470,32 @@ async fn fetch_partition_object_store(
     object_store: Arc<dyn ObjectStore>,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let executor_id = location.executor_meta.id.clone();
-    let path =
-        Path::parse(format!("{}/{}", executor_id.as_str(), location.path)).unwrap();
+    let path = Path::parse(format!("{}/{}", executor_id.as_str(), location.path))
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to parse partition location - {:?}",
+                e
+            ))
+        })?;
     let stream = object_store
         .as_ref()
         .get(&path)
         .await
-        .unwrap()
+        .map_err(|e| {
+            BallistaError::General(format!("Failed to fetch partition - {:?}", e))
+        })?
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
     let (tx, rx) = channel(2);
     let reader = AsyncStreamReader::try_new(async_reader, None)
         .await
-        .unwrap();
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to build async partition reader - {:?}",
+                e
+            ))
+        })?;
 
     let schema = reader.schema();
     let executor_id = executor_id.clone();
