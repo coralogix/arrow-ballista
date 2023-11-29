@@ -244,7 +244,7 @@ impl<R: AsyncRead + Unpin + Send> fmt::Debug for AsyncStreamReader<R> {
 impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<R> {
     /// Try to create a new stream reader but do not wrap the reader in a BufReader.
     ///
-    /// Unless you need the StreamReader to be unbuffered you likely want to use `StreamReader::try_new` instead.
+    /// Unless you need the AsyncStreamReader to be unbuffered you likely want to use `AsyncStreamReader::try_new` instead.
     pub async fn try_new_unbuffered(
         mut reader: R,
         projection: Option<Vec<usize>>,
