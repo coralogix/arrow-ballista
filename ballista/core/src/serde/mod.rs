@@ -86,14 +86,13 @@ impl Default for BallistaCodec {
     fn default() -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
-            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
-                object_store: None,
-            }),
+            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
             logical_plan_repr: Default::default(),
             physical_plan_repr: Default::default(),
         }
     }
 }
+
 impl BallistaCodec {
     pub fn new_with_optional_object_store(
         object_store: Option<Arc<dyn ObjectStore>>,
