@@ -173,7 +173,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_optional_object_store(object_store.clone()),
+                        BallistaCodec::new_with_optional_object_store(
+                            object_store.clone(),
+                        ),
                         Extensions::default(),
                         object_store,
                     ))
@@ -185,7 +187,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_optional_object_store(object_store.clone()),
+                        BallistaCodec::new_with_optional_object_store(
+                            object_store.clone(),
+                        ),
                         Extensions::default(),
                         object_store,
                     ))
