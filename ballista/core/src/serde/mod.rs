@@ -136,7 +136,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct BallistaPhysicalExtensionCodec {
     pub object_store: Option<Arc<dyn ObjectStore>>,
 }
