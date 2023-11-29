@@ -17,14 +17,12 @@
 
 //! Ballista Rust scheduler binary.
 
-use std::sync::Arc;
 use std::{env, io};
 
 use anyhow::Result;
 
 use ballista_core::print_version;
 use ballista_scheduler::scheduler_process::start_server;
-use object_store::local::LocalFileSystem;
 
 use crate::config::{Config, ResultExt};
 use ballista_core::config::LogRotationPolicy;
@@ -122,9 +120,8 @@ async fn main() -> Result<()> {
         tasks_per_tick: opt.tasks_per_tick,
         executor_termination_grace_period: opt.executor_termination_grace_period,
     };
-    let object_store = Arc::new(LocalFileSystem::new());
-    let cluster = BallistaCluster::new_from_config(&config, object_store.clone()).await?;
+    let cluster = BallistaCluster::new_from_config(&config, None).await?;
 
-    start_server(cluster, addr, config, object_store).await?;
+    start_server(cluster, addr, config, None).await?;
     Ok(())
 }

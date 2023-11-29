@@ -5,7 +5,6 @@ use ballista_core::serde::BallistaPhysicalExtensionCodec;
 use datafusion::error::{DataFusionError, Result};
 use datafusion::{execution::FunctionRegistry, physical_plan::ExecutionPlan};
 use datafusion_proto::physical_plan::PhysicalExtensionCodec;
-use object_store::local::LocalFileSystem;
 use prost::Message;
 
 use crate::proto::{self};
@@ -16,12 +15,10 @@ pub struct TestPhysicalCodec {
     ballista_codec: Arc<BallistaPhysicalExtensionCodec>,
 }
 
-impl TestPhysicalCodec {
-    pub fn new() -> Self {
+impl Default for TestPhysicalCodec {
+    fn default() -> Self {
         Self {
-            ballista_codec: Arc::new(BallistaPhysicalExtensionCodec {
-                object_store: Arc::new(LocalFileSystem::new()),
-            }),
+            ballista_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
         }
     }
 }

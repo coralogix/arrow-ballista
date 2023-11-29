@@ -115,7 +115,7 @@ impl BallistaCluster {
         session_builder: SessionBuilder,
         codec: BallistaCodec<T, U>,
         default_extensions: Extensions,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let kv_state = Arc::new(KeyValueState::new(
             scheduler,
@@ -133,7 +133,7 @@ impl BallistaCluster {
 
     pub async fn new_from_config(
         config: &SchedulerConfig,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<Self> {
         let scheduler = config.scheduler_name();
 
@@ -152,7 +152,7 @@ impl BallistaCluster {
                     EtcdClient::new(config.namespace.clone(), etcd),
                     scheduler,
                     default_session_builder,
-                    BallistaCodec::new_with_object_store(object_store.clone()),
+                    BallistaCodec::new_with_optional_object_store(object_store.clone()),
                     Extensions::default(),
                     object_store,
                 ))
@@ -173,7 +173,7 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_object_store(object_store.clone()),
+                        BallistaCodec::new_with_optional_object_store(object_store.clone()),
                         Extensions::default(),
                         object_store,
                     ))
@@ -185,7 +185,7 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_object_store(object_store.clone()),
+                        BallistaCodec::new_with_optional_object_store(object_store.clone()),
                         Extensions::default(),
                         object_store,
                     ))

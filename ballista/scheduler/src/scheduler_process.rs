@@ -47,7 +47,7 @@ pub async fn start_server(
     cluster: BallistaCluster,
     addr: SocketAddr,
     config: SchedulerConfig,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
@@ -65,7 +65,7 @@ pub async fn start_server(
         SchedulerServer::new(
             config.scheduler_name(),
             cluster,
-            BallistaCodec::new_with_object_store(object_store.clone()),
+            BallistaCodec::new_with_optional_object_store(object_store.clone()),
             config,
             metrics_collector,
             object_store,

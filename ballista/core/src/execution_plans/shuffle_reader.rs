@@ -69,7 +69,7 @@ pub struct ShuffleReaderExec {
     pub(crate) schema: SchemaRef,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl ShuffleReaderExec {
@@ -77,7 +77,7 @@ impl ShuffleReaderExec {
     pub fn try_new(
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<Self> {
         Ok(Self {
             partition,
@@ -161,11 +161,15 @@ impl ExecutionPlan for ShuffleReaderExec {
         // Shuffle partitions for evenly send fetching partition requests to avoid hot executors within multiple tasks
         partition_locations.shuffle(&mut thread_rng());
 
-        let response_receiver = send_fetch_partitions(
-            partition_locations,
-            max_request_num,
-            self.object_store.clone(),
-        );
+        let response_receiver = if let Some(object_store) = self.object_store.as_ref() {
+            send_fetch_partitions_with_fallback(
+                partition_locations,
+                max_request_num,
+                object_store.clone(),
+            )
+        } else {
+            send_fetch_partitions(partition_locations, max_request_num)
+        };
 
         let result = RecordBatchStreamAdapter::new(
             Arc::new(self.schema.as_ref().clone()),
@@ -280,14 +284,14 @@ impl Stream for AbortableReceiverStream {
     }
 }
 
-fn send_fetch_partitions(
+fn send_fetch_partitions_with_fallback(
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
     object_store: Arc<dyn ObjectStore>,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) = mpsc::channel(max_request_num);
     let semaphore = Arc::new(Semaphore::new(max_request_num));
-    let mut join_handles = vec![];
+    let mut join_handles = Vec::with_capacity(3);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
         .partition(check_is_local_location);
@@ -387,6 +391,65 @@ fn send_fetch_partitions(
             }
 
             drop(permit)
+        }
+    }));
+
+    AbortableReceiverStream::create(response_receiver, join_handles)
+}
+
+fn send_fetch_partitions(
+    partition_locations: Vec<PartitionLocation>,
+    max_request_num: usize,
+) -> AbortableReceiverStream {
+    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
+    let semaphore = Arc::new(Semaphore::new(max_request_num));
+    let mut join_handles = Vec::with_capacity(2);
+    let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
+        .into_iter()
+        .partition(check_is_local_location);
+
+    info!(
+        "local shuffle file counts:{}, remote shuffle file count:{}.",
+        local_locations.len(),
+        remote_locations.len()
+    );
+
+    // keep local shuffle files reading in serial order for memory control.
+    let sender_for_local = response_sender.clone();
+    join_handles.push(tokio::spawn(async move {
+        for p in local_locations {
+            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
+            if let Err(e) = sender_for_local.send(r).await {
+                warn!(
+                    job_id = p.job_id,
+                    stage_id = p.stage_id,
+                    partition_id = p.output_partition,
+                    "Fail to send response event to the channel due to {}",
+                    e
+                );
+            }
+        }
+    }));
+
+    let semaphore_for_remote: Arc<Semaphore> = semaphore.clone();
+    join_handles.push(tokio::spawn(async move {
+        for p in remote_locations.into_iter() {
+            // Block if exceeds max request number
+            let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
+            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+
+            if let Err(e) = response_sender.send(r).await {
+                warn!(
+                    job_id = p.job_id,
+                    stage_id = p.stage_id,
+                    partition_id = p.output_partition,
+                    "Fail to send response event to the channel due to {}",
+                    e
+                );
+            }
+
+            // Increase semaphore by dropping existing permits.
+            drop(permit);
         }
     }));
 
@@ -614,7 +677,6 @@ mod tests {
     use datafusion::physical_plan::common;
     use datafusion::physical_plan::memory::MemoryExec;
     use datafusion::prelude::SessionContext;
-    use object_store::local::LocalFileSystem;
     use tempfile::{tempdir, TempDir};
 
     #[tokio::test]
@@ -712,11 +774,8 @@ mod tests {
             })
         }
 
-        let shuffle_reader_exec = ShuffleReaderExec::try_new(
-            vec![partitions],
-            Arc::new(schema),
-            Arc::new(LocalFileSystem::new()),
-        )?;
+        let shuffle_reader_exec =
+            ShuffleReaderExec::try_new(vec![partitions], Arc::new(schema), None)?;
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
 
@@ -806,11 +865,8 @@ mod tests {
             file_path.to_str().unwrap().to_string(),
         );
 
-        let response_receiver = send_fetch_partitions(
-            partition_locations,
-            max_request_num,
-            Arc::new(LocalFileSystem::new()),
-        );
+        let response_receiver =
+            send_fetch_partitions(partition_locations, max_request_num);
 
         let stream = RecordBatchStreamAdapter::new(
             Arc::new(schema),

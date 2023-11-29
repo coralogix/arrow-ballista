@@ -419,7 +419,6 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
     use datafusion::prelude::{SessionConfig, SessionContext};
-    use object_store::local::LocalFileSystem;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -650,7 +649,7 @@ filter_expr="]
             "session_id",
             plan,
             0,
-            Arc::new(LocalFileSystem::new()),
+            None,
         )
     }
 
@@ -683,7 +682,7 @@ filter_expr="]
             "session_id",
             plan,
             0,
-            Arc::new(LocalFileSystem::new()),
+            None,
         )
     }
 }

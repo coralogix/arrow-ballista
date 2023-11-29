@@ -74,7 +74,7 @@ mod tests {
         let row_limit = 100;
 
         let logical_codec = Arc::new(TestLogicalCodec::new());
-        let physical_codec = Arc::new(TestPhysicalCodec::new());
+        let physical_codec = Arc::new(TestPhysicalCodec::default());
 
         let scheduler_socket =
             start_scheduler_local(logical_codec.clone(), physical_codec.clone()).await;

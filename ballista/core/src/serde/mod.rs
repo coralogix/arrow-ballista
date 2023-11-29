@@ -82,12 +82,32 @@ pub struct BallistaCodec<
     physical_plan_repr: PhantomData<U>,
 }
 
+impl Default for BallistaCodec {
+    fn default() -> Self {
+        Self {
+            logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
+            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
+                object_store: None,
+            }),
+            logical_plan_repr: Default::default(),
+            physical_plan_repr: Default::default(),
+        }
+    }
+}
 impl BallistaCodec {
+    pub fn new_with_optional_object_store(
+        object_store: Option<Arc<dyn ObjectStore>>,
+    ) -> Self {
+        match object_store {
+            Some(object_store) => Self::new_with_object_store(object_store),
+            _ => Self::default(),
+        }
+    }
     pub fn new_with_object_store(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
             physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
-                object_store,
+                object_store: Some(object_store),
             }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,
@@ -117,14 +137,16 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct BallistaPhysicalExtensionCodec {
-    pub object_store: Arc<dyn ObjectStore>,
+    pub object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl BallistaPhysicalExtensionCodec {
     pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
-        Self { object_store }
+        Self {
+            object_store: Some(object_store),
+        }
     }
 }
 

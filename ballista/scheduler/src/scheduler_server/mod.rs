@@ -80,7 +80,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             cluster,
@@ -119,7 +119,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -786,7 +786,7 @@ mod test {
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
                 Arc::new(TestMetricsCollector::default()),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
 

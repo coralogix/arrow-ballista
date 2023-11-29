@@ -209,7 +209,7 @@ pub fn find_unresolved_shuffles(
 pub fn remove_unresolved_shuffles(
     stage: Arc<dyn ExecutionPlan>,
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {

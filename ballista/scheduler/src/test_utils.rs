@@ -418,9 +418,7 @@ impl SchedulerTest {
         runner: Option<Arc<dyn TaskRunner>>,
         flaky: bool,
     ) -> Result<Self> {
-        let cluster =
-            BallistaCluster::new_from_config(&config, Arc::new(LocalFileSystem::new()))
-                .await?;
+        let cluster = BallistaCluster::new_from_config(&config, None).await?;
 
         let ballista_config = if num_executors > 0 && task_slots_per_executor > 0 {
             BallistaConfig::builder()
@@ -463,7 +461,7 @@ impl SchedulerTest {
                 config,
                 metrics_collector,
                 Arc::new(launcher),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
 
@@ -872,16 +870,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None).unwrap()
 }
 
 pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
@@ -916,16 +905,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None).unwrap()
 }
 
 pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
@@ -952,16 +932,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         .await
         .unwrap();
 
-    ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None).unwrap()
 }
 
 pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
@@ -1009,16 +980,9 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap();
+    let graph =
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None)
+            .unwrap();
 
     println!("{graph:?}");
 
@@ -1049,16 +1013,9 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap();
+    let graph =
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None)
+            .unwrap();
 
     println!("{graph:?}");
 
@@ -1089,16 +1046,9 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::new(
-        "localhost:50050",
-        "job",
-        "",
-        "session",
-        plan,
-        0,
-        Arc::new(LocalFileSystem::new()),
-    )
-    .unwrap();
+    let graph =
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, None)
+            .unwrap();
 
     println!("{graph:?}");
 

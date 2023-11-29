@@ -105,7 +105,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
     pub fn new_with_default_scheduler_name(
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         SchedulerState::new(
             cluster,
@@ -121,7 +121,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
         config: SchedulerConfig,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -148,7 +148,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         scheduler_name: String,
         config: SchedulerConfig,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             executor_manager: ExecutorManager::new(
@@ -483,8 +483,8 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_default_scheduler_name(
                 test_cluster_context(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
-                Arc::new(LocalFileSystem::new()),
+                BallistaCodec::default(),
+                None,
             ));
 
         let (tx, _rx) = flume::unbounded();
@@ -526,7 +526,7 @@ mod test {
                 TEST_SCHEDULER_NAME.into(),
                 SchedulerConfig::default(),
                 Arc::new(BlackholeTaskLauncher::default()),
-                Arc::new(LocalFileSystem::new()),
+                None,
             ));
 
         let session_ctx = state

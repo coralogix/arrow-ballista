@@ -724,7 +724,7 @@ mod test {
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -750,7 +750,7 @@ mod test {
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         state.init().await?;
 
@@ -783,7 +783,7 @@ mod test {
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         state.init().await?;
 
@@ -813,7 +813,7 @@ mod test {
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
 
@@ -899,10 +899,10 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster,
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
 
@@ -955,7 +955,7 @@ mod test {
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
-                Arc::new(LocalFileSystem::new()),
+                None,
             );
         scheduler.init().await?;
 

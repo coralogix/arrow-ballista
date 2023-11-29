@@ -76,7 +76,7 @@ pub struct KeyValueState<
     session_builder: SessionBuilder,
     /// Default datafusion config extensions
     default_extensions: Extensions,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
@@ -88,7 +88,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         codec: BallistaCodec<T, U>,
         session_builder: SessionBuilder,
         default_extensions: Extensions,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             store,
@@ -879,7 +879,7 @@ mod test {
             BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
             default_session_builder,
             Extensions::default(),
-            Arc::new(LocalFileSystem::new()),
+            None,
         ))
     }
 

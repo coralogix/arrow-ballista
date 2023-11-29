@@ -303,7 +303,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     launcher: Arc<dyn TaskLauncher<T, U>>,
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -378,7 +378,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
@@ -391,7 +391,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         scheduler_id: String,
         launcher: Arc<dyn TaskLauncher<T, U>>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 

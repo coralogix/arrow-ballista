@@ -32,7 +32,6 @@ use datafusion::physical_plan::{
 };
 use datafusion::prelude::{col, count, SessionContext};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
-use object_store::local::LocalFileSystem;
 use pprof::criterion::{Output, PProfProfiler};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -317,8 +316,7 @@ async fn setup_env(
         .with_scheduler_policy(TaskSchedulingPolicy::PushStaged);
 
     let metrics = Arc::new(NoopMetricsCollector::default());
-    let object_store = Arc::new(LocalFileSystem::new());
-    let codec = BallistaCodec::new_with_object_store(object_store.clone());
+    let codec = BallistaCodec::default();
 
     let (status_tx, mut status_rx) = mpsc::channel(10_000);
 
@@ -331,7 +329,7 @@ async fn setup_env(
         config,
         metrics,
         launcher,
-        object_store.clone(),
+        None,
     );
 
     server.init().await.unwrap();

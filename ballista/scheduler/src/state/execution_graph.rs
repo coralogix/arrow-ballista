@@ -154,7 +154,7 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -162,7 +162,10 @@ impl ExecutionGraph {
 
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-        let builder = ExecutionStageBuilder::new(object_store);
+        let builder = match object_store {
+            Some(object_store) => ExecutionStageBuilder::new(object_store),
+            _ => ExecutionStageBuilder::default(),
+        };
         let stages = builder.build(shuffle_stages)?;
 
         let started_at = timestamp_millis();
@@ -1365,7 +1368,7 @@ impl ExecutionGraph {
         proto: protobuf::ExecutionGraph,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<ExecutionGraph> {
         let mut stages: HashMap<usize, ExecutionStage> = HashMap::new();
         for graph_stage in proto.stages {
@@ -1599,6 +1602,7 @@ impl Debug for ExecutionGraph {
 ///
 /// This will infer the dependency structure for the stages
 /// so that we can construct a DAG from the stages.
+#[derive(Default)]
 struct ExecutionStageBuilder {
     /// Stage ID which is currently being visited
     current_stage_id: usize,
@@ -1606,7 +1610,7 @@ struct ExecutionStageBuilder {
     stage_dependencies: HashMap<usize, Vec<usize>>,
     /// Map from Stage ID -> output link
     output_links: HashMap<usize, Vec<usize>>,
-    object_store: Arc<dyn ObjectStore>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl ExecutionStageBuilder {
@@ -1615,7 +1619,7 @@ impl ExecutionStageBuilder {
             current_stage_id: 0,
             stage_dependencies: HashMap::new(),
             output_links: HashMap::new(),
-            object_store,
+            object_store: Some(object_store),
         }
     }
 

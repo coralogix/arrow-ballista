@@ -136,7 +136,7 @@ pub(crate) struct UnresolvedStage {
     /// Record last attempt's failure reasons to avoid duplicate resubmits
     pub(crate) last_attempt_failure_reasons: HashSet<String>,
 
-    pub(crate) object_store: Arc<dyn ObjectStore>,
+    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
@@ -164,7 +164,7 @@ pub(crate) struct ResolvedStage {
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
 
-    pub(crate) object_store: Arc<dyn ObjectStore>,
+    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -199,7 +199,7 @@ pub(crate) struct RunningStage {
     pub(crate) stage_metrics: Option<Vec<MetricsSet>>,
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
-    pub(crate) object_store: Arc<dyn ObjectStore>,
+    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
@@ -226,7 +226,7 @@ pub(crate) struct SuccessfulStage {
     pub(crate) task_infos: Vec<TaskInfo>,
     /// Combined metrics of the already finished tasks in the stage.
     pub(crate) stage_metrics: Vec<MetricsSet>,
-    pub(crate) object_store: Arc<dyn ObjectStore>,
+    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// If a stage fails, it will be with an error message
@@ -290,7 +290,7 @@ impl UnresolvedStage {
         output_partitioning: Option<Partitioning>,
         output_links: Vec<usize>,
         child_stage_ids: Vec<usize>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
         for input_stage_id in child_stage_ids {
@@ -318,7 +318,7 @@ impl UnresolvedStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             stage_id,
@@ -424,7 +424,7 @@ impl UnresolvedStage {
         stage: protobuf::UnResolvedStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<UnresolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -508,7 +508,7 @@ impl ResolvedStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
 
@@ -562,7 +562,7 @@ impl ResolvedStage {
         stage: protobuf::ResolvedStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<ResolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -647,7 +647,7 @@ impl RunningStage {
         output_links: Vec<usize>,
         inputs: HashMap<usize, StageOutput>,
         resolved_at: u64,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             stage_id,
@@ -1042,7 +1042,7 @@ impl SuccessfulStage {
         stage: protobuf::SuccessfulStage,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<SuccessfulStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
