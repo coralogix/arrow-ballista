@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use datafusion::arrow::ipc::writer::{IpcWriteOptions, StreamWriter};
+use datafusion::arrow::ipc::CompressionType;
+
 use object_store::{path::Path, ObjectStore};
 use tokio::io::AsyncWriteExt;
 use tokio::{fs::File, sync::mpsc};
@@ -33,21 +35,19 @@ pub async fn start_replication(
                                         let mut serialized_data = Vec::with_capacity(
                                             batch.get_array_memory_size(),
                                         );
-                                        // let options = match IpcWriteOptions::default()
-                                        //     .try_with_compression(Some(
-                                        //         CompressionType::LZ4_FRAME,
-                                        //     )) {
-                                        //     Err(error) => {
-                                        //         warn!(
-                                        //             ?error,
-                                        //             "Failed to enable compression"
-                                        //         );
-                                        //         IpcWriteOptions::default()
-                                        //     }
-                                        //     Ok(opt) => opt,
-                                        // };
-
-                                        let options = IpcWriteOptions::default();
+                                        let options = match IpcWriteOptions::default()
+                                            .try_with_compression(Some(
+                                                CompressionType::LZ4_FRAME,
+                                            )) {
+                                            Err(error) => {
+                                                warn!(
+                                                    ?error,
+                                                    "Failed to enable compression"
+                                                );
+                                                IpcWriteOptions::default()
+                                            }
+                                            Ok(opt) => opt,
+                                        };
 
                                         {
                                             match StreamWriter::try_new_with_options(
