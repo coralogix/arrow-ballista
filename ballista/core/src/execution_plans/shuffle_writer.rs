@@ -22,6 +22,7 @@
 
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use tokio::sync::mpsc;
+use tracing::warn;
 
 use crate::{replicator, utils};
 use std::any::Any;
@@ -56,7 +57,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use log::{debug, info, warn};
+use log::{debug, info};
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -224,8 +225,8 @@ impl ShuffleWriterExec {
                             path: path.to_string(),
                         };
 
-                        if sender.send(cmd).await.is_err() {
-                            warn!("Failed to send path for replication {}", path);
+                        if let Err(error) = sender.send(cmd).await {
+                            warn!(?path, ?error, "Failed to send path for replication");
                         }
                     }
 
