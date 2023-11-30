@@ -559,7 +559,7 @@ fn fetch_partition_local_inner(
     })
 }
 
-async fn fetch_partition_object_store(
+pub async fn fetch_partition_object_store(
     location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {

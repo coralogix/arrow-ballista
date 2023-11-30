@@ -26,6 +26,7 @@ mod unresolved_shuffle;
 
 pub use coalesce_tasks::CoalesceTasksExec;
 pub use distributed_query::DistributedQueryExec;
+pub use shuffle_reader::fetch_partition_object_store;
 pub use shuffle_reader::ShuffleReaderExec;
 pub use shuffle_writer::ShuffleWriterExec;
 pub use unresolved_shuffle::UnresolvedShuffleExec;
