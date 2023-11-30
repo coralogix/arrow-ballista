@@ -177,7 +177,9 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             .map(executor_registration::OptionalHost::Host),
         port: opt.port as u32,
         grpc_port: opt.grpc_port as u32,
-        specification: Some(ExecutorSpecification { resources }),
+        specification: Some(ExecutorSpecification {
+            resources: resources.clone(),
+        }),
     };
 
     let config = with_object_store_provider(
@@ -365,11 +367,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
                         .map(executor_registration::OptionalHost::Host),
                     port: opt.port as u32,
                     grpc_port: opt.grpc_port as u32,
-                    specification: Some(ExecutorSpecification {
-                        resources: vec![ExecutorResource {
-                            resource: Some(Resource::TaskSlots(concurrent_tasks as u32)),
-                        }],
-                    }),
+                    specification: Some(ExecutorSpecification { resources }),
                 }),
             })
             .await
