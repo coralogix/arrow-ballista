@@ -488,7 +488,12 @@ impl PartitionReader for PartitionReaderEnum {
             PartitionReaderEnum::Local => fetch_partition_local(location).await,
             PartitionReaderEnum::FlightRemote => fetch_partition_remote(location).await,
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
-                fetch_partition_object_store(location, object_store.clone()).await
+                fetch_partition_object_store(
+                    location.executor_meta.id.clone(),
+                    location.path.clone(),
+                    object_store.clone(),
+                )
+                .await
             }
         }
     }
@@ -560,17 +565,13 @@ fn fetch_partition_local_inner(
 }
 
 pub async fn fetch_partition_object_store(
-    location: &PartitionLocation,
+    executor_id: String,
+    path: String,
     object_store: Arc<dyn ObjectStore>,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
-    let executor_id = location.executor_meta.id.clone();
-    let path = Path::parse(format!("{}/{}", executor_id.as_str(), location.path))
-        .map_err(|e| {
-            BallistaError::General(format!(
-                "Failed to parse partition location - {:?}",
-                e
-            ))
-        })?;
+    let path = Path::parse(format!("{}/{}", executor_id, path)).map_err(|e| {
+        BallistaError::General(format!("Failed to parse partition location - {:?}", e))
+    })?;
     let stream = object_store
         .as_ref()
         .get(&path)
