@@ -7,7 +7,7 @@ use datafusion::arrow::ipc::CompressionType;
 use object_store::{path::Path, ObjectStore};
 use tokio::io::AsyncWriteExt;
 use tokio::{fs::File, sync::mpsc};
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::client::AsyncStreamReader;
 use crate::error::BallistaError;
@@ -23,6 +23,7 @@ pub async fn start_replication(
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
     while let Some(Command::Replicate { path }) = receiver.recv().await {
+        info!(path, "Start replication");
         match Path::parse(base_path.as_str()) {
             Ok(location) => match File::open(path.as_str()).await {
                 Ok(file) => match AsyncStreamReader::try_new(file.compat(), None).await {

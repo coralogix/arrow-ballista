@@ -222,16 +222,6 @@ impl ShuffleWriterExec {
                     .await
                     .map_err(DataFusionError::from)?;
 
-                    if let Some(sender) = sender {
-                        let cmd = replicator::Command::Replicate {
-                            path: path.to_string(),
-                        };
-
-                        if let Err(error) = sender.send(cmd).await {
-                            warn!(?path, ?error, "Failed to send path for replication");
-                        }
-                    }
-
                     write_metrics
                         .input_rows
                         .add(stats.num_rows.unwrap_or(0) as usize);
@@ -245,6 +235,16 @@ impl ShuffleWriterExec {
                         now.elapsed().as_secs(),
                         stats
                     );
+
+                    if let Some(sender) = sender.as_ref() {
+                        let cmd = replicator::Command::Replicate {
+                            path: path.to_string(),
+                        };
+
+                        if let Err(error) = sender.send(cmd).await {
+                            warn!(?path, ?error, "Failed to send path for replication");
+                        }
+                    }
 
                     Ok(vec![ShuffleWritePartition {
                         partitions: partitions.iter().map(|p| *p as u32).collect(),
@@ -326,18 +326,32 @@ impl ShuffleWriterExec {
                                     w.num_rows,
                                     w.num_bytes
                                 );
-
+                                let path = w.path().to_string_lossy().to_string();
                                 part_locs.push(ShuffleWritePartition {
                                     partitions: partitions
                                         .iter()
                                         .map(|p| *p as u32)
                                         .collect(),
                                     output_partition: i as u32,
-                                    path: w.path().to_string_lossy().to_string(),
+                                    path: path.clone(),
                                     num_batches: w.num_batches,
                                     num_rows: w.num_rows,
                                     num_bytes: w.num_bytes,
                                 });
+
+                                if let Some(sender) = sender.as_ref() {
+                                    let cmd = replicator::Command::Replicate {
+                                        path: path.clone(),
+                                    };
+
+                                    if let Err(error) = sender.send(cmd).await {
+                                        warn!(
+                                            ?path,
+                                            ?error,
+                                            "Failed to send path for replication"
+                                        );
+                                    }
+                                }
                             }
                             None => {}
                         }
