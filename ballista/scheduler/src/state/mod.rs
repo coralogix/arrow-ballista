@@ -631,6 +631,7 @@ mod test {
                     grpc_port: 9090,
                     specification: ExecutorSpecification {
                         task_slots: slots_per_executor,
+                        version: "".to_string(),
                     },
                 },
                 ExecutorData {
