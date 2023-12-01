@@ -23,8 +23,8 @@ use crate::execution_plans::{
 use crate::serde::scheduler::PartitionStats;
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::Schema;
-use datafusion::arrow::ipc::CompressionType;
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
+use datafusion::arrow::ipc::CompressionType;
 use datafusion::arrow::{ipc::writer::FileWriter, record_batch::RecordBatch};
 use datafusion::datasource::object_store::{
     DefaultObjectStoreRegistry, ObjectStoreRegistry,
