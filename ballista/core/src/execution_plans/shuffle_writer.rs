@@ -315,45 +315,41 @@ impl ShuffleWriterExec {
                     let mut part_locs = vec![];
 
                     for (i, w) in writers.iter_mut().enumerate() {
-                        match w {
-                            Some(w) => {
-                                w.finish()?;
-                                debug!(
-                                    "Finished shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
-                                    i,
-                                    w.path(),
-                                    w.num_batches,
-                                    w.num_rows,
-                                    w.num_bytes
-                                );
-                                let path = w.path().to_string_lossy().to_string();
-                                part_locs.push(ShuffleWritePartition {
-                                    partitions: partitions
-                                        .iter()
-                                        .map(|p| *p as u32)
-                                        .collect(),
-                                    output_partition: i as u32,
-                                    path: path.clone(),
-                                    num_batches: w.num_batches,
-                                    num_rows: w.num_rows,
-                                    num_bytes: w.num_bytes,
-                                });
+                        if let Some(w) = w {
+                            w.finish()?;
+                            debug!(
+                                "Finished shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
+                                i,
+                                w.path(),
+                                w.num_batches,
+                                w.num_rows,
+                                w.num_bytes
+                            );
+                            let path = w.path().to_string_lossy().to_string();
+                            part_locs.push(ShuffleWritePartition {
+                                partitions: partitions
+                                    .iter()
+                                    .map(|p| *p as u32)
+                                    .collect(),
+                                output_partition: i as u32,
+                                path: path.clone(),
+                                num_batches: w.num_batches,
+                                num_rows: w.num_rows,
+                                num_bytes: w.num_bytes,
+                            });
 
-                                if let Some(sender) = sender.as_ref() {
-                                    let cmd = replicator::Command::Replicate {
-                                        path: path.clone(),
-                                    };
+                            if let Some(sender) = sender.as_ref() {
+                                let cmd =
+                                    replicator::Command::Replicate { path: path.clone() };
 
-                                    if let Err(error) = sender.send(cmd).await {
-                                        warn!(
-                                            ?path,
-                                            ?error,
-                                            "Failed to send path for replication"
-                                        );
-                                    }
+                                if let Err(error) = sender.send(cmd).await {
+                                    warn!(
+                                        ?path,
+                                        ?error,
+                                        "Failed to send path for replication"
+                                    );
                                 }
                             }
-                            None => {}
                         }
                     }
                     Ok(part_locs)

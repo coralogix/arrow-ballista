@@ -23,11 +23,12 @@ pub async fn start_replication(
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
     while let Some(Command::Replicate { path }) = receiver.recv().await {
-        info!(path, "Start replication");
-        match Path::parse(base_path.as_str()) {
-            Ok(location) => match File::open(path.as_str()).await {
+        let destination = format!("{}/{}", base_path, path);
+        info!(destination, "Start replication");
+        match Path::parse(destination) {
+            Ok(dest) => match File::open(path.as_str()).await {
                 Ok(file) => match AsyncStreamReader::try_new(file.compat(), None).await {
-                    Ok(mut reader) => match object_store.put_multipart(&location).await {
+                    Ok(mut reader) => match object_store.put_multipart(&dest).await {
                         Ok((_, mut multipart_writer)) => {
                             while let Some(batch) = reader.maybe_next().await.transpose()
                             {
