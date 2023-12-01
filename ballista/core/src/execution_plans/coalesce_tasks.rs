@@ -17,8 +17,8 @@
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::Result;
 use datafusion::common::Statistics;
+use datafusion::common::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::common::AbortOnDropMany;
@@ -31,9 +31,10 @@ use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
     SendableRecordBatchStream,
 };
-use futures::{Stream, StreamExt};
+use futures::{FutureExt, Stream, StreamExt};
 use log::debug;
 use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::task::Poll;
 use tokio::sync::mpsc;
@@ -154,15 +155,42 @@ impl ExecutionPlan for CoalesceTasksExec {
                     Ok(stream) => stream,
                 };
 
-                while let Some(item) = stream.next().await {
-                    // If send fails, plan being torn down,
-                    // there is no place to send the error.
-                    if output.send(item).await.is_err() {
-                        debug!(
+                loop {
+                    match AssertUnwindSafe(stream.next()).catch_unwind().await {
+                        Ok(Some(next)) => {
+                            if output.send(next).await.is_err() {
+                                debug!(
                             "Stopping execution: output is gone, plan cancelling: {}",
                             DisplayableExecutionPlan::new(input.as_ref()).one_line()
                         );
-                        return;
+                                return;
+                            }
+                        }
+                        Ok(None) => return,
+                        Err(any) => {
+                            let err = if let Some(s) = any.downcast_ref::<&str>() {
+                                DataFusionError::Execution((*s).to_string())
+                            } else if let Some(s) = any.downcast_ref::<String>() {
+                                DataFusionError::Execution(s.clone())
+                            } else if let Some(error) =
+                                any.downcast_ref::<Box<dyn std::error::Error + Send>>()
+                            {
+                                DataFusionError::Execution(error.to_string())
+                            } else {
+                                DataFusionError::Execution(
+                                    "Unknown error occurred".to_string(),
+                                )
+                            };
+
+                            if output.send(Err(err)).await.is_err() {
+                                debug!(
+                                    "Stopping execution: output is gone, plan cancelling: {}",
+                                    DisplayableExecutionPlan::new(input.as_ref()).one_line()
+                                );
+                            }
+
+                            return;
+                        }
                     }
                 }
             };
@@ -210,5 +238,104 @@ impl Stream for MergeStream {
 impl RecordBatchStream for MergeStream {
     fn schema(&self) -> SchemaRef {
         self.schema.clone()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::execution_plans::CoalesceTasksExec;
+    use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+    use datafusion::arrow::record_batch::RecordBatch;
+    use datafusion::common::DataFusionError;
+    use datafusion::execution::{
+        RecordBatchStream, SendableRecordBatchStream, TaskContext,
+    };
+    use datafusion::physical_expr::{Partitioning, PhysicalSortExpr};
+    use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan};
+    use futures::{Stream, StreamExt};
+    use std::any::Any;
+    use std::fmt::Formatter;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll};
+
+    #[derive(Debug)]
+    struct PanicOperator(SchemaRef, usize);
+
+    impl DisplayAs for PanicOperator {
+        fn fmt_as(&self, _t: DisplayFormatType, f: &mut Formatter) -> std::fmt::Result {
+            write!(f, "PanicOperation")
+        }
+    }
+
+    impl ExecutionPlan for PanicOperator {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn schema(&self) -> SchemaRef {
+            self.0.clone()
+        }
+
+        fn output_partitioning(&self) -> Partitioning {
+            Partitioning::UnknownPartitioning(self.1)
+        }
+
+        fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
+            None
+        }
+
+        fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
+            vec![]
+        }
+
+        fn with_new_children(
+            self: Arc<Self>,
+            _children: Vec<Arc<dyn ExecutionPlan>>,
+        ) -> datafusion::common::Result<Arc<dyn ExecutionPlan>> {
+            Ok(self)
+        }
+
+        fn execute(
+            &self,
+            _partition: usize,
+            _context: Arc<TaskContext>,
+        ) -> datafusion::common::Result<SendableRecordBatchStream> {
+            Ok(Box::pin(PanicStream(self.schema())))
+        }
+    }
+
+    struct PanicStream(SchemaRef);
+
+    impl Stream for PanicStream {
+        type Item = Result<RecordBatch, DataFusionError>;
+
+        fn poll_next(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Option<Self::Item>> {
+            panic!("panic stream panics")
+        }
+    }
+
+    impl RecordBatchStream for PanicStream {
+        fn schema(&self) -> SchemaRef {
+            self.0.clone()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_partition_panic() {
+        let schema =
+            Arc::new(Schema::new(vec![Field::new("a", DataType::Binary, false)]));
+        let panic_exec = Arc::new(PanicOperator(schema, 10));
+
+        let exec = Arc::new(CoalesceTasksExec::new(panic_exec, vec![0, 1, 2]));
+
+        let mut stream = exec
+            .execute(0, Arc::new(TaskContext::default()))
+            .expect("execute stream");
+
+        assert!(matches!(stream.next().await, Some(Err(_))))
     }
 }
