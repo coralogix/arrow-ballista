@@ -30,7 +30,8 @@ use std::task::{Context, Poll};
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 
-use crate::client::{AsyncStreamReader, BallistaClient};
+use crate::client::BallistaClient;
+use crate::replicator::async_reader::AsyncStreamReader;
 use crate::serde::scheduler::{PartitionLocation, PartitionStats};
 
 use datafusion::arrow::datatypes::SchemaRef;
