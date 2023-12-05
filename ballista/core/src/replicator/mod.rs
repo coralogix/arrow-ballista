@@ -26,7 +26,7 @@ pub async fn start_replication(
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
     while let Some(Command::Replicate { path }) = receiver.recv().await {
-        let destination = format!("{}/{}", base_path, path);
+        let destination = format!("{}{}", base_path, path);
         info!(destination, "Start replication");
 
         match Path::parse(destination) {
@@ -278,5 +278,12 @@ mod tests {
         assert!(batches.len() == 1);
         assert_eq!(batches[0], batch);
         Ok(())
+    }
+
+    #[test]
+    fn parse_path() {
+        let path_str = "executor-dataprime-query-engine-79779bbd8c-l6gp6/data/shuffles/555585-other-10821e40-22f4-4a02-8817-05d7f52bksf2-4fAJ0vZhxCP-combined-statistics/1/efec3c4b-8465-43f9-b597-3f5ce1489808/data.arrow";
+
+        assert!(Path::parse(path_str).is_ok())
     }
 }
