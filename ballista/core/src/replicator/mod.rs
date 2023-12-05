@@ -105,6 +105,7 @@ async fn replicate_to_object_store(
 mod tests {
     use std::{pin::Pin, sync::Arc};
 
+    use crate::{execution_plans::batch_stream_from_object_store, utils::collect_stream};
     use datafusion::{
         arrow::{
             array::{StringArray, UInt32Array},
@@ -112,13 +113,16 @@ mod tests {
             record_batch::RecordBatch,
         },
         error::Result,
-        physical_plan::RecordBatchStream,
+        physical_plan::{
+            stream::RecordBatchStreamAdapter, RecordBatchStream,
+            SendableRecordBatchStream,
+        },
     };
     use futures::Stream;
     use object_store::{memory::InMemory, path::Path, ObjectStore};
     use tempfile::TempDir;
 
-    use crate::replicator::{load_file, replicate_to_object_store};
+    use crate::replicator::{load_file, replicate_to_object_store, serialize_batch};
 
     pub struct OneElementStream {
         schema: Arc<Schema>,
@@ -230,13 +234,49 @@ mod tests {
 
         assert!(stats.num_batches.unwrap() == 1);
         let reader = load_file(file_path).await.unwrap();
-        let destination = Path::parse("2.data").unwrap();
+        let destination: Path = Path::parse("2.data").unwrap();
         replicate_to_object_store(&destination, reader, object_store.clone())
             .await
             .unwrap();
 
         let object_meta = object_store.head(&destination).await.unwrap();
         assert!(object_meta.size == 552);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn load_from_object_store() -> Result<()> {
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("a", DataType::UInt32, true),
+            Field::new("b", DataType::Utf8, true),
+        ]));
+        let object_store = Arc::new(InMemory::new());
+
+        // define data.
+        let batch = RecordBatch::try_new(
+            schema.clone(),
+            vec![
+                Arc::new(UInt32Array::from(vec![Some(1), Some(2)])),
+                Arc::new(StringArray::from(vec![Some("hello"), Some("world")])),
+            ],
+        )
+        .unwrap();
+
+        let bytes = serialize_batch(batch.clone()).unwrap();
+        let destination: Path = Path::parse("2.data").unwrap();
+
+        object_store.put(&destination, bytes).await?;
+        let stream =
+            batch_stream_from_object_store("id".to_string(), &destination, object_store)
+                .await?;
+
+        let mut stream: SendableRecordBatchStream =
+            Box::pin(RecordBatchStreamAdapter::new(stream.schema(), stream));
+
+        let batches = collect_stream(&mut stream).await.unwrap();
+
+        assert!(batches.len() == 1);
+        assert_eq!(batches[0], batch);
         Ok(())
     }
 }

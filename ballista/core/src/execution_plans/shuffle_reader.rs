@@ -573,9 +573,21 @@ pub async fn fetch_partition_object_store(
     let path = Path::parse(format!("{}/{}", executor_id, path)).map_err(|e| {
         BallistaError::General(format!("Failed to parse partition location - {:?}", e))
     })?;
+    let stream = batch_stream_from_object_store(executor_id, &path, object_store).await?;
+    Ok(Box::pin(RecordBatchStreamAdapter::new(
+        stream.schema(),
+        stream,
+    )))
+}
+
+pub async fn batch_stream_from_object_store(
+    executor_id: String,
+    path: &Path,
+    object_store: Arc<dyn ObjectStore>,
+) -> Result<RecordBatchReceiver> {
     let stream = object_store
         .as_ref()
-        .get(&path)
+        .get(path)
         .await
         .map_err(|e| {
             BallistaError::General(format!("Failed to fetch partition - {:?}", e))
@@ -601,11 +613,7 @@ pub async fn fetch_partition_object_store(
             warn!(executor_id, error = %e, "error streaming shuffle partition");
         }
     });
-    let stream = RecordBatchReceiver::new(rx, schema);
-    Ok(Box::pin(RecordBatchStreamAdapter::new(
-        stream.schema(),
-        stream,
-    )))
+    Ok(RecordBatchReceiver::new(rx, schema))
 }
 
 async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
@@ -635,7 +643,7 @@ async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
     Ok(())
 }
 
-struct RecordBatchReceiver {
+pub struct RecordBatchReceiver {
     inner: Receiver<datafusion::error::Result<RecordBatch>>,
     schema: SchemaRef,
 }
