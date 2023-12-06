@@ -606,6 +606,8 @@ pub struct ExecutorData {
     pub executor_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "2")]
     pub resources: ::prost::alloc::vec::Vec<ExecutorResourcePair>,
+    #[prost(string, tag = "3")]
+    pub executor_version: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -91,6 +91,7 @@ pub fn encode_protobuf<T: Message + Default>(msg: &T) -> Result<Vec<u8>> {
 
 #[derive(Clone)]
 pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> {
+    pub scheduler_version: String,
     pub executor_manager: ExecutorManager,
     pub task_manager: TaskManager<T, U>,
     pub session_manager: SessionManager,
@@ -101,7 +102,7 @@ pub struct SchedulerState<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPl
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T, U> {
     #[cfg(test)]
-    pub fn new_with_default_scheduler_name(
+    pub fn new_with_default_scheduler_name_and_version(
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
     ) -> Self {
@@ -109,6 +110,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             cluster,
             codec,
             "localhost:50050".to_owned(),
+            String::default(),
             SchedulerConfig::default(),
         )
     }
@@ -117,9 +119,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
+        scheduler_version: String,
         config: SchedulerConfig,
     ) -> Self {
         Self {
+            scheduler_version,
             executor_manager: ExecutorManager::new(
                 cluster.cluster_state(),
                 config.task_distribution,
@@ -141,10 +145,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
         scheduler_name: String,
+        scheduler_version: String,
         config: SchedulerConfig,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
     ) -> Self {
         Self {
+            scheduler_version,
             executor_manager: ExecutorManager::new(
                 cluster.cluster_state(),
                 config.task_distribution,
@@ -468,12 +474,13 @@ mod test {
     use std::sync::Arc;
 
     const TEST_SCHEDULER_NAME: &str = "localhost:50050";
+    const TEST_VERSION: &str = "test-v0.1";
 
     // We should free any reservations which are not assigned
     #[tokio::test]
     async fn test_offer_free_reservations() -> Result<()> {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
-            Arc::new(SchedulerState::new_with_default_scheduler_name(
+            Arc::new(SchedulerState::new_with_default_scheduler_name_and_version(
                 test_cluster_context(),
                 BallistaCodec::default(),
             ));
@@ -515,6 +522,7 @@ mod test {
                 test_cluster_context(),
                 BallistaCodec::default(),
                 TEST_SCHEDULER_NAME.into(),
+                TEST_VERSION.into(),
                 SchedulerConfig::default(),
                 Arc::new(BlackholeTaskLauncher::default()),
             ));
@@ -621,13 +629,14 @@ mod test {
                     grpc_port: 9090,
                     specification: ExecutorSpecification {
                         task_slots: slots_per_executor,
-                        version: "".to_string(),
+                        version: "test-v0.1".to_string(),
                     },
                 },
                 ExecutorData {
                     executor_id: format!("executor-{i}"),
                     total_task_slots: slots_per_executor,
                     available_task_slots: slots_per_executor,
+                    executor_version: "test-v0.1".to_string(),
                 },
             ));
         }

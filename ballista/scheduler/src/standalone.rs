@@ -47,6 +47,7 @@ pub async fn new_standalone_scheduler_with_codec(
     let mut scheduler_server: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
         SchedulerServer::new(
             "localhost:50050".to_owned(),
+            "standalone".to_owned(),
             cluster,
             BallistaCodec::new(logical_codec, physical_codec),
             SchedulerConfig::default(),

@@ -766,13 +766,14 @@ mod test {
                     grpc_port: 9090,
                     specification: ExecutorSpecification {
                         task_slots: slots_per_executor,
-                        version: "".to_string(),
+                        version: "test-v0.1".to_string(),
                     },
                 },
                 ExecutorData {
                     executor_id: format!("executor-{i}"),
                     total_task_slots: slots_per_executor,
                     available_task_slots: slots_per_executor,
+                    executor_version: "test-v0.1".to_string(),
                 },
             ));
         }
