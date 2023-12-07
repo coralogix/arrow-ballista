@@ -37,6 +37,8 @@ pub async fn start_replication(
                             .await
                     {
                         warn!(?error, ?path, "Failed to upload file to object store");
+                    } else {
+                        info!(?path, "Replication complete");
                     }
                 }
                 Err(error) => {
