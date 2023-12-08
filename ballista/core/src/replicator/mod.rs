@@ -94,12 +94,18 @@ async fn replicate_to_object_store(
     while let Some(batch) = reader.maybe_next().await.transpose() {
         if let Ok(batch) = batch {
             let data = serialize_batch(batch)?;
-            upload.write_all(&data).await?;
+            upload.write_all(&data).await.map_err(|e| {
+                BallistaError::General(format!("Failed to write batch: {:?}", e))
+            })?;
         }
     }
 
-    upload.flush().await?;
-    upload.shutdown().await?;
+    upload.flush().await.map_err(|e| {
+        BallistaError::General(format!("Failed to flush async writer: {:?}", e))
+    })?;
+    upload.shutdown().await.map_err(|e| {
+        BallistaError::General(format!("Failed to shutdown async writer: {:?}", e))
+    })?;
 
     Ok(())
 }

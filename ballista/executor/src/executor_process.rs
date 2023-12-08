@@ -202,7 +202,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     match opt.replication_url {
         Some(replication_url) => match ObjectStoreUrl::parse(replication_url.as_str()) {
             Ok(url) => {
-                let (send, recv) = mpsc::channel::<replicator::Command>(10);
+                let (send, recv) = mpsc::channel::<replicator::Command>(1);
                 let object_store = runtime.object_store(url)?;
 
                 replicator_send = Some(send.clone());
