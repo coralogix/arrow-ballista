@@ -197,6 +197,7 @@ impl ShuffleWriterExec {
         // add unique id for output
         let shuffle_id = uuid::Uuid::new_v4();
         let sender = self.sender();
+        let job_id = self.job_id.clone();
 
         async move {
             let now = Instant::now();
@@ -238,6 +239,7 @@ impl ShuffleWriterExec {
 
                     if let Some(sender) = sender.as_ref() {
                         let cmd = replicator::Command::Replicate {
+                            job_id: job_id.clone(),
                             path: path.to_string(),
                         };
 
@@ -253,6 +255,7 @@ impl ShuffleWriterExec {
                         num_batches: stats.num_batches.unwrap_or(0),
                         num_rows: stats.num_rows.unwrap_or(0),
                         num_bytes: stats.num_bytes.unwrap_or(0),
+                        replicated: false,
                     }])
                 }
 
@@ -336,11 +339,14 @@ impl ShuffleWriterExec {
                                 num_batches: w.num_batches,
                                 num_rows: w.num_rows,
                                 num_bytes: w.num_bytes,
+                                replicated: false,
                             });
 
                             if let Some(sender) = sender.as_ref() {
-                                let cmd =
-                                    replicator::Command::Replicate { path: path.clone() };
+                                let cmd = replicator::Command::Replicate {
+                                    job_id: job_id.clone(),
+                                    path: path.clone(),
+                                };
 
                                 if let Err(error) = sender.send(cmd).await {
                                     warn!(

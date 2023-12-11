@@ -226,6 +226,7 @@ message PartitionLocation {
   ExecutorMetadata executor_meta = 3;
   PartitionStats partition_stats = 4;
   string path = 5;
+  bool replicated = 8;
 }
 
 message PartitionStats {
@@ -405,6 +406,7 @@ message ShuffleWritePartition {
   uint64 num_batches = 3;
   uint64 num_rows = 4;
   uint64 num_bytes = 5;
+  bool replicated = 7;
 }
 
 message TaskStatus {
@@ -508,6 +510,13 @@ message UpdateTaskStatusParams {
 message UpdateTaskStatusResult {
   bool success = 1;
 }
+
+message UpdatePartitionReplicationStatusRequest {
+  string job_id = 1;
+  string path = 2;
+}
+
+message UpdatePartitionReplicationStatusResponse {}
 
 message ExecuteQueryParams {
   oneof query {
@@ -1042,6 +1051,8 @@ service SchedulerGrpc {
   rpc SchedulerLost(SchedulerLostParams) returns (SchedulerLostResponse) {}
 
   rpc ListJobs(ListJobsRequest) returns (ListJobsResponse) {}
+
+  rpc UpdatePartitionReplicationStatus(UpdatePartitionReplicationStatusRequest) returns (UpdatePartitionReplicationStatusResponse) {}
 }
 
 service ExecutorGrpc {

@@ -737,6 +737,30 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         }
     }
 
+    pub async fn set_partition_as_replicated(
+        &self,
+        job_id: &str,
+        path: &str,
+    ) -> Result<()> {
+        if let Some(JobStatus {
+            status:
+                Some(job_status::Status::Successful(SuccessfulJob {
+                    mut partition_location,
+                    ..
+                })),
+            ..
+        }) = self.state.get_job_status(job_id).await?
+        {
+            {
+                if let Some(p) = partition_location.iter_mut().find(|p| p.path == path) {
+                    p.replicated = true;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// return a Vec of running tasks need to cancel
     pub async fn executor_lost(&self, executor_id: &str) -> Result<Vec<RunningTaskInfo>> {
         // Collect all the running task need to cancel when there are running stages rolled back.
@@ -771,6 +795,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         .as_ref()
                         .map(|meta| meta.id == executor_id)
                         .unwrap_or_default()
+                        && !part.replicated
                 }) {
                     warn!(
                         executor_id,

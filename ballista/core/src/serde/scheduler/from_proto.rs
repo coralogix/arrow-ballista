@@ -106,6 +106,7 @@ impl TryInto<PartitionLocation> for protobuf::PartitionLocation {
                 })?
                 .into(),
             path: self.path,
+            replicated: self.replicated,
         })
     }
 }

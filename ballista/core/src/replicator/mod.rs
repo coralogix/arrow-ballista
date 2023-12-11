@@ -8,26 +8,30 @@ use datafusion::arrow::record_batch::RecordBatch;
 use object_store::{path::Path, ObjectStore};
 use tokio::io::AsyncWriteExt;
 use tokio::{fs::File, sync::mpsc};
+use tonic::transport::Channel;
 use tracing::{info, warn};
 
 use crate::error::BallistaError;
+use crate::serde::protobuf::scheduler_grpc_client::SchedulerGrpcClient;
+use crate::serde::protobuf::UpdatePartitionReplicationStatusRequest;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 use self::async_reader::AsyncFileReader;
 pub mod async_reader;
 
 pub enum Command {
-    Replicate { path: String },
+    Replicate { job_id: String, path: String },
 }
 
 pub async fn start_replication(
+    mut scheduler_grpc_client: SchedulerGrpcClient<Channel>,
     base_path: String,
     object_store: Arc<dyn ObjectStore>,
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
-    while let Some(Command::Replicate { path }) = receiver.recv().await {
+    while let Some(Command::Replicate { job_id, path }) = receiver.recv().await {
         let destination = format!("{}{}", base_path, path);
-        info!(destination, "Start replication");
+        info!(?job_id, destination, "Start replication");
 
         match Path::parse(destination) {
             Ok(dest) => match load_file(path.as_str()).await {
@@ -36,17 +40,39 @@ pub async fn start_replication(
                         replicate_to_object_store(&dest, reader, object_store.clone())
                             .await
                     {
-                        warn!(?error, ?path, "Failed to upload file to object store");
+                        warn!(
+                            ?job_id,
+                            ?path,
+                            ?error,
+                            "Failed to upload file to object store"
+                        );
                     } else {
-                        info!(?path, "Replication complete");
+                        if let Err(error) = scheduler_grpc_client
+                            .update_partition_replication_status(
+                                UpdatePartitionReplicationStatusRequest {
+                                    job_id: job_id.clone(),
+                                    path: path.clone(),
+                                },
+                            )
+                            .await
+                        {
+                            warn!(
+                                ?job_id,
+                                ?path,
+                                ?error,
+                                "Failed to update partition replication status"
+                            );
+                        }
+
+                        info!(?job_id, ?path, "Replication complete");
                     }
                 }
                 Err(error) => {
-                    warn!(?error, ?path, "Failed to open file");
+                    warn!(?job_id, ?path, ?error, "Failed to open file");
                 }
             },
             Err(error) => {
-                warn!(?error, ?path, "Failed to parse replication path");
+                warn!(?job_id, ?error, ?path, "Failed to parse replication path");
             }
         }
     }

@@ -195,44 +195,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         FuturesUnordered::new();
 
     let metrics_collector = Arc::new(LoggingMetricsCollector::default());
-
-    let mut replicator_send = None;
-    let mut replicator_object_store = None;
-
-    match opt.replication_url {
-        Some(replication_url) => match ObjectStoreUrl::parse(replication_url.as_str()) {
-            Ok(url) => {
-                let (send, recv) = mpsc::channel::<replicator::Command>(1);
-                let object_store = runtime.object_store(url)?;
-
-                replicator_send = Some(send.clone());
-                replicator_object_store = Some(object_store.clone());
-
-                service_handlers.push(tokio::spawn(replicator::start_replication(
-                    executor_id.clone(),
-                    object_store,
-                    recv,
-                )));
-            }
-            Err(error) => {
-                warn!(?error, replication_url, "Invalid replication url");
-            }
-        },
-        _ => {
-            info!("No replication configured")
-        }
-    }
-
-    let executor = Arc::new(Executor::new(
-        executor_meta,
-        &work_dir,
-        replicator_send.clone(),
-        runtime,
-        metrics_collector,
-        concurrent_tasks,
-        opt.execution_engine,
-    ));
-
     let connect_timeout = opt.scheduler_connect_timeout_seconds as u64;
     let connection = if connect_timeout == 0 {
         create_grpc_client_connection(scheduler_url)
@@ -272,8 +234,44 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             .into()),
         }
     }?;
-
     let mut scheduler = SchedulerGrpcClient::new(connection);
+    let mut replicator_send = None;
+    let mut replicator_object_store = None;
+
+    match opt.replication_url {
+        Some(replication_url) => match ObjectStoreUrl::parse(replication_url.as_str()) {
+            Ok(url) => {
+                let (send, recv) = mpsc::channel::<replicator::Command>(1);
+                let object_store = runtime.object_store(url)?;
+
+                replicator_send = Some(send.clone());
+                replicator_object_store = Some(object_store.clone());
+
+                service_handlers.push(tokio::spawn(replicator::start_replication(
+                    scheduler.clone(),
+                    executor_id.clone(),
+                    object_store,
+                    recv,
+                )));
+            }
+            Err(error) => {
+                warn!(?error, replication_url, "Invalid replication url");
+            }
+        },
+        _ => {
+            info!("No replication configured")
+        }
+    }
+
+    let executor = Arc::new(Executor::new(
+        executor_meta,
+        &work_dir,
+        replicator_send.clone(),
+        runtime,
+        metrics_collector,
+        concurrent_tasks,
+        opt.execution_engine,
+    ));
 
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
         BallistaCodec::new_with_object_store(replicator_object_store.unwrap());

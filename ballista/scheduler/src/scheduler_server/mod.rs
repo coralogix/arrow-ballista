@@ -532,6 +532,7 @@ mod test {
                         num_batches: 1,
                         num_rows: 1,
                         num_bytes: 1,
+                        replicated: false,
                     })
                 }
 

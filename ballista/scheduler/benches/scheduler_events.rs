@@ -170,6 +170,7 @@ impl TaskLauncher<LogicalPlanNode, PhysicalPlanNode> for Launcher {
                     num_batches: 8,
                     num_rows: 8 * 1024,
                     num_bytes: 8 * 1024 * 1024,
+                    replicated: false,
                 })
                 .collect();
 

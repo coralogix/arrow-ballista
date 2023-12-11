@@ -246,6 +246,7 @@ mod tests {
                     num_bytes: None,
                 },
                 path: "/path/to/file".into(),
+                replicated: false,
             })
             .collect();
 
