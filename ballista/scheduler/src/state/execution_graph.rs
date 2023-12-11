@@ -135,6 +135,7 @@ pub struct ExecutionGraph {
     /// Map from Stage ID -> Set<Stage_ATTPMPT_NUM>
     failed_stage_attempts: HashMap<usize, HashSet<usize>>,
     pub(crate) circuit_breaker_tripped: bool,
+    pub(crate) circuit_breaker_tripped_labels: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -193,6 +194,7 @@ impl ExecutionGraph {
             task_id_gen: 0,
             failed_stage_attempts: HashMap::new(),
             circuit_breaker_tripped: false,
+            circuit_breaker_tripped_labels: HashSet::new(),
         })
     }
 
@@ -1345,11 +1347,15 @@ impl ExecutionGraph {
             job_name: self.job_name.clone(),
             status: Some(job_status::Status::Successful(SuccessfulJob {
                 partition_location,
-
                 queued_at: self.queued_at,
                 started_at: self.start_time,
                 ended_at: self.end_time,
                 circuit_breaker_tripped: self.circuit_breaker_tripped,
+                circuit_breaker_tripped_labels: self
+                    .circuit_breaker_tripped_labels
+                    .iter()
+                    .cloned()
+                    .collect(),
             })),
         };
 
@@ -1453,6 +1459,9 @@ impl ExecutionGraph {
             task_id_gen: proto.task_id_gen as usize,
             failed_stage_attempts,
             circuit_breaker_tripped: proto.circuit_breaker_tripped,
+            circuit_breaker_tripped_labels: HashSet::from_iter(
+                proto.circuit_breaker_tripped_labels,
+            ),
         })
     }
 
@@ -1530,11 +1539,17 @@ impl ExecutionGraph {
             task_id_gen: graph.task_id_gen as u32,
             failed_attempts,
             circuit_breaker_tripped: graph.circuit_breaker_tripped,
+            circuit_breaker_tripped_labels: graph
+                .circuit_breaker_tripped_labels
+                .iter()
+                .cloned()
+                .collect(),
         })
     }
 
-    pub fn trip_stage(&mut self, stage_id: usize) {
+    pub fn trip_stage(&mut self, stage_id: usize, labels: Vec<String>) {
         self.circuit_breaker_tripped = true;
+        self.circuit_breaker_tripped_labels.extend(labels);
 
         let mut task_id_gen = self.task_id_gen;
 
