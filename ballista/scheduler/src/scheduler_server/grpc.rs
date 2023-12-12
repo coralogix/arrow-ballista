@@ -706,20 +706,24 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
     ) -> Result<Response<UpdatePartitionReplicationStatusResponse>, Status> {
         let UpdatePartitionReplicationStatusRequest { job_id, path } =
             request.into_inner();
-        match self
+        info!(
+            self.scheduler_name,
+            job_id, path, "received update partition replication status request"
+        );
+
+        if let Err(error) = self
             .state
             .task_manager
             .set_partition_as_replicated(job_id.as_str(), path.as_str())
             .await
         {
-            Ok(_) => Ok(Response::new(UpdatePartitionReplicationStatusResponse {})),
-            Err(e) => {
-                error!(job_id, path, error = %e, "failed to update partition");
-                Err(Status::internal(
-                    "Unable to update partition replication status",
-                ))
-            }
+            warn!(job_id, path, error = %error, "failed to update partition");
+            return Err(Status::internal(
+                "Unable to update partition replication status",
+            ));
         }
+
+        Ok(Response::new(UpdatePartitionReplicationStatusResponse {}))
     }
 }
 
