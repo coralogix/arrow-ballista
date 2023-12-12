@@ -70,5 +70,4 @@ arrow-flight = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "v48.0
 arrow-ord = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "v48.0.0-cx.0" }
 arrow-schema = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "v48.0.0-cx.0" }
 parquet = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "v48.0.0-cx.0" }
-object_store = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "object_store0.7.1-cx-1" }
-
+object_store = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "object-store0.7.1-cx-1" }
