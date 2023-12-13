@@ -1053,32 +1053,25 @@ impl ExecutionGraph {
     pub fn reset_stages_on_lost_executor(
         &mut self,
         executor_id: &str,
-    ) -> Result<(HashSet<usize>, Vec<RunningTaskInfo>)> {
+    ) -> Result<HashSet<usize>> {
         warn!(executor_id, "resetting stages for lost executor");
         let mut reset = HashSet::new();
-        let mut tasks_to_cancel = vec![];
         loop {
-            let reset_stage = self.reset_stages_internal(executor_id)?;
-            if !reset_stage.0.is_empty() {
-                reset.extend(reset_stage.0.iter());
-                tasks_to_cancel.extend(reset_stage.1)
+            let resubmit_stages = self.reset_stages_internal(executor_id)?;
+            if !resubmit_stages.is_empty() {
+                reset.extend(resubmit_stages.iter());
             } else {
-                return Ok((reset, tasks_to_cancel));
+                return Ok(reset);
             }
         }
     }
 
-    fn reset_stages_internal(
-        &mut self,
-        executor_id: &str,
-    ) -> Result<(HashSet<usize>, Vec<RunningTaskInfo>)> {
+    fn reset_stages_internal(&mut self, executor_id: &str) -> Result<HashSet<usize>> {
         let job_id = self.job_id.clone();
         // collect the input stages that need to resubmit
         let mut resubmit_inputs: HashSet<usize> = HashSet::new();
 
         let mut reset_running_stage = HashSet::new();
-        let mut rollback_resolved_stages = HashSet::new();
-        let mut rollback_running_stages = HashSet::new();
         let mut resubmit_successful_stages = HashSet::new();
 
         let mut empty_inputs: HashMap<usize, StageOutput> = HashMap::new();
@@ -1104,9 +1097,6 @@ impl ExecutionGraph {
                 _ => &mut empty_inputs,
             };
 
-            // For each stage input, check whether there are input locations match that executor
-            // and calculate the resubmit input stages if the input stages are successful.
-            let mut rollback_stage = false;
             stage_inputs
                 .iter_mut()
                 .for_each(|(input_stage_id, stage_output)| {
@@ -1122,30 +1112,9 @@ impl ExecutionGraph {
                     );
                     if match_found {
                         stage_output.complete = false;
-                        rollback_stage = true;
                         resubmit_inputs.insert(*input_stage_id);
                     }
                 });
-
-            if rollback_stage {
-                match stage {
-                    ExecutionStage::Resolved(_) => {
-                        rollback_resolved_stages.insert(*stage_id);
-                        warn!(
-                            executor_id,
-                            job_id, stage_id, "rolling back resolved stage"
-                        );
-                    }
-                    ExecutionStage::Running(_) => {
-                        rollback_running_stages.insert(*stage_id);
-                        warn!(
-                            executor_id,
-                            job_id, stage_id, "rolling back running stage"
-                        );
-                    }
-                    _ => {}
-                }
-            }
         });
 
         // check and reset the successful stages
@@ -1172,29 +1141,14 @@ impl ExecutionGraph {
                 });
         }
 
-        for stage_id in rollback_resolved_stages.iter() {
-            self.rollback_resolved_stage(*stage_id)?;
-        }
-
-        let mut all_running_tasks = vec![];
-        for stage_id in rollback_running_stages.iter() {
-            let tasks = self.rollback_running_stage(
-                *stage_id,
-                HashSet::from([executor_id.to_owned()]),
-            )?;
-            all_running_tasks.extend(tasks);
-        }
-
         for stage_id in resubmit_successful_stages.iter() {
             self.rerun_successful_stage(*stage_id);
         }
 
         let mut reset_stage = HashSet::new();
         reset_stage.extend(reset_running_stage);
-        reset_stage.extend(rollback_resolved_stages);
-        reset_stage.extend(rollback_running_stages);
         reset_stage.extend(resubmit_successful_stages);
-        Ok((reset_stage, all_running_tasks))
+        Ok(reset_stage)
     }
 
     /// Convert unresolved stage to be resolved
@@ -1935,7 +1889,7 @@ mod test {
         let reset = join_graph.reset_stages_on_lost_executor(&executor1.id)?;
 
         // Two stages were reset, 1 Running stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
+        assert_eq!(reset.len(), 2);
         assert_eq!(join_graph.available_tasks(), 1);
 
         drain_tasks(&mut join_graph)?;
@@ -1977,7 +1931,7 @@ mod test {
         let reset = join_graph.reset_stages_on_lost_executor(&executor1.id)?;
 
         // Two stages were reset, 1 Resolved stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
+        assert_eq!(reset.len(), 2);
         assert_eq!(join_graph.available_tasks(), 1);
 
         drain_tasks(&mut join_graph)?;
@@ -2032,12 +1986,12 @@ mod test {
         agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
 
         // Two stages were reset, 1 Running stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
+        assert_eq!(reset.len(), 2);
         assert_eq!(agg_graph.available_tasks(), 1);
 
         // Call the reset again
         let reset = agg_graph.reset_stages_on_lost_executor(&executor1.id)?;
-        assert_eq!(reset.0.len(), 0);
+        assert_eq!(reset.len(), 0);
         assert_eq!(agg_graph.available_tasks(), 1);
 
         drain_tasks(&mut agg_graph)?;
@@ -2222,7 +2176,7 @@ mod test {
         let reset = agg_graph.reset_stages_on_lost_executor(&executor1.id)?;
 
         // Two stages were reset, Stage 2 rollback to Unresolved and Stage 1 move to Running
-        assert_eq!(reset.0.len(), 2);
+        assert_eq!(reset.len(), 2);
         assert_eq!(agg_graph.available_tasks(), 1);
 
         // Complete the Stage 1 again
