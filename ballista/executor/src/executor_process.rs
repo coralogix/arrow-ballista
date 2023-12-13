@@ -248,7 +248,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
                 replicator_object_store = Some(object_store.clone());
 
                 service_handlers.push(tokio::spawn(replicator::start_replication(
-                    scheduler.clone(),
                     executor_id.clone(),
                     object_store,
                     recv,

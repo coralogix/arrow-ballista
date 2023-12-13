@@ -32,9 +32,7 @@ use ballista_core::serde::protobuf::{
     GetJobStatusParams, GetJobStatusResult, HeartBeatParams, HeartBeatResult, Job,
     ListJobsRequest, ListJobsResponse, PollWorkParams, PollWorkResult,
     RegisterExecutorParams, RegisterExecutorResult, SchedulerLostParams,
-    SchedulerLostResponse, UpdatePartitionReplicationStatusRequest,
-    UpdatePartitionReplicationStatusResponse, UpdateTaskStatusParams,
-    UpdateTaskStatusResult,
+    SchedulerLostResponse, UpdateTaskStatusParams, UpdateTaskStatusResult,
 };
 use ballista_core::serde::scheduler::ExecutorMetadata;
 
@@ -698,32 +696,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 return Err(Status::internal("Unable to list jobs"));
             }
         }
-    }
-
-    async fn update_partition_replication_status(
-        &self,
-        request: Request<UpdatePartitionReplicationStatusRequest>,
-    ) -> Result<Response<UpdatePartitionReplicationStatusResponse>, Status> {
-        let UpdatePartitionReplicationStatusRequest { job_id, path } =
-            request.into_inner();
-        info!(
-            self.scheduler_name,
-            job_id, path, "received update partition replication status request"
-        );
-
-        if let Err(error) = self
-            .state
-            .task_manager
-            .set_partition_as_replicated(job_id.as_str(), path.as_str())
-            .await
-        {
-            warn!(job_id, path, error = %error, "failed to update partition");
-            return Err(Status::internal(
-                "Unable to update partition replication status",
-            ));
-        }
-
-        Ok(Response::new(UpdatePartitionReplicationStatusResponse {}))
     }
 }
 

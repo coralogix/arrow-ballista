@@ -891,17 +891,6 @@ pub struct UpdateTaskStatusResult {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdatePartitionReplicationStatusRequest {
-    #[prost(string, tag = "1")]
-    pub job_id: ::prost::alloc::string::String,
-    #[prost(string, tag = "2")]
-    pub path: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct UpdatePartitionReplicationStatusResponse {}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecuteQueryParams {
     #[prost(message, repeated, tag = "4")]
     pub settings: ::prost::alloc::vec::Vec<KeyValuePair>,
@@ -2398,38 +2387,6 @@ pub mod scheduler_grpc_client {
                 .insert(GrpcMethod::new("ballista.protobuf.SchedulerGrpc", "ListJobs"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn update_partition_replication_status(
-            &mut self,
-            request: impl tonic::IntoRequest<
-                super::UpdatePartitionReplicationStatusRequest,
-            >,
-        ) -> std::result::Result<
-            tonic::Response<super::UpdatePartitionReplicationStatusResponse>,
-            tonic::Status,
-        > {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/ballista.protobuf.SchedulerGrpc/UpdatePartitionReplicationStatus",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(
-                    GrpcMethod::new(
-                        "ballista.protobuf.SchedulerGrpc",
-                        "UpdatePartitionReplicationStatus",
-                    ),
-                );
-            self.inner.unary(req, path, codec).await
-        }
     }
 }
 /// Generated client implementations.
@@ -2717,13 +2674,6 @@ pub mod scheduler_grpc_server {
             request: tonic::Request<super::ListJobsRequest>,
         ) -> std::result::Result<
             tonic::Response<super::ListJobsResponse>,
-            tonic::Status,
-        >;
-        async fn update_partition_replication_status(
-            &self,
-            request: tonic::Request<super::UpdatePartitionReplicationStatusRequest>,
-        ) -> std::result::Result<
-            tonic::Response<super::UpdatePartitionReplicationStatusResponse>,
             tonic::Status,
         >;
     }
@@ -3401,61 +3351,6 @@ pub mod scheduler_grpc_server {
                     let fut = async move {
                         let inner = inner.0;
                         let method = ListJobsSvc(inner);
-                        let codec = tonic::codec::ProstCodec::default();
-                        let mut grpc = tonic::server::Grpc::new(codec)
-                            .apply_compression_config(
-                                accept_compression_encodings,
-                                send_compression_encodings,
-                            )
-                            .apply_max_message_size_config(
-                                max_decoding_message_size,
-                                max_encoding_message_size,
-                            );
-                        let res = grpc.unary(method, req).await;
-                        Ok(res)
-                    };
-                    Box::pin(fut)
-                }
-                "/ballista.protobuf.SchedulerGrpc/UpdatePartitionReplicationStatus" => {
-                    #[allow(non_camel_case_types)]
-                    struct UpdatePartitionReplicationStatusSvc<T: SchedulerGrpc>(
-                        pub Arc<T>,
-                    );
-                    impl<
-                        T: SchedulerGrpc,
-                    > tonic::server::UnaryService<
-                        super::UpdatePartitionReplicationStatusRequest,
-                    > for UpdatePartitionReplicationStatusSvc<T> {
-                        type Response = super::UpdatePartitionReplicationStatusResponse;
-                        type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
-                            tonic::Status,
-                        >;
-                        fn call(
-                            &mut self,
-                            request: tonic::Request<
-                                super::UpdatePartitionReplicationStatusRequest,
-                            >,
-                        ) -> Self::Future {
-                            let inner = Arc::clone(&self.0);
-                            let fut = async move {
-                                <T as SchedulerGrpc>::update_partition_replication_status(
-                                        &inner,
-                                        request,
-                                    )
-                                    .await
-                            };
-                            Box::pin(fut)
-                        }
-                    }
-                    let accept_compression_encodings = self.accept_compression_encodings;
-                    let send_compression_encodings = self.send_compression_encodings;
-                    let max_decoding_message_size = self.max_decoding_message_size;
-                    let max_encoding_message_size = self.max_encoding_message_size;
-                    let inner = self.inner.clone();
-                    let fut = async move {
-                        let inner = inner.0;
-                        let method = UpdatePartitionReplicationStatusSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
