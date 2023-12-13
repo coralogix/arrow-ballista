@@ -738,14 +738,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     /// return a Vec of running tasks need to cancel
-    pub async fn executor_lost(&self, executor_id: &str) -> Result<()> {
+    pub async fn executor_lost(&self, executor_id: &str) {
         for pairs in self.active_job_queue.jobs().iter() {
             let (_, job_info) = pairs.pair();
             let mut graph = job_info.graph_mut().await;
-            graph.reset_stages_on_lost_executor(executor_id)?;
+            graph.reset_stages_on_lost_executor(executor_id);
         }
-
-        Ok(())
     }
 
     /// Retrieve the number of available tasks for the given job. The value returned

@@ -33,10 +33,8 @@ use object_store::ObjectStore;
 use tracing::{debug, warn};
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::{
-    self, task_info, FailedTask, GraphStageInput, OperatorMetricsSet, ResultLost,
-    SuccessfulTask, TaskStatus,
+    self, task_info, GraphStageInput, OperatorMetricsSet, SuccessfulTask, TaskStatus,
 };
 use ballista_core::serde::protobuf::{task_status, RunningTask};
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
@@ -1000,46 +998,6 @@ impl SuccessfulStage {
             resolved_at: timestamp_millis(),
             object_store: self.object_store.clone(),
         }
-    }
-
-    /// Reset the successful tasks on a given executor
-    /// Returns the number of running tasks that were reset
-    pub fn reset_tasks(&mut self, executor: &str) -> usize {
-        let mut reset = 0;
-        for task in self.task_infos.iter_mut() {
-            match task {
-                TaskInfo {
-                    task_id,
-                    scheduled_time,
-                    task_status:
-                        task_status::Status::Successful(SuccessfulTask {
-                            executor_id, ..
-                        }),
-                    ..
-                } if *executor == *executor_id => {
-                    *task = TaskInfo {
-                        task_id: *task_id,
-                        scheduled_time: *scheduled_time,
-                        launch_time: 0,
-                        start_exec_time: 0,
-                        end_exec_time: 0,
-                        finish_time: 0,
-                        task_status: task_status::Status::Failed(FailedTask {
-                            retryable: true,
-                            count_to_failures: false,
-                            failed_reason: Some(FailedReason::ResultLost(ResultLost {
-                                message: format!(
-                                    "Task failure due to Executor {executor} lost"
-                                ),
-                            })),
-                        }),
-                    };
-                    reset += 1;
-                }
-                _ => {}
-            }
-        }
-        reset
     }
 
     pub(super) fn decode<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
