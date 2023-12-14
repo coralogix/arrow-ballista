@@ -1582,6 +1582,20 @@ impl ExecutionGraph {
             if running_stage.task_infos[i].is_none() {
                 num_stopped += 1;
                 partitions.push(i as u32);
+                // Set the task info to running only to have it immediately set to successful
+                // by the update_task_status_internal method below.
+                // If we don't do it this way update_task_status_internal will panic.
+                running_stage.task_infos[i] = Some(TaskInfo {
+                    task_id: task_id as usize,
+                    scheduled_time: current_time as u128,
+                    launch_time: current_time as u128,
+                    start_exec_time: current_time as u128,
+                    end_exec_time: current_time as u128,
+                    finish_time: current_time as u128,
+                    task_status: task_status::Status::Running(RunningTask {
+                        executor_id: "<circuit-breaker>".to_owned(),
+                    }),
+                });
             }
         }
 
