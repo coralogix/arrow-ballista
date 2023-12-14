@@ -295,6 +295,24 @@ impl ExecutionGraph {
         max_task_failures: usize,
         max_stage_failures: usize,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
+        self.update_task_status_internal(
+            Some(executor),
+            task_statuses,
+            max_task_failures,
+            max_stage_failures,
+        )
+    }
+
+    // If executor is None,
+    // we do not collect output partitions.
+    // E.g. in case of circuit breaker.
+    fn update_task_status_internal(
+        &mut self,
+        executor: Option<&ExecutorMetadata>,
+        task_statuses: Vec<TaskStatus>,
+        max_task_failures: usize,
+        max_stage_failures: usize,
+    ) -> Result<Vec<QueryStageSchedulerEvent>> {
         let job_id = self.job_id().to_owned();
         // First of all, classify the statuses by stages
         let mut job_task_statuses: HashMap<usize, Vec<TaskStatus>> = HashMap::new();
@@ -513,13 +531,15 @@ impl ExecutionGraph {
                                     warn!(job_id = self.job_id, stage_id = running_stage.stage_id, error = %err, "error updating task metrics");
                                 }
 
-                                locations.append(&mut partition_to_location(
-                                    &job_id,
-                                    partitions.iter().map(|p| *p as usize).collect(),
-                                    stage_id,
-                                    executor,
-                                    successful_task.partitions,
-                                ));
+                                if let Some(executor) = executor {
+                                    locations.append(&mut partition_to_location(
+                                        &job_id,
+                                        partitions.iter().map(|p| *p as usize).collect(),
+                                        stage_id,
+                                        executor,
+                                        successful_task.partitions,
+                                    ))
+                                };
                             } else {
                                 warn!(
                                     task_identity,
@@ -1529,55 +1549,64 @@ impl ExecutionGraph {
         })
     }
 
-    pub fn trip_stage(&mut self, stage_id: usize, labels: Vec<String>) {
+    pub fn trip_stage(
+        &mut self,
+        stage_id: usize,
+        labels: Vec<String>,
+    ) -> Result<Vec<QueryStageSchedulerEvent>> {
         self.circuit_breaker_tripped = true;
         self.circuit_breaker_tripped_labels.extend(labels);
 
-        let mut task_id_gen = self.task_id_gen;
+        let task_id = self.next_task_id() as u32;
 
         let stage = if let Some(stage) = self.stages.get_mut(&stage_id) {
             stage
         } else {
-            return;
+            return Ok(vec![]);
         };
+
         let running_stage = if let ExecutionStage::Running(stage) = stage {
             stage
         } else {
-            return;
+            return Ok(vec![]);
         };
 
-        let current_time = timestamp_millis() as u128;
+        let current_time = timestamp_millis();
 
         let mut num_stopped = 0;
+        let mut partitions = vec![];
 
         for i in 0..running_stage.task_infos.len() {
             if running_stage.task_infos[i].is_none() {
                 num_stopped += 1;
-                running_stage.task_infos[i] = Some(TaskInfo {
-                    task_id: task_id_gen,
-                    scheduled_time: current_time,
-                    launch_time: current_time,
-                    start_exec_time: current_time,
-                    end_exec_time: current_time,
-                    finish_time: current_time,
-                    task_status: task_status::Status::Successful(SuccessfulTask {
-                        executor_id: "<circuit-breaker>".to_owned(),
-                        partitions: vec![],
-                    }),
-                });
-
-                task_id_gen += 1;
+                partitions.push(i as u32);
             }
         }
 
         info!(
-            "Stopped scheduling of {} tasks due to tripped circuit breaker for stage {} in job {}",
+            "Stop scheduling of {} tasks due to tripped circuit breaker for stage {} in job {}",
             num_stopped,
             stage_id,
             self.job_id,
         );
 
-        self.task_id_gen = task_id_gen;
+        let task_status = TaskStatus {
+            task_id,
+            job_id: self.job_id.clone(),
+            stage_id: running_stage.stage_id as u32,
+            stage_attempt_num: running_stage.stage_attempt_num as u32,
+            partitions,
+            launch_time: current_time,
+            start_exec_time: current_time,
+            end_exec_time: current_time,
+            metrics: vec![],
+            status: Some(task_status::Status::Successful(SuccessfulTask {
+                executor_id: "<circuit-breaker>".to_owned(),
+                partitions: vec![],
+            })),
+        };
+
+        self.update_task_status_internal(None, vec![task_status], 4, 4)
     }
 }
 
