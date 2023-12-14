@@ -52,6 +52,7 @@ hyper = "0.14.4"
 lazy_static = "1.4.0"
 log = "0.4"
 mimalloc = { version = "0.1", default-features = false, optional = true }
+nix = { version = "0.27.1", features = ["process", "signal"] }
 num_cpus = "1.13.0"
 object_store = { workspace = true }
 parking_lot = "0.12"

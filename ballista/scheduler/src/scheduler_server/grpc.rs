@@ -19,7 +19,7 @@ use ballista_core::circuit_breaker::model::CircuitBreakerTaskKey;
 use ballista_core::config::{BallistaConfig, BALLISTA_JOB_NAME};
 use ballista_core::serde::protobuf::execute_query_params::{OptionalSessionId, Query};
 use datafusion::config::Extensions;
-use prometheus::{register_int_counter, IntCounter};
+use prometheus::{register_histogram, register_int_counter, Histogram, IntCounter};
 use std::convert::TryInto;
 
 use ballista_core::serde::protobuf::executor_registration::OptionalHost;
@@ -66,6 +66,13 @@ lazy_static! {
         "Total number of requests received by the circuit breaker"
     )
     .unwrap();
+    static ref CIRCUIT_BREAKER_REQUEST_HANDLING_DURATION: Histogram =
+        register_histogram!(
+            "ballista_circuit_breaker_controller_request_handling_duration_millis",
+            "Duration of handling requests by the circuit breaker",
+            vec![10.0, 30.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0]
+        )
+        .unwrap();
 }
 
 #[tonic::async_trait]
@@ -554,6 +561,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         &self,
         request: Request<CircuitBreakerUpdateRequest>,
     ) -> Result<Response<CircuitBreakerUpdateResponse>, Status> {
+        let start_time = SystemTime::now();
+
         CIRCUIT_BREAKER_RECEIVED_REQUESTS.inc();
 
         let CircuitBreakerUpdateRequest {
@@ -632,6 +641,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 });
             }
         }
+
+        let elapsed = start_time.elapsed().unwrap();
+
+        CIRCUIT_BREAKER_REQUEST_HANDLING_DURATION.observe(elapsed.as_millis() as f64);
 
         Ok(Response::new(CircuitBreakerUpdateResponse { commands }))
     }

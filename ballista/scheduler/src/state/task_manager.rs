@@ -853,10 +853,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         job_id: String,
         stage_id: usize,
         labels: Vec<String>,
-    ) {
+    ) -> Result<Vec<QueryStageSchedulerEvent>> {
         if let Some(job) = self.active_job_queue.get_job(&job_id) {
             let mut graph = job.graph_mut().await;
-            graph.trip_stage(stage_id, labels);
+            graph.trip_stage(stage_id, labels)
+        } else {
+            Ok(vec![])
         }
     }
 }
