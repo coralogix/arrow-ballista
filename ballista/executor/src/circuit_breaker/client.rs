@@ -135,6 +135,11 @@ lazy_static! {
         "Capacity of the update channel"
     )
     .unwrap();
+    static ref DROPPED_UPDATES: IntCounter = register_int_counter!(
+        "ballista_circuit_breaker_client_dropped_updates",
+        "Number of updates dropped because the channel was full"
+    )
+    .unwrap();
 }
 
 impl CircuitBreakerClient {
@@ -321,7 +326,7 @@ impl CircuitBreakerClient {
                     {
                         *entry = update.percent.max(*entry);
                     } else if per_scheduler_state.updates.len() >= config.max_batch_size {
-                        // No logging because it would be very spammy, should be easy to detect from the metrics.
+                        DROPPED_UPDATES.inc();
                     } else {
                         per_scheduler_state
                             .updates
