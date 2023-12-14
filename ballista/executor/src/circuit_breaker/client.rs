@@ -291,14 +291,11 @@ impl CircuitBreakerClient {
 
         match received {
             ClientUpdate::LabelsRegistration(reg) => {
-                if let Some(mut state) = state_per_stage.get_mut(&reg.key.stage_key)
-                {
+                if let Some(mut state) = state_per_stage.get_mut(&reg.key.stage_key) {
                     state.last_updated = now;
                 }
 
-                if let Some(scheduler_id) =
-                    task_scheduler_lookup.get(&reg.key.task_id)
-                {
+                if let Some(scheduler_id) = task_scheduler_lookup.get(&reg.key.task_id) {
                     updates_per_scheduler
                         .entry(scheduler_id.clone())
                         .or_default()
