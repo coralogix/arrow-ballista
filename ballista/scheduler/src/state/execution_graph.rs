@@ -1553,6 +1553,8 @@ impl ExecutionGraph {
         &mut self,
         stage_id: usize,
         labels: Vec<String>,
+        max_task_failures: usize,
+        max_stage_failures: usize,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
         self.circuit_breaker_tripped = true;
         self.circuit_breaker_tripped_labels.extend(labels);
@@ -1606,7 +1608,12 @@ impl ExecutionGraph {
             })),
         };
 
-        self.update_task_status_internal(None, vec![task_status], 4, 4)
+        self.update_task_status_internal(
+            None,
+            vec![task_status],
+            max_task_failures,
+            max_stage_failures,
+        )
     }
 }
 
