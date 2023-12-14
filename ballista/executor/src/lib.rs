@@ -36,11 +36,36 @@ mod standalone;
 pub use standalone::new_standalone_executor;
 
 use log::info;
+use tracing::error;
 
 use ballista_core::serde::protobuf::{
     task_status, FailedTask, OperatorMetricsSet, ShuffleWritePartition, SuccessfulTask,
     TaskStatus,
 };
+
+/// Terminate the executor in cases where we are in an unrecoverable situation.
+///
+/// On unix systems this will send a SIGTERM to the current process to attempt a graceful shutdown
+#[cfg(unix)]
+pub(crate) fn halt_and_catch_fire() {
+    let pid = std::process::id();
+
+    if let Err(err) = nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(pid as i32),
+        nix::sys::signal::Signal::SIGTERM,
+    ) {
+        error!(?err, "failed to send SIGTERM to current process, exiting");
+        std::process::exit(1);
+    }
+}
+
+/// Terminate the executor in cases where we are in an unrecoverable situation.
+///
+/// Currently this will just exit the process
+#[cfg(not(unix))]
+pub(crate) fn halt_and_catch_fire() {
+    std::process::exit(1);
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TaskExecutionTimes {
