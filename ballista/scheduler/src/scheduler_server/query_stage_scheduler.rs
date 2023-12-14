@@ -339,10 +339,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 stage_id,
                 labels,
             } => {
-                self.state
+                let events = self
+                    .state
                     .task_manager
                     .trip_circuit_breaker(job_id, stage_id, labels)
-                    .await;
+                    .await?;
+
+                for event in events {
+                    tx_event.post_event(event);
+                }
             }
         }
 
