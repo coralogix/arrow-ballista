@@ -511,6 +511,7 @@ mod test {
         let executor = Executor::new(
             executor_registration,
             &work_dir,
+            None,
             ctx.runtime_env(),
             Arc::new(LoggingMetricsCollector {}),
             2,
@@ -531,6 +532,7 @@ mod test {
                     vec![5],
                 )),
                 work_dir.clone(),
+                None,
                 None,
             )
             .expect("creating shuffle writer");

@@ -72,7 +72,6 @@ impl TryInto<protobuf::PartitionLocation> for PartitionLocation {
             executor_meta: Some(self.executor_meta.into()),
             partition_stats: Some(self.partition_stats.into()),
             path: self.path,
-            replicated: self.replicated,
         })
     }
 }

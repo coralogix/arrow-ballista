@@ -382,8 +382,6 @@ pub struct PartitionLocation {
     pub partition_stats: ::core::option::Option<PartitionStats>,
     #[prost(string, tag = "5")]
     pub path: ::prost::alloc::string::String,
-    #[prost(bool, tag = "8")]
-    pub replicated: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -713,8 +711,6 @@ pub struct ShuffleWritePartition {
     pub num_rows: u64,
     #[prost(uint64, tag = "5")]
     pub num_bytes: u64,
-    #[prost(bool, tag = "7")]
-    pub replicated: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

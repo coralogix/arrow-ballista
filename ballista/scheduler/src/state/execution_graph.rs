@@ -1703,7 +1703,6 @@ fn partition_to_location(
                 Some(shuffle.num_bytes),
             ),
             path: shuffle.path,
-            replicated: shuffle.replicated,
         })
         .collect()
 }

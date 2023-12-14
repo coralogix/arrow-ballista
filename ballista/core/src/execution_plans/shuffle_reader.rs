@@ -784,7 +784,6 @@ mod tests {
                 },
                 partition_stats: Default::default(),
                 path: "test_path".to_string(),
-                replicated: false,
             })
         }
 
@@ -910,7 +909,6 @@ mod tests {
                 },
                 partition_stats: Default::default(),
                 path: path.clone(),
-                replicated: false,
             })
             .collect()
     }

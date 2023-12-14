@@ -287,7 +287,6 @@ pub fn default_task_runner() -> impl TaskRunner {
                 num_batches: 1,
                 num_rows: 1,
                 num_bytes: 1,
-                replicated: false,
             })
             .collect();
 
@@ -1100,7 +1099,6 @@ pub fn mock_completed_task(task: TaskDescription, executor_id: &str) -> TaskStat
             num_batches: 1,
             num_rows: 1,
             num_bytes: 1,
-            replicated: false,
         })
     }
 
@@ -1157,7 +1155,6 @@ pub fn mock_failed_task(task: TaskDescription, failed_task: FailedTask) -> TaskS
             num_batches: 1,
             num_rows: 1,
             num_bytes: 1,
-            replicated: false,
         })
     }
 

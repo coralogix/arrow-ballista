@@ -255,7 +255,6 @@ impl ShuffleWriterExec {
                         num_batches: stats.num_batches.unwrap_or(0),
                         num_rows: stats.num_rows.unwrap_or(0),
                         num_bytes: stats.num_bytes.unwrap_or(0),
-                        replicated: false,
                     }])
                 }
 
@@ -339,7 +338,6 @@ impl ShuffleWriterExec {
                                 num_batches: w.num_batches,
                                 num_rows: w.num_rows,
                                 num_bytes: w.num_bytes,
-                                replicated: false,
                             });
 
                             if let Some(sender) = sender.as_ref() {

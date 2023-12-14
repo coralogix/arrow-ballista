@@ -227,7 +227,6 @@ message PartitionLocation {
   ExecutorMetadata executor_meta = 3;
   PartitionStats partition_stats = 4;
   string path = 5;
-  bool replicated = 8;
 }
 
 message PartitionStats {
@@ -407,7 +406,6 @@ message ShuffleWritePartition {
   uint64 num_batches = 3;
   uint64 num_rows = 4;
   uint64 num_bytes = 5;
-  bool replicated = 7;
 }
 
 message TaskStatus {
