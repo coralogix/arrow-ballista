@@ -32,6 +32,7 @@ pub mod terminate;
 mod cpu_bound_executor;
 mod scheduler_client_registry;
 mod standalone;
+mod replicator;
 
 pub use standalone::new_standalone_executor;
 

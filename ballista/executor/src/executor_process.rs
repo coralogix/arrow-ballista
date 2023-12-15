@@ -63,6 +63,7 @@ use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
 use crate::flight_service::BallistaFlightService;
 use crate::metrics::LoggingMetricsCollector;
+use crate::replicator::start_replication;
 use crate::shutdown::Shutdown;
 use crate::shutdown::ShutdownNotifier;
 use crate::terminate;
@@ -194,7 +195,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     let mut service_handlers: FuturesUnordered<JoinHandle<Result<(), BallistaError>>> =
         FuturesUnordered::new();
 
-    let metrics_collector = Arc::new(LoggingMetricsCollector::default());
     let connect_timeout = opt.scheduler_connect_timeout_seconds as u64;
     let connection = if connect_timeout == 0 {
         create_grpc_client_connection(scheduler_url)
@@ -247,7 +247,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
                 replicator_send = Some(send.clone());
                 replicator_object_store = Some(object_store.clone());
 
-                service_handlers.push(tokio::spawn(replicator::start_replication(
+                service_handlers.push(tokio::spawn(start_replication(
                     executor_id.clone(),
                     object_store,
                     recv,
@@ -267,7 +267,7 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         &work_dir,
         replicator_send.clone(),
         runtime,
-        metrics_collector,
+        Arc::new(LoggingMetricsCollector::default()),
         concurrent_tasks,
         opt.execution_engine,
     ));

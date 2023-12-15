@@ -33,6 +33,7 @@ pub mod physical_optimizer;
 
 #[allow(improper_ctypes_definitions)]
 pub mod plugin;
+pub mod async_reader;
 pub mod replicator;
 pub mod utils;
 
