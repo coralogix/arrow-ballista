@@ -381,6 +381,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             stage_id,
             plan,
             &self.executor.work_dir,
+            self.executor.replication_send.clone(),
         )?)
     }
 

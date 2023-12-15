@@ -33,6 +33,7 @@ use datafusion_proto::{
     physical_plan::{AsExecutionPlan, PhysicalExtensionCodec},
 };
 
+use object_store::ObjectStore;
 use prost::Message;
 use std::fmt::Debug;
 use std::marker::PhantomData;
@@ -85,7 +86,28 @@ impl Default for BallistaCodec {
     fn default() -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
-            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {}),
+            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
+            logical_plan_repr: Default::default(),
+            physical_plan_repr: Default::default(),
+        }
+    }
+}
+
+impl BallistaCodec {
+    pub fn new_with_optional_object_store(
+        object_store: Option<Arc<dyn ObjectStore>>,
+    ) -> Self {
+        match object_store {
+            Some(object_store) => Self::new_with_object_store(object_store),
+            _ => Self::default(),
+        }
+    }
+    pub fn new_with_object_store(object_store: Arc<dyn ObjectStore>) -> Self {
+        Self {
+            logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
+            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
+                object_store: Some(object_store),
+            }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,
         }
@@ -114,8 +136,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
     }
 }
 
-#[derive(Debug)]
-pub struct BallistaPhysicalExtensionCodec {}
+#[derive(Debug, Default, Clone)]
+pub struct BallistaPhysicalExtensionCodec {
+    pub object_store: Option<Arc<dyn ObjectStore>>,
+}
+
+impl BallistaPhysicalExtensionCodec {
+    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
+        Self {
+            object_store: Some(object_store),
+        }
+    }
+}
 
 impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
     fn try_decode(
@@ -159,6 +191,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     input,
                     "".to_string(), // this is intentional but hacky - the executor will fill this in
                     shuffle_output_partitioning,
+                    None,
                 )?))
             }
             PhysicalPlanType::ShuffleReader(shuffle_reader) => {
@@ -179,8 +212,11 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let shuffle_reader =
-                    ShuffleReaderExec::try_new(partition_location, schema)?;
+                let shuffle_reader = ShuffleReaderExec::try_new(
+                    partition_location,
+                    schema,
+                    self.object_store.clone(),
+                )?;
                 Ok(Arc::new(shuffle_reader))
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {

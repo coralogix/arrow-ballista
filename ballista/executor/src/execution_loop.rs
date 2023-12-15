@@ -283,6 +283,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
         stage_id as usize,
         plan,
         &executor.work_dir,
+        executor.replication_send.clone(),
     )?;
     dedicated_executor.spawn(async move {
         use std::panic::AssertUnwindSafe;

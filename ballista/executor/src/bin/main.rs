@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
         job_data_ttl_seconds: opt.job_data_ttl_seconds,
         job_data_clean_up_interval_seconds: opt.job_data_clean_up_interval_seconds,
         execution_engine: None,
+        replication_url: opt.replication_url,
     };
 
     start_executor_process(config).await

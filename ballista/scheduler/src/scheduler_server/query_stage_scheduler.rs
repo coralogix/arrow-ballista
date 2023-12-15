@@ -296,17 +296,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 }
             }
             QueryStageSchedulerEvent::ExecutorLost(executor_id, _) => {
-                match self.state.task_manager.executor_lost(&executor_id).await {
-                    Ok(tasks) => {
-                        if !tasks.is_empty() {
-                            tx_event
-                                .post_event(QueryStageSchedulerEvent::CancelTasks(tasks));
-                        }
-                    }
-                    Err(e) => {
-                        error!(executor_id, error = %e, "error handling ExecutorLost event");
-                    }
-                }
+                self.state.task_manager.executor_lost(&executor_id).await;
             }
             QueryStageSchedulerEvent::CancelTasks(tasks) => {
                 self.state.executor_manager.cancel_running_tasks(tasks);
