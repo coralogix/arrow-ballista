@@ -714,10 +714,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 #[cfg(all(test, feature = "sled"))]
 mod test {
 
+    use std::sync::Arc;
     use std::time::Duration;
 
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use object_store::local::LocalFileSystem;
     use tonic::Request;
 
     use crate::config::SchedulerConfig;
@@ -746,9 +748,10 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                None,
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -779,7 +782,8 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                None,
             );
         state.init().await?;
 
@@ -811,7 +815,8 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name(
                 cluster.clone(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                None,
             );
         state.init().await?;
 
@@ -838,9 +843,10 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
+                None,
             );
         scheduler.init().await?;
 
@@ -935,6 +941,7 @@ mod test {
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                None,
             );
         scheduler.init().await?;
 
@@ -990,9 +997,10 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster.clone(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
+                None,
             );
         scheduler.init().await?;
 

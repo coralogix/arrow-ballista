@@ -30,6 +30,7 @@ pub mod shutdown;
 pub mod terminate;
 
 mod cpu_bound_executor;
+pub mod replicator;
 mod scheduler_client_registry;
 mod standalone;
 

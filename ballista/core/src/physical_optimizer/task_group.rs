@@ -217,6 +217,7 @@ mod tests {
                 plan,
                 "/work".into(),
                 None,
+                None,
             )
             .unwrap(),
         )
@@ -257,6 +258,7 @@ mod tests {
                     Field::new("b", DataType::UInt32, false),
                     Field::new("c", DataType::UInt32, false),
                 ])),
+                None,
             )
             .unwrap(),
         )
@@ -333,7 +335,7 @@ mod tests {
     fn test_optimizer_insert_coalesce_on_top_of_the_leaf() {
         let optimizer = OptimizeTaskGroup::new(Vec::default());
         let input = Arc::new(
-            ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()))
+            ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()), None)
                 .unwrap(),
         );
 

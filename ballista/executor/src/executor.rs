@@ -22,8 +22,10 @@ use crate::execution_engine::ExecutionEngine;
 use crate::execution_engine::QueryStageExecutor;
 use crate::metrics::ExecutorMetricsCollector;
 use ballista_core::error::BallistaError;
+use ballista_core::replicator;
 use ballista_core::serde::protobuf;
 use ballista_core::serde::protobuf::ExecutorRegistration;
+use tokio::sync::mpsc;
 
 use crate::metrics::load::RUNNING_TASKS;
 use dashmap::DashMap;
@@ -112,6 +114,7 @@ pub struct Executor {
 
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
+    pub replication_send: Option<mpsc::Sender<replicator::Command>>,
 }
 
 impl Executor {
@@ -119,6 +122,7 @@ impl Executor {
     pub fn new(
         metadata: ExecutorRegistration,
         work_dir: &str,
+        sender: Option<mpsc::Sender<replicator::Command>>,
         runtime: Arc<RuntimeEnv>,
         metrics_collector: Arc<dyn ExecutorMetricsCollector>,
         concurrent_tasks: usize,
@@ -127,6 +131,7 @@ impl Executor {
         Self::with_functions(
             metadata,
             work_dir,
+            sender,
             runtime,
             metrics_collector,
             concurrent_tasks,
@@ -141,6 +146,7 @@ impl Executor {
     pub fn with_functions(
         metadata: ExecutorRegistration,
         work_dir: &str,
+        sender: Option<mpsc::Sender<replicator::Command>>,
         runtime: Arc<RuntimeEnv>,
         metrics_collector: Arc<dyn ExecutorMetricsCollector>,
         concurrent_tasks: usize,
@@ -165,6 +171,7 @@ impl Executor {
                 .unwrap_or_else(|| Arc::new(DefaultExecutionEngine {})),
             drained: Arc::new(drained),
             check_drained,
+            replication_send: sender,
         }
     }
 }
@@ -412,6 +419,7 @@ mod test {
             )),
             work_dir.clone(),
             None,
+            None,
         )
         .expect("creating shuffle writer");
 
@@ -430,6 +438,7 @@ mod test {
         let executor = Executor::new(
             executor_registration,
             &work_dir,
+            None,
             ctx.runtime_env(),
             Arc::new(LoggingMetricsCollector {}),
             2,
@@ -502,6 +511,7 @@ mod test {
         let executor = Executor::new(
             executor_registration,
             &work_dir,
+            None,
             ctx.runtime_env(),
             Arc::new(LoggingMetricsCollector {}),
             2,
@@ -522,6 +532,7 @@ mod test {
                     vec![5],
                 )),
                 work_dir.clone(),
+                None,
                 None,
             )
             .expect("creating shuffle writer");

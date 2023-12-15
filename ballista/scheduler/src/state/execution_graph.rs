@@ -28,6 +28,7 @@ use datafusion::physical_plan::{
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
@@ -54,7 +55,7 @@ use crate::planner::DistributedPlanner;
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::scheduler_server::timestamp_millis;
 pub(crate) use crate::state::execution_graph::execution_stage::{
-    ExecutionStage, FailedStage, ResolvedStage, StageOutput, SuccessfulStage, TaskInfo,
+    ExecutionStage, FailedStage, ResolvedStage, SuccessfulStage, TaskInfo,
     UnresolvedStage,
 };
 use crate::state::task_manager::UpdatedStages;
@@ -154,6 +155,7 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -161,7 +163,10 @@ impl ExecutionGraph {
 
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
-        let builder = ExecutionStageBuilder::new();
+        let builder = match object_store {
+            Some(object_store) => ExecutionStageBuilder::new(object_store),
+            _ => ExecutionStageBuilder::default(),
+        };
         let stages = builder.build(shuffle_stages)?;
 
         let started_at = timestamp_millis();
@@ -1065,151 +1070,22 @@ impl ExecutionGraph {
     /// If yes, reset the successful tasks and roll back the resolved shuffle recursively.
     ///
     /// Returns the reset stage ids and running tasks should be killed
-    pub fn reset_stages_on_lost_executor(
-        &mut self,
-        executor_id: &str,
-    ) -> Result<(HashSet<usize>, Vec<RunningTaskInfo>)> {
+    pub fn reset_stages_on_lost_executor(&mut self, executor_id: &str) {
         warn!(executor_id, "resetting stages for lost executor");
-        let mut reset = HashSet::new();
-        let mut tasks_to_cancel = vec![];
-        loop {
-            let reset_stage = self.reset_stages_internal(executor_id)?;
-            if !reset_stage.0.is_empty() {
-                reset.extend(reset_stage.0.iter());
-                tasks_to_cancel.extend(reset_stage.1)
-            } else {
-                return Ok((reset, tasks_to_cancel));
-            }
-        }
-    }
-
-    fn reset_stages_internal(
-        &mut self,
-        executor_id: &str,
-    ) -> Result<(HashSet<usize>, Vec<RunningTaskInfo>)> {
-        let job_id = self.job_id.clone();
-        // collect the input stages that need to resubmit
-        let mut resubmit_inputs: HashSet<usize> = HashSet::new();
-
-        let mut reset_running_stage = HashSet::new();
-        let mut rollback_resolved_stages = HashSet::new();
-        let mut rollback_running_stages = HashSet::new();
-        let mut resubmit_successful_stages = HashSet::new();
-
-        let mut empty_inputs: HashMap<usize, StageOutput> = HashMap::new();
-        // check the unresolved, resolved and running stages
         self.stages.iter_mut().for_each(|(stage_id, stage)| {
-            let stage_inputs = match stage {
-                ExecutionStage::UnResolved(stage) => &mut stage.inputs,
-                ExecutionStage::Resolved(stage) => &mut stage.inputs,
-                ExecutionStage::Running(stage) => {
-                    let reset = stage.reset_tasks(executor_id);
-                    if reset > 0 {
-                        warn!(
-                            num_tasks = reset,
-                            job_id,
-                            stage_id,
-                            executor_id,
-                            "resetting running tasks for lost executor"
-                        );
-                        reset_running_stage.insert(*stage_id);
-                    }
-                    &mut stage.inputs
-                }
-                _ => &mut empty_inputs,
-            };
-
-            // For each stage input, check whether there are input locations match that executor
-            // and calculate the resubmit input stages if the input stages are successful.
-            let mut rollback_stage = false;
-            stage_inputs
-                .iter_mut()
-                .for_each(|(input_stage_id, stage_output)| {
-                    let mut match_found = false;
-                    stage_output.partition_locations.iter_mut().for_each(
-                        |(_partition, locs)| {
-                            let before_len = locs.len();
-                            locs.retain(|loc| loc.executor_meta.id != executor_id);
-                            if locs.len() < before_len {
-                                match_found = true;
-                            }
-                        },
+            if let ExecutionStage::Running(stage) = stage {
+                let reset = stage.reset_tasks(executor_id);
+                if reset > 0 {
+                    warn!(
+                        num_tasks = reset,
+                        self.job_id,
+                        stage_id,
+                        executor_id,
+                        "resetting running tasks for lost executor"
                     );
-                    if match_found {
-                        stage_output.complete = false;
-                        rollback_stage = true;
-                        resubmit_inputs.insert(*input_stage_id);
-                    }
-                });
-
-            if rollback_stage {
-                match stage {
-                    ExecutionStage::Resolved(_) => {
-                        rollback_resolved_stages.insert(*stage_id);
-                        warn!(
-                            executor_id,
-                            job_id, stage_id, "rolling back resolved stage"
-                        );
-                    }
-                    ExecutionStage::Running(_) => {
-                        rollback_running_stages.insert(*stage_id);
-                        warn!(
-                            executor_id,
-                            job_id, stage_id, "rolling back running stage"
-                        );
-                    }
-                    _ => {}
                 }
             }
-        });
-
-        // check and reset the successful stages
-        if !resubmit_inputs.is_empty() {
-            self.stages
-                .iter_mut()
-                .filter(|(stage_id, _stage)| resubmit_inputs.contains(stage_id))
-                .filter_map(|(_stage_id, stage)| {
-                    if let ExecutionStage::Successful(success) = stage {
-                        Some(success)
-                    } else {
-                        None
-                    }
-                })
-                .for_each(|stage| {
-                    let reset = stage.reset_tasks(executor_id);
-                    if reset > 0 {
-                        resubmit_successful_stages.insert(stage.stage_id);
-                        warn!(
-                            reset,
-                            job_id, stage.stage_id, executor_id, "reset successful stage"
-                        );
-                    }
-                });
-        }
-
-        for stage_id in rollback_resolved_stages.iter() {
-            self.rollback_resolved_stage(*stage_id)?;
-        }
-
-        let mut all_running_tasks = vec![];
-        for stage_id in rollback_running_stages.iter() {
-            let tasks = self.rollback_running_stage(
-                *stage_id,
-                HashSet::from([executor_id.to_owned()]),
-            )?;
-            all_running_tasks.extend(tasks);
-        }
-
-        for stage_id in resubmit_successful_stages.iter() {
-            self.rerun_successful_stage(*stage_id);
-        }
-
-        let mut reset_stage = HashSet::new();
-        reset_stage.extend(reset_running_stage);
-        reset_stage.extend(rollback_resolved_stages);
-        reset_stage.extend(rollback_running_stages);
-        reset_stage.extend(resubmit_successful_stages);
-        Ok((reset_stage, all_running_tasks))
+        })
     }
 
     /// Convert unresolved stage to be resolved
@@ -1389,6 +1265,7 @@ impl ExecutionGraph {
         proto: protobuf::ExecutionGraph,
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<ExecutionGraph> {
         let mut stages: HashMap<usize, ExecutionStage> = HashMap::new();
         for graph_stage in proto.stages {
@@ -1396,18 +1273,30 @@ impl ExecutionGraph {
 
             let execution_stage = match stage_type {
                 StageType::UnresolvedStage(stage) => {
-                    let stage: UnresolvedStage =
-                        UnresolvedStage::decode(stage, codec, session_ctx)?;
+                    let stage: UnresolvedStage = UnresolvedStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::UnResolved(stage))
                 }
                 StageType::ResolvedStage(stage) => {
-                    let stage: ResolvedStage =
-                        ResolvedStage::decode(stage, codec, session_ctx)?;
+                    let stage: ResolvedStage = ResolvedStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::Resolved(stage))
                 }
                 StageType::SuccessfulStage(stage) => {
-                    let stage: SuccessfulStage =
-                        SuccessfulStage::decode(stage, codec, session_ctx)?;
+                    let stage: SuccessfulStage = SuccessfulStage::decode(
+                        stage,
+                        codec,
+                        session_ctx,
+                        object_store.clone(),
+                    )?;
                     (stage.stage_id, ExecutionStage::Successful(stage))
                 }
                 StageType::FailedStage(stage) => {
@@ -1642,6 +1531,7 @@ impl Debug for ExecutionGraph {
 ///
 /// This will infer the dependency structure for the stages
 /// so that we can construct a DAG from the stages.
+#[derive(Default)]
 struct ExecutionStageBuilder {
     /// Stage ID which is currently being visited
     current_stage_id: usize,
@@ -1649,14 +1539,16 @@ struct ExecutionStageBuilder {
     stage_dependencies: HashMap<usize, Vec<usize>>,
     /// Map from Stage ID -> output link
     output_links: HashMap<usize, Vec<usize>>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl ExecutionStageBuilder {
-    pub fn new() -> Self {
+    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             current_stage_id: 0,
             stage_dependencies: HashMap::new(),
             output_links: HashMap::new(),
+            object_store: Some(object_store),
         }
     }
 
@@ -1690,6 +1582,7 @@ impl ExecutionStageBuilder {
                     output_links,
                     HashMap::new(),
                     HashSet::new(),
+                    self.object_store.clone(),
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1698,6 +1591,7 @@ impl ExecutionStageBuilder {
                     partitioning,
                     output_links,
                     child_stages,
+                    self.object_store.clone(),
                 ))
             };
             execution_stages.insert(stage_id, stage);
@@ -1911,161 +1805,6 @@ mod test {
     }
 
     #[tokio::test]
-    async fn test_reset_completed_stage_executor_lost() -> Result<()> {
-        let executor1 = mock_executor("executor-id1".to_string());
-        let executor2 = mock_executor("executor-id2".to_string());
-        let mut join_graph = test_join_plan(4).await;
-
-        // With the improvement of https://github.com/apache/arrow-datafusion/pull/4122,
-        // unnecessary RepartitionExec can be removed
-        assert_eq!(join_graph.stage_count(), 4);
-        assert_eq!(join_graph.available_tasks(), 0);
-
-        // Call revive to move the two leaf Resolved stages to Running
-        join_graph.revive();
-
-        assert_eq!(join_graph.stage_count(), 4);
-        assert_eq!(join_graph.available_tasks(), 2);
-
-        // Complete the first stage
-        if let Some(task) = join_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            join_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // Complete the second stage
-        if let Some(task) = join_graph.pop_next_task(&executor2.id, 1)? {
-            let task_status = mock_completed_task(task, &executor2.id);
-            join_graph.update_task_status(&executor2, vec![task_status], 1, 1)?;
-        }
-
-        join_graph.revive();
-        // There are 4 tasks pending schedule for the 3rd stage
-        assert_eq!(join_graph.available_tasks(), 4);
-
-        // Complete 1 task
-        if let Some(task) = join_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            join_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-        // Mock 1 running task
-        let _task = join_graph.pop_next_task(&executor1.id, 1)?;
-
-        let reset = join_graph.reset_stages_on_lost_executor(&executor1.id)?;
-
-        // Two stages were reset, 1 Running stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
-        assert_eq!(join_graph.available_tasks(), 1);
-
-        drain_tasks(&mut join_graph)?;
-        assert!(join_graph.is_successful(), "Failed to complete join plan");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_reset_resolved_stage_executor_lost() -> Result<()> {
-        let executor1 = mock_executor("executor-id1".to_string());
-        let executor2 = mock_executor("executor-id2".to_string());
-        let mut join_graph = test_join_plan(4).await;
-
-        assert_eq!(join_graph.stage_count(), 4);
-        assert_eq!(join_graph.available_tasks(), 0);
-
-        // Call revive to move the two leaf Resolved stages to Running
-        join_graph.revive();
-
-        assert_eq!(join_graph.stage_count(), 4);
-        assert_eq!(join_graph.available_tasks(), 2);
-
-        // Complete the first stage
-        if let Some(task) = join_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            join_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // Complete the second stage
-        if let Some(task) = join_graph.pop_next_task(&executor2.id, 1)? {
-            let task_status = mock_completed_task(task, &executor2.id);
-            join_graph.update_task_status(&executor2, vec![task_status], 1, 1)?;
-        }
-
-        // There are 0 tasks pending schedule now
-        assert_eq!(join_graph.available_tasks(), 0);
-
-        let reset = join_graph.reset_stages_on_lost_executor(&executor1.id)?;
-
-        // Two stages were reset, 1 Resolved stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
-        assert_eq!(join_graph.available_tasks(), 1);
-
-        drain_tasks(&mut join_graph)?;
-        assert!(join_graph.is_successful(), "Failed to complete join plan");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_task_update_after_reset_stage() -> Result<()> {
-        let executor1 = mock_executor("executor-id1".to_string());
-        let executor2 = mock_executor("executor-id2".to_string());
-        let mut agg_graph = test_aggregation_plan(4).await;
-
-        assert_eq!(agg_graph.stage_count(), 2);
-        assert_eq!(agg_graph.available_tasks(), 0);
-
-        // Call revive to move the leaf Resolved stages to Running
-        agg_graph.revive();
-
-        assert_eq!(agg_graph.stage_count(), 2);
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        // Complete the first stage
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // 1st task in the second stage
-        if let Some(task) = agg_graph.pop_next_task(&executor2.id, 1)? {
-            let task_status = mock_completed_task(task, &executor2.id);
-            agg_graph.update_task_status(&executor2, vec![task_status], 1, 1)?;
-        }
-
-        // 2rd task in the second stage
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // 3rd task in the second stage, scheduled but not completed
-        let task = agg_graph.pop_next_task(&executor1.id, 1)?;
-
-        // There is 1 task pending schedule now
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        let reset = agg_graph.reset_stages_on_lost_executor(&executor1.id)?;
-
-        // 3rd task status update comes later.
-        let task_status = mock_completed_task(task.unwrap(), &executor1.id);
-        agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-
-        // Two stages were reset, 1 Running stage rollback to Unresolved and 1 Completed stage move to Running
-        assert_eq!(reset.0.len(), 2);
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        // Call the reset again
-        let reset = agg_graph.reset_stages_on_lost_executor(&executor1.id)?;
-        assert_eq!(reset.0.len(), 0);
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        drain_tasks(&mut agg_graph)?;
-        assert!(agg_graph.is_successful(), "Failed to complete agg plan");
-
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_do_not_retry_killed_task() -> Result<()> {
         let executor1 = mock_executor("executor-id1".to_string());
         let executor2 = mock_executor("executor-id2".to_string());
@@ -2201,78 +1940,6 @@ mod test {
             failure_reason
         );
         assert!(!agg_graph.is_successful());
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_long_delayed_failed_task_after_executor_lost() -> Result<()> {
-        let executor1 = mock_executor("executor-id1".to_string());
-        let executor2 = mock_executor("executor-id2".to_string());
-        let mut agg_graph = test_aggregation_plan(4).await;
-        // Call revive to move the leaf Resolved stages to Running
-        agg_graph.revive();
-
-        // Complete the Stage 1
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // 1st task in the Stage 2
-        if let Some(task) = agg_graph.pop_next_task(&executor2.id, 1)? {
-            let task_status = mock_completed_task(task, &executor2.id);
-            agg_graph.update_task_status(&executor2, vec![task_status], 1, 1)?;
-        }
-
-        // 2rd task in the Stage 2
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // 3rd task in the Stage 2, scheduled on executor 2 but not completed
-        let task = agg_graph.pop_next_task(&executor2.id, 1)?;
-
-        // There is 1 task pending schedule now
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        // executor 1 lost
-        let reset = agg_graph.reset_stages_on_lost_executor(&executor1.id)?;
-
-        // Two stages were reset, Stage 2 rollback to Unresolved and Stage 1 move to Running
-        assert_eq!(reset.0.len(), 2);
-        assert_eq!(agg_graph.available_tasks(), 1);
-
-        // Complete the Stage 1 again
-        if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
-            let task_status = mock_completed_task(task, &executor1.id);
-            agg_graph.update_task_status(&executor1, vec![task_status], 1, 1)?;
-        }
-
-        // Stage 2 move to Running
-        agg_graph.revive();
-        assert_eq!(agg_graph.available_tasks(), 4);
-
-        // 3rd task in Stage 2 update comes very late due to runtime execution error.
-        let task_status = mock_failed_task(
-            task.unwrap(),
-            FailedTask {
-                retryable: false,
-                count_to_failures: false,
-                failed_reason: Some(failed_task::FailedReason::ExecutionError(
-                    ExecutionError { error: None },
-                )),
-            },
-        );
-
-        // This long delayed failed task should not failure the stage/job and should not trigger any query stage events
-        let query_stage_events =
-            agg_graph.update_task_status(&executor1, vec![task_status], 4, 4)?;
-        assert!(query_stage_events.is_empty());
-
-        drain_tasks(&mut agg_graph)?;
-        assert!(agg_graph.is_successful(), "Failed to complete agg plan");
 
         Ok(())
     }

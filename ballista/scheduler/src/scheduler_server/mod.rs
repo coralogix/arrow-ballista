@@ -29,6 +29,7 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+use object_store::ObjectStore;
 
 use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
@@ -79,12 +80,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             cluster,
             codec,
             scheduler_name.clone(),
             config.clone(),
+            object_store,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -116,6 +119,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -123,6 +127,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             scheduler_name.clone(),
             config.clone(),
             task_launcher,
+            object_store,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -432,6 +437,7 @@ mod test {
         BallistaConfig, TaskSchedulingPolicy, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
     };
     use ballista_core::error::Result;
+    use object_store::local::LocalFileSystem;
 
     use crate::config::SchedulerConfig;
 
@@ -777,9 +783,10 @@ mod test {
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
                 cluster,
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
                 Arc::new(TestMetricsCollector::default()),
+                None,
             );
         scheduler.init().await?;
 
