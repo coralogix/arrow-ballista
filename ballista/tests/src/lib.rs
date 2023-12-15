@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_global_limit() {
+    async fn test_circuit_breaker() {
         env_logger::init();
 
         let row_limit = 100;

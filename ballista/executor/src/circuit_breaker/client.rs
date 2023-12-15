@@ -5,6 +5,7 @@ use ballista_core::{
     serde::protobuf::{self, CircuitBreakerUpdateRequest, CircuitBreakerUpdateResponse},
 };
 use dashmap::DashMap;
+use futures::TryFutureExt;
 use lazy_static::lazy_static;
 use prometheus::{
     register_histogram, register_int_counter, register_int_gauge, Histogram, IntCounter,
@@ -20,7 +21,10 @@ use std::{
     time::Duration,
     time::Instant,
 };
-use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::{
+    sync::mpsc::{channel, Receiver, Sender},
+    task::JoinHandle,
+};
 use tracing::{info, warn};
 
 use crate::{
@@ -131,6 +135,11 @@ lazy_static! {
         "Capacity of the update channel"
     )
     .unwrap();
+    static ref DROPPED_UPDATES: IntCounter = register_int_counter!(
+        "ballista_circuit_breaker_client_dropped_updates",
+        "Number of updates dropped because the channel was full"
+    )
+    .unwrap();
 }
 
 impl CircuitBreakerClient {
@@ -234,6 +243,7 @@ impl CircuitBreakerClient {
         let mut last_cleanup = Instant::now();
         let mut task_scheduler_lookup = HashMap::new();
         let mut per_scheduler_state = HashMap::new();
+        let mut last_update_request = None;
 
         while let Some(update) = update_receiver.recv().await {
             Self::handle_update(
@@ -242,8 +252,9 @@ impl CircuitBreakerClient {
                 &mut task_scheduler_lookup,
                 &config,
                 &executor_id,
-                &state_per_stage,
-                get_scheduler.as_ref(),
+                state_per_stage.clone(),
+                get_scheduler.clone(),
+                &mut last_update_request,
             )
             .await;
 
@@ -277,31 +288,27 @@ impl CircuitBreakerClient {
         task_scheduler_lookup: &mut HashMap<String, String>,
         config: &CircuitBreakerClientConfig,
         executor_id: &str,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
-        scheduler_lookup: &dyn SchedulerClientRegistry,
+        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        scheduler_lookup: Arc<dyn SchedulerClientRegistry>,
+        last_update_request: &mut Option<JoinHandle<()>>,
     ) {
         let now = Instant::now();
 
         match received {
-            ClientUpdate::LabelsRegistration(registration) => {
-                if let Some(scheduler_id) =
-                    task_scheduler_lookup.get(&registration.key.task_id)
-                {
-                    // For now, send a new message for every registration.
-                    Self::process_label_registration(
-                        scheduler_id,
-                        registration,
-                        state_per_stage,
-                        scheduler_lookup,
-                        executor_id,
-                    )
-                    .await;
+            ClientUpdate::LabelsRegistration(reg) => {
+                if let Some(mut state) = state_per_stage.get_mut(&reg.key.stage_key) {
+                    state.last_updated = now;
+                }
+
+                if let Some(scheduler_id) = task_scheduler_lookup.get(&reg.key.task_id) {
+                    updates_per_scheduler
+                        .entry(scheduler_id.clone())
+                        .or_default()
+                        .label_registrations
+                        .push(reg);
                 } else {
                     // This happens when the task has completed but the update was still in flight.
-                    info!(
-                        "No scheduler found for task {} during label registration",
-                        registration.key.task_id
-                    );
+                    info!("No scheduler found for task {}", reg.key.task_id);
                 }
             }
             ClientUpdate::Update(update) => {
@@ -315,20 +322,32 @@ impl CircuitBreakerClient {
                         .remove(scheduler_id)
                         .unwrap_or_default();
 
-                    per_scheduler_state
-                        .updates
-                        .entry(update.key)
-                        .and_modify(|percent| {
-                            *percent = update.percent.max(*percent);
-                        })
-                        .or_insert(update.percent);
-
-                    if per_scheduler_state.updates.len() >= config.max_batch_size
-                        || per_scheduler_state.last_sent.add(config.send_interval) < now
+                    if let Some(entry) = per_scheduler_state.updates.get_mut(&update.key)
                     {
-                        Self::process_batch(
+                        *entry = update.percent.max(*entry);
+                    } else if per_scheduler_state.updates.len() >= config.max_batch_size {
+                        DROPPED_UPDATES.inc();
+                    } else {
+                        per_scheduler_state
+                            .updates
+                            .insert(update.key, update.percent);
+                    }
+
+                    let no_inflight_update = last_update_request
+                        .as_ref()
+                        .map(|j| j.is_finished())
+                        .unwrap_or(true);
+
+                    let should_send_update =
+                        per_scheduler_state.last_sent.add(config.send_interval) < now;
+
+                    if no_inflight_update && should_send_update {
+                        per_scheduler_state.last_sent = now;
+
+                        *last_update_request = Self::process_batch(
                             scheduler_id,
                             &mut per_scheduler_state.updates,
+                            &mut per_scheduler_state.label_registrations,
                             state_per_stage,
                             scheduler_lookup,
                             executor_id,
@@ -336,7 +355,8 @@ impl CircuitBreakerClient {
                         )
                         .await;
                     } else {
-                        // We don't want to send an update yet, so we put the state back into the map.
+                        // We don't want to send an update yet (or an update is still in flight),
+                        // so we put the state back into the map.
                         updates_per_scheduler
                             .insert(scheduler_id.clone(), per_scheduler_state);
                     }
@@ -356,80 +376,15 @@ impl CircuitBreakerClient {
         }
     }
 
-    async fn process_label_registration(
-        scheduler_id: &str,
-        registration: CircuitBreakerLabelsRegistration,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
-        get_scheduler: &dyn SchedulerClientRegistry,
-        executor_id: &str,
-    ) {
-        let registration_proto = protobuf::CircuitBreakerLabelsRegistration {
-            key: Some(registration.key.into()),
-            labels: registration.labels,
-        };
-
-        Self::send_registrations(
-            executor_id,
-            scheduler_id,
-            get_scheduler,
-            vec![registration_proto],
-            state_per_stage,
-        )
-        .await;
-    }
-
-    async fn send_registrations(
-        executor_id: &str,
-        scheduler_id: &str,
-        get_scheduler: &dyn SchedulerClientRegistry,
-        label_registrations: Vec<protobuf::CircuitBreakerLabelsRegistration>,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
-    ) {
-        let mut scheduler = match get_scheduler
-            .get_or_create_scheduler_client(scheduler_id)
-            .await
-        {
-            Ok(scheduler) => scheduler,
-            Err(e) => {
-                warn!("Failed to get scheduler {}: {}", scheduler_id, e);
-                return;
-            }
-        };
-
-        let label_registrations_len = label_registrations.len();
-
-        let request = CircuitBreakerUpdateRequest {
-            updates: vec![],
-            label_registrations,
-            executor_id: executor_id.to_owned(),
-        };
-
-        let request_time = Instant::now();
-
-        match scheduler.send_circuit_breaker_update(request).await {
-            Err(e) => warn!(
-                "Failed to send circuit breaker update to scheduler {}: {}",
-                scheduler_id, e
-            ),
-            Ok(response) => {
-                let request_latency = request_time.elapsed();
-
-                SENT_LABEL_REGISTRATIONS.inc_by(label_registrations_len as u64);
-                UPDATE_LATENCY_SECONDS.observe(request_latency.as_secs_f64());
-
-                Self::handle_response(response.into_inner(), state_per_stage);
-            }
-        };
-    }
-
     async fn process_batch(
         scheduler_id: &str,
         updates: &mut HashMap<CircuitBreakerTaskKey, f64>,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
-        get_scheduler: &dyn SchedulerClientRegistry,
+        label_registrations: &mut Vec<CircuitBreakerLabelsRegistration>,
+        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        get_scheduler: Arc<dyn SchedulerClientRegistry>,
         executor_id: &str,
         config: &CircuitBreakerClientConfig,
-    ) {
+    ) -> Option<JoinHandle<()>> {
         let update_protos = updates
             .drain()
             .map(|(key, percent)| protobuf::CircuitBreakerUpdate {
@@ -438,29 +393,44 @@ impl CircuitBreakerClient {
             })
             .collect::<Vec<_>>();
 
-        Self::send_updates(
-            executor_id,
+        let label_registration_protos = label_registrations
+            .drain(..)
+            .map(|r| protobuf::CircuitBreakerLabelsRegistration {
+                key: Some(r.key.into()),
+                labels: r.labels,
+            })
+            .collect::<Vec<_>>();
+
+        let request = CircuitBreakerUpdateRequest {
+            updates: update_protos,
+            label_registrations: label_registration_protos,
+            executor_id: executor_id.to_owned(),
+        };
+
+        let scheduler_id = scheduler_id.to_owned();
+        let state_per_stage = state_per_stage.clone();
+        let max_batch_size = config.max_batch_size;
+
+        // fork the actual request so we can continue collecting the local state
+        // for the next request even if the request takes long to process for some reason.
+        Some(tokio::spawn(Self::send_request(
             scheduler_id,
-            update_protos,
-            get_scheduler,
             state_per_stage,
-            config,
-        )
-        .await;
+            max_batch_size,
+            request,
+            get_scheduler.clone(),
+        )))
     }
 
-    async fn send_updates(
-        executor_id: &str,
-        scheduler_id: &str,
-        updates: Vec<protobuf::CircuitBreakerUpdate>,
-        get_scheduler: &dyn SchedulerClientRegistry,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
-        config: &CircuitBreakerClientConfig,
+    async fn send_request(
+        scheduler_id: String,
+        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        max_batch_size: usize,
+        request: CircuitBreakerUpdateRequest,
+        get_scheduler: Arc<dyn SchedulerClientRegistry>,
     ) {
-        let updates_len = updates.len();
-
         let mut scheduler = match get_scheduler
-            .get_or_create_scheduler_client(scheduler_id)
+            .get_or_create_scheduler_client(&scheduler_id)
             .await
         {
             Ok(scheduler) => scheduler,
@@ -470,29 +440,31 @@ impl CircuitBreakerClient {
             }
         };
 
-        let request = CircuitBreakerUpdateRequest {
-            updates,
-            label_registrations: vec![],
-            executor_id: executor_id.to_owned(),
-        };
-
         let request_time = Instant::now();
+        let updates_len = request.updates.len();
+        let label_registrations_len = request.label_registrations.len();
 
-        match scheduler.send_circuit_breaker_update(request).await {
-            Err(e) => warn!(
-                "Failed to send circuit breaker update to scheduler {}: {}",
-                scheduler_id, e
-            ),
-            Ok(response) => {
-                let request_latency = request_time.elapsed();
+        scheduler
+            .send_circuit_breaker_update(request)
+            .map_ok_or_else(
+                move |e| {
+                    warn!(
+                        "Failed to send circuit breaker update to scheduler {}: {}",
+                        scheduler_id, e
+                    )
+                },
+                move |response| {
+                    let request_latency = request_time.elapsed();
 
-                SENT_UPDATES.inc_by(updates_len as u64);
-                BATCH_SIZE.observe(updates_len as f64 / config.max_batch_size as f64);
-                UPDATE_LATENCY_SECONDS.observe(request_latency.as_secs_f64());
+                    SENT_UPDATES.inc_by(updates_len as u64);
+                    BATCH_SIZE.observe(updates_len as f64 / max_batch_size as f64);
+                    SENT_LABEL_REGISTRATIONS.inc_by(label_registrations_len as u64);
+                    UPDATE_LATENCY_SECONDS.observe(request_latency.as_secs_f64());
 
-                Self::handle_response(response.into_inner(), state_per_stage);
-            }
-        };
+                    Self::handle_response(response.into_inner(), &state_per_stage);
+                },
+            )
+            .await;
     }
 
     fn handle_response(
@@ -553,6 +525,7 @@ impl CircuitBreakerClient {
 
 struct PerSchedulerState {
     updates: HashMap<CircuitBreakerTaskKey, f64>,
+    label_registrations: Vec<CircuitBreakerLabelsRegistration>,
     last_sent: Instant,
 }
 
@@ -560,6 +533,7 @@ impl Default for PerSchedulerState {
     fn default() -> Self {
         Self {
             updates: HashMap::new(),
+            label_registrations: Vec::new(),
             last_sent: Instant::now(),
         }
     }

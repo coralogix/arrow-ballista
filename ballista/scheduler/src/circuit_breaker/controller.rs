@@ -9,7 +9,7 @@ use ballista_core::circuit_breaker::model::{
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
-use prometheus::{register_int_counter, IntCounter};
+use prometheus::{register_int_counter, IntCounter, IntGauge};
 use tracing::{debug, info};
 
 pub struct CircuitBreakerController {
@@ -71,6 +71,11 @@ lazy_static! {
         "Total number of updates received by the circuit breaker"
     )
     .unwrap();
+    static ref JOB_STATES_SIZE: IntGauge = prometheus::register_int_gauge!(
+        "ballista_circuit_breaker_controller_job_states_size",
+        "Number of jobs registered in the circuit breaker controller"
+    )
+    .unwrap();
 }
 
 impl Default for CircuitBreakerController {
@@ -93,6 +98,8 @@ impl CircuitBreakerController {
                 shared_states: HashMap::new(),
             },
         );
+
+        JOB_STATES_SIZE.set(job_states.len() as i64);
     }
 
     pub fn delete(&self, job_id: &str) {
