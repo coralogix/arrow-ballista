@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ballista_core::async_reader::{AsyncFileReader, AsyncStreamReader};
+use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::error::BallistaError;
 use ballista_core::replicator::Command;
 use bytes::Bytes;
