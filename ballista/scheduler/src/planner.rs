@@ -34,6 +34,7 @@ use datafusion::physical_plan::{
 };
 
 use log::{debug, info};
+use object_store::ObjectStore;
 
 type PartialQueryStageResult = (Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>);
 
@@ -208,6 +209,7 @@ pub fn find_unresolved_shuffles(
 pub fn remove_unresolved_shuffles(
     stage: Arc<dyn ExecutionPlan>,
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {
@@ -248,9 +250,14 @@ pub fn remove_unresolved_shuffles(
             new_children.push(Arc::new(ShuffleReaderExec::try_new(
                 relevant_locations,
                 unresolved_shuffle.schema().clone(),
+                object_store.clone(),
             )?))
         } else {
-            new_children.push(remove_unresolved_shuffles(child, partition_locations)?);
+            new_children.push(remove_unresolved_shuffles(
+                child,
+                partition_locations,
+                object_store.clone(),
+            )?);
         }
     }
     Ok(with_new_children_if_necessary(stage, new_children)?.into())
@@ -297,6 +304,7 @@ fn create_shuffle_writer(
         plan,
         "".to_owned(), // executor will decide on the work_dir path
         partitioning,
+        None,
     )?))
 }
 
@@ -318,6 +326,7 @@ mod test {
     use datafusion_proto::physical_plan::AsExecutionPlan;
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use object_store::local::LocalFileSystem;
     use std::ops::Deref;
     use std::sync::Arc;
     use uuid::Uuid;
@@ -630,7 +639,7 @@ order by
         plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>, BallistaError> {
         let codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::default();
+            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new()));
         let proto: datafusion_proto::protobuf::PhysicalPlanNode =
             datafusion_proto::protobuf::PhysicalPlanNode::try_from_physical_plan(
                 plan.clone(),

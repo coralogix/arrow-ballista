@@ -68,13 +68,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_global_limit() {
+    async fn test_circuit_breaker() {
         env_logger::init();
 
         let row_limit = 100;
 
         let logical_codec = Arc::new(TestLogicalCodec::new());
-        let physical_codec = Arc::new(TestPhysicalCodec::new());
+        let physical_codec = Arc::new(TestPhysicalCodec::default());
 
         let scheduler_socket =
             start_scheduler_local(logical_codec.clone(), physical_codec.clone()).await;
@@ -310,6 +310,7 @@ mod tests {
             let executor = Executor::new(
                 metadata,
                 work_dir,
+                None,
                 runtime.clone(),
                 metrics_collector,
                 concurrent_tasks,

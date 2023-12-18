@@ -21,8 +21,10 @@ use arrow_flight::flight_service_server::FlightServiceServer;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
+use object_store::ObjectStore;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::transport::server::Connected;
 use tower::Service;
 
@@ -45,6 +47,7 @@ pub async fn start_server(
     cluster: BallistaCluster,
     addr: SocketAddr,
     config: SchedulerConfig,
+    object_store: Option<Arc<dyn ObjectStore>>,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
@@ -62,9 +65,10 @@ pub async fn start_server(
         SchedulerServer::new(
             config.scheduler_name(),
             cluster,
-            BallistaCodec::default(),
+            BallistaCodec::new_with_optional_object_store(object_store.clone()),
             config,
             metrics_collector,
+            object_store,
         );
 
     scheduler_server.init().await?;

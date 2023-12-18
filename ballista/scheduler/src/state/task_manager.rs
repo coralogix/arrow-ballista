@@ -26,11 +26,12 @@ use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
+use object_store::ObjectStore;
 
 use crate::cluster::JobState;
 use ballista_core::serde::protobuf::{
     self, execution_error, job_status, ExecutionError, FailedJob, JobOverview, JobStatus,
-    KeyValuePair, QueuedJob, SuccessfulJob, TaskDefinition, TaskStatus,
+    KeyValuePair, QueuedJob, TaskDefinition, TaskStatus,
 };
 use ballista_core::serde::scheduler::to_proto::hash_partitioning_to_proto;
 use ballista_core::serde::scheduler::ExecutorMetadata;
@@ -302,6 +303,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     launcher: Arc<dyn TaskLauncher<T, U>>,
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -376,11 +378,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
 
-        Self::with_launcher(state, scheduler_id, Arc::new(launcher))
+        Self::with_launcher(state, scheduler_id, Arc::new(launcher), object_store)
     }
 
     #[allow(dead_code)]
@@ -388,6 +391,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         state: Arc<dyn JobState>,
         scheduler_id: String,
         launcher: Arc<dyn TaskLauncher<T, U>>,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -398,6 +402,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             launcher,
             drained: Arc::new(drained),
             check_drained,
+            object_store,
         }
     }
 
@@ -440,6 +445,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             session_id,
             plan,
             queued_at,
+            self.object_store.clone(),
         )?;
         info!(
             job_id,
@@ -732,53 +738,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     }
 
     /// return a Vec of running tasks need to cancel
-    pub async fn executor_lost(&self, executor_id: &str) -> Result<Vec<RunningTaskInfo>> {
-        // Collect all the running task need to cancel when there are running stages rolled back.
-        let mut running_tasks_to_cancel: Vec<RunningTaskInfo> = vec![];
-        // Collect graphs we update so we can update them in storage
-        let updated_graphs: DashMap<String, ExecutionGraph> = DashMap::new();
-        {
-            for pairs in self.active_job_queue.jobs().iter() {
-                let (job_id, job_info) = pairs.pair();
-                let mut graph = job_info.graph_mut().await;
-                let reset = graph.reset_stages_on_lost_executor(executor_id)?;
-                if !reset.0.is_empty() {
-                    updated_graphs.insert(job_id.to_owned(), graph.clone());
-                    running_tasks_to_cancel.extend(reset.1);
-                }
-            }
+    pub async fn executor_lost(&self, executor_id: &str) {
+        for pairs in self.active_job_queue.jobs().iter() {
+            let (_, job_info) = pairs.pair();
+            let mut graph = job_info.graph_mut().await;
+            graph.reset_stages_on_lost_executor(executor_id);
         }
-
-        // Remove any completed jobs whose output partitions are lost
-        for (job_id, status) in self.state.get_job_statuses().await? {
-            if let JobStatus {
-                status:
-                    Some(job_status::Status::Successful(SuccessfulJob {
-                        partition_location,
-                        ..
-                    })),
-                ..
-            } = status
-            {
-                if partition_location.iter().any(|part| {
-                    part.executor_meta
-                        .as_ref()
-                        .map(|meta| meta.id == executor_id)
-                        .unwrap_or_default()
-                }) {
-                    warn!(
-                        executor_id,
-                        job_id,
-                        "output partition lost for completed job, removing status"
-                    );
-                    if let Err(err) = self.state.remove_job(&job_id).await {
-                        error!(executor_id,job_id,error = %err, "failed to remove job when output partition lost");
-                    }
-                }
-            }
-        }
-
-        Ok(running_tasks_to_cancel)
     }
 
     /// Retrieve the number of available tasks for the given job. The value returned
@@ -888,10 +853,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         job_id: String,
         stage_id: usize,
         labels: Vec<String>,
-    ) {
+    ) -> Result<Vec<QueryStageSchedulerEvent>> {
         if let Some(job) = self.active_job_queue.get_job(&job_id) {
             let mut graph = job.graph_mut().await;
-            graph.trip_stage(stage_id, labels);
+            graph.trip_stage(stage_id, labels)
+        } else {
+            Ok(vec![])
         }
     }
 }

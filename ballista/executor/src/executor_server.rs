@@ -51,7 +51,6 @@ use datafusion_proto::{
     logical_plan::AsLogicalPlan,
     physical_plan::{from_proto::parse_protobuf_hash_partitioning, AsExecutionPlan},
 };
-use lazy_static::lazy_static;
 use tokio::fs;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::task::JoinHandle;
@@ -64,7 +63,7 @@ use crate::execution_engine::QueryStageExecutor;
 use crate::executor::Executor;
 use crate::scheduler_client_registry::SchedulerClientRegistry;
 use crate::shutdown::ShutdownNotifier;
-use crate::{as_task_status, TaskExecutionTimes};
+use crate::{as_task_status, halt_and_catch_fire, TaskExecutionTimes};
 
 // Set the max gRPC message size to 64 MiB. This is quite large
 // but we have to send execution plans over gRPC and they can be large.
@@ -382,6 +381,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
             stage_id,
             plan,
             &self.executor.work_dir,
+            self.executor.replication_send.clone(),
         )?)
     }
 
@@ -562,17 +562,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
         }
 
         let plan_metrics = query_stage_exec.collect_plan_metrics();
-        let operator_metrics = match plan_metrics
+        let operator_metrics = plan_metrics
             .into_iter()
             .map(|m| m.try_into())
-            .collect::<Result<Vec<_>, BallistaError>>()
-        {
-            Ok(metrics) => metrics,
-            Err(e) => {
-                error!(executor_id = self.executor.metadata.id, error = %e, "error serializing task metrics");
-                vec![]
-            }
-        };
+            .collect::<Result<Vec<_>, BallistaError>>().unwrap_or_else(|e| {
+            error!(executor_id = self.executor.metadata.id, error = %e, "error serializing task metrics");
+            vec![]
+        });
 
         let executor_id = &self.executor.metadata.id;
 
@@ -728,7 +724,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> Heartbeater<T, U>
                         drop(heartbeat_complete);
                         return;
                     }
-                };
+                }
             }
         });
     }
@@ -753,9 +749,19 @@ fn task_identity(task: &TaskDefinition) -> String {
     )
 }
 
-lazy_static! {
-    static ref STATUS_RETRY_POLICY: Vec<Duration> = vec![Duration::from_millis(10); 3];
-}
+const STATUS_RETRY_POLICY: [Duration; 3] = [
+    Duration::from_millis(10),
+    Duration::from_millis(100),
+    Duration::from_millis(500),
+];
+
+const SCHEDULER_LOST_RETRY_POLICY: [Duration; 5] = [
+    Duration::from_millis(100),
+    Duration::from_millis(500),
+    Duration::from_secs(1),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+];
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T, U> {
     fn new(executor_server: Arc<ExecutorServer<T, U>>) -> Self {
@@ -804,12 +810,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
     }
 
     async fn send_scheduler_lost(
-        scheduler: &mut SchedulerGrpcClient<Channel>,
+        mut scheduler: SchedulerGrpcClient<Channel>,
         executor_id: &str,
         scheduler_id: &str,
         status: Vec<TaskStatus>,
     ) -> Result<(), Status> {
-        let mut retries = STATUS_RETRY_POLICY.iter();
+        let mut retries = SCHEDULER_LOST_RETRY_POLICY.iter().copied();
 
         loop {
             if let Err(e) = scheduler
@@ -832,7 +838,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                             | Code::Aborted
                     ) {
                         // we can retry, sleep for specified interval and retry
-                        tokio::time::sleep(*interval).await;
+                        tokio::time::sleep(interval).await;
                     } else {
                         // error is not retryable, return error
                         return Err(e);
@@ -944,19 +950,25 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                 );
 
                                 if !TERMINATING.load(Ordering::Acquire) {
-                                    let mut scheduler =
+                                    let scheduler =
                                         executor_server.scheduler_to_register.clone();
 
-                                    if let Err(e) = Self::send_scheduler_lost(
-                                        &mut scheduler,
-                                        &executor_server.executor.metadata.id,
-                                        &scheduler_id,
-                                        tasks_status,
-                                    )
-                                    .await
-                                    {
-                                        error!(executor_id, scheduler_id, error = %e, "failed to send scheduler lost");
-                                    }
+                                    let executor_id =
+                                        executor_server.executor.metadata.id.clone();
+                                    let scheduler_id = scheduler_id.clone();
+                                    tokio::spawn(async move {
+                                        if let Err(e) = Self::send_scheduler_lost(
+                                            scheduler,
+                                            &executor_id,
+                                            &scheduler_id,
+                                            tasks_status,
+                                        )
+                                        .await
+                                        {
+                                            error!(executor_id, scheduler_id, error = %e, "failed to send scheduler lost, terminating");
+                                            halt_and_catch_fire();
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -968,19 +980,24 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskRunnerPool<T,
                                 "failed to get scheduler client",
                             );
 
-                            let mut scheduler =
-                                executor_server.scheduler_to_register.clone();
+                            let scheduler = executor_server.scheduler_to_register.clone();
 
-                            if let Err(e) = Self::send_scheduler_lost(
-                                &mut scheduler,
-                                &executor_server.executor.metadata.id,
-                                &scheduler_id,
-                                tasks_status,
-                            )
-                            .await
-                            {
-                                error!(executor_id, scheduler_id, error = %e, "failed to send scheduler lost");
-                            }
+                            let executor_id =
+                                executor_server.executor.metadata.id.clone();
+                            let scheduler_id = scheduler_id.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = Self::send_scheduler_lost(
+                                    scheduler,
+                                    &executor_id,
+                                    &scheduler_id,
+                                    tasks_status,
+                                )
+                                .await
+                                {
+                                    error!(executor_id, scheduler_id, error = %e, "failed to send scheduler lost, terminating");
+                                    halt_and_catch_fire();
+                                }
+                            });
                         }
                     }
                 }

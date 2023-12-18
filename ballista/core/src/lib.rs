@@ -22,6 +22,7 @@ pub fn print_version() {
     println!("Ballista version: {BALLISTA_VERSION}")
 }
 
+pub mod async_reader;
 pub mod circuit_breaker;
 pub mod client;
 pub mod config;
@@ -33,6 +34,7 @@ pub mod physical_optimizer;
 
 #[allow(improper_ctypes_definitions)]
 pub mod plugin;
+pub mod replicator;
 pub mod utils;
 
 #[macro_use]

@@ -26,6 +26,7 @@ use std::{env, io};
 use anyhow::{Context, Result};
 use arrow_flight::flight_service_server::FlightServiceServer;
 use datafusion::config::Extensions;
+use datafusion::execution::object_store::ObjectStoreUrl;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use tempfile::TempDir;
@@ -54,7 +55,7 @@ use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::{
     create_grpc_client_connection, create_grpc_server, with_object_store_provider,
 };
-use ballista_core::BALLISTA_VERSION;
+use ballista_core::{replicator, BALLISTA_VERSION};
 
 use crate::circuit_breaker::client::CircuitBreakerClientConfig;
 use crate::execution_engine::ExecutionEngine;
@@ -62,6 +63,7 @@ use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
 use crate::flight_service::BallistaFlightService;
 use crate::metrics::LoggingMetricsCollector;
+use crate::replicator::start_replication;
 use crate::shutdown::Shutdown;
 use crate::shutdown::ShutdownNotifier;
 use crate::terminate;
@@ -89,6 +91,7 @@ pub struct ExecutorProcessConfig {
     /// Optional execution engine to use to execute physical plans, will default to
     /// DataFusion if none is provided.
     pub execution_engine: Option<Arc<dyn ExecutionEngine>>,
+    pub replication_url: Option<String>,
 }
 
 pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
@@ -189,16 +192,8 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
         BallistaError::Internal("Failed to init Executor RuntimeEnv".to_owned())
     })?);
 
-    let metrics_collector = Arc::new(LoggingMetricsCollector::default());
-
-    let executor = Arc::new(Executor::new(
-        executor_meta,
-        &work_dir,
-        runtime,
-        metrics_collector,
-        concurrent_tasks,
-        opt.execution_engine,
-    ));
+    let mut service_handlers: FuturesUnordered<JoinHandle<Result<(), BallistaError>>> =
+        FuturesUnordered::new();
 
     let connect_timeout = opt.scheduler_connect_timeout_seconds as u64;
     let connection = if connect_timeout == 0 {
@@ -239,11 +234,46 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             .into()),
         }
     }?;
-
     let mut scheduler = SchedulerGrpcClient::new(connection);
+    let mut replicator_send = None;
+    let mut replicator_object_store = None;
+
+    match opt.replication_url {
+        Some(replication_url) => match ObjectStoreUrl::parse(replication_url.as_str()) {
+            Ok(url) => {
+                let (send, recv) = mpsc::channel::<replicator::Command>(1);
+                let object_store = runtime.object_store(url)?;
+
+                replicator_send = Some(send.clone());
+                replicator_object_store = Some(object_store.clone());
+
+                service_handlers.push(tokio::spawn(start_replication(
+                    executor_id.clone(),
+                    object_store,
+                    recv,
+                )));
+            }
+            Err(error) => {
+                warn!(?error, replication_url, "Invalid replication url");
+            }
+        },
+        _ => {
+            info!("No replication configured")
+        }
+    }
+
+    let executor = Arc::new(Executor::new(
+        executor_meta,
+        &work_dir,
+        replicator_send.clone(),
+        runtime,
+        Arc::new(LoggingMetricsCollector::default()),
+        concurrent_tasks,
+        opt.execution_engine,
+    ));
 
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-        BallistaCodec::default();
+        BallistaCodec::new_with_object_store(replicator_object_store.unwrap());
 
     let scheduler_policy = opt.task_scheduling_policy;
     let job_data_ttl_seconds = opt.job_data_ttl_seconds;
@@ -280,9 +310,6 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
             }
         });
     }
-
-    let mut service_handlers: FuturesUnordered<JoinHandle<Result<(), BallistaError>>> =
-        FuturesUnordered::new();
 
     // Channels used to receive stop requests from Executor grpc service.
     let (stop_send, mut stop_recv) = mpsc::channel::<bool>(10);
@@ -425,18 +452,16 @@ async fn flight_server_run(
         "starting flight server",
     );
 
-    let service = BallistaFlightService::new(&executor_id);
-    let server = FlightServiceServer::new(service);
-
     let shutdown_signal = grpc_shutdown.recv();
-    let server_future = create_grpc_server()
-        .add_service(server)
-        .serve_with_shutdown(addr, shutdown_signal);
-
-    server_future.await.map_err(|e| {
-        error!(executor_id, error = %e, "failed to start flight server");
-        BallistaError::TonicError(e)
-    })
+    let svc = FlightServiceServer::new(BallistaFlightService::new(executor_id.clone()));
+    create_grpc_server()
+        .add_service(svc)
+        .serve_with_shutdown(addr, shutdown_signal)
+        .await
+        .map_err(|e| {
+            error!(executor_id, error = %e, "failed to start flight server");
+            BallistaError::TonicError(e)
+        })
 }
 
 // Check the status of long running services
