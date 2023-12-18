@@ -52,6 +52,7 @@ pub async fn new_standalone_scheduler_with_codec(
             BallistaCodec::new(logical_codec, physical_codec),
             SchedulerConfig::default(),
             metrics_collector,
+            None,
         );
 
     scheduler_server.init().await?;
@@ -76,7 +77,7 @@ pub async fn new_standalone_scheduler_with_codec(
 
 pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
     new_standalone_scheduler_with_codec(
-        Arc::new(BallistaPhysicalExtensionCodec {}),
+        Arc::new(BallistaPhysicalExtensionCodec::default()),
         Arc::new(DefaultLogicalExtensionCodec {}),
     )
     .await

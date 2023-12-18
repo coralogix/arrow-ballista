@@ -121,9 +121,8 @@ async fn main() -> Result<()> {
         tasks_per_tick: opt.tasks_per_tick,
         executor_termination_grace_period: opt.executor_termination_grace_period,
     };
+    let cluster = BallistaCluster::new_from_config(&config, None).await?;
 
-    let cluster = BallistaCluster::new_from_config(&config).await?;
-
-    start_server(cluster, addr, config).await?;
+    start_server(cluster, addr, config, None).await?;
     Ok(())
 }

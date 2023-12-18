@@ -19,7 +19,7 @@ use arrow::datatypes::SchemaRef;
 use async_trait::async_trait;
 use ballista_core::execution_plans::ShuffleWriterExec;
 use ballista_core::serde::protobuf::ShuffleWritePartition;
-use ballista_core::utils;
+use ballista_core::{replicator, utils};
 use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
@@ -27,6 +27,7 @@ use datafusion::physical_plan::metrics::MetricsSet;
 use datafusion::physical_plan::ExecutionPlan;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
+use tokio::sync::mpsc;
 
 /// Execution engine extension point
 
@@ -37,6 +38,7 @@ pub trait ExecutionEngine: Sync + Send {
         stage_id: usize,
         plan: Arc<dyn ExecutionPlan>,
         work_dir: &str,
+        sender: Option<mpsc::Sender<replicator::Command>>,
     ) -> Result<Arc<dyn QueryStageExecutor>>;
 }
 
@@ -66,6 +68,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
         stage_id: usize,
         plan: Arc<dyn ExecutionPlan>,
         work_dir: &str,
+        sender: Option<mpsc::Sender<replicator::Command>>,
     ) -> Result<Arc<dyn QueryStageExecutor>> {
         // the query plan created by the scheduler always starts with a ShuffleWriterExec
         let exec = if let Some(shuffle_writer) =
@@ -79,6 +82,7 @@ impl ExecutionEngine for DefaultExecutionEngine {
                 plan.children()[0].clone(),
                 work_dir.to_string(),
                 shuffle_writer.shuffle_output_partitioning().cloned(),
+                sender,
             )
         } else {
             Err(DataFusionError::Internal(

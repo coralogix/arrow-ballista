@@ -42,6 +42,7 @@ arrow = { workspace = true }
 arrow-flight = { workspace = true }
 async-trait = "0.1.73"
 ballista-core = { path = "../core", version = "0.11.0", features = ["s3"] }
+bytes = "1.0"
 chrono = { version = "0.4", default-features = false }
 configure_me = { workspace = true }
 dashmap = "5.4.0"
@@ -54,6 +55,7 @@ log = "0.4"
 mimalloc = { version = "0.1", default-features = false, optional = true }
 nix = { version = "0.27.1", features = ["process", "signal"] }
 num_cpus = "1.13.0"
+object_store = { workspace = true }
 parking_lot = "0.12"
 prometheus = { version = "0.13", features = ["process"] }
 tempfile = "3"
@@ -65,6 +67,7 @@ tokio = { version = "1.0", features = [
     "signal",
 ] }
 tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = { version = "0.7.10", features = ["compat"] }
 tonic = { workspace = true }
 tracing = "0.1.36"
 tracing-appender = "0.2.2"

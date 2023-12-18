@@ -130,3 +130,8 @@ name = "log_rotation_policy"
 type = "ballista_core::config::LogRotationPolicy"
 doc = "Tracing log rotation policy, possible values: minutely, hourly, daily, never. Default: daily"
 default = "ballista_core::config::LogRotationPolicy::Daily"
+
+[[param]]
+name = "replication_url"
+type = "String"
+doc = "replication url"

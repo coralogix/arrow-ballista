@@ -125,6 +125,10 @@ impl PartitionStats {
         }
     }
 
+    pub fn num_batches(&self) -> Option<u64> {
+        self.num_batches
+    }
+
     pub fn arrow_struct_repr(self) -> Field {
         Field::new(
             "partition_stats",

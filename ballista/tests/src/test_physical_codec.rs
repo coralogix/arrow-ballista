@@ -15,10 +15,10 @@ pub struct TestPhysicalCodec {
     ballista_codec: Arc<BallistaPhysicalExtensionCodec>,
 }
 
-impl TestPhysicalCodec {
-    pub fn new() -> Self {
+impl Default for TestPhysicalCodec {
+    fn default() -> Self {
         Self {
-            ballista_codec: Arc::new(BallistaPhysicalExtensionCodec {}),
+            ballista_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
         }
     }
 }

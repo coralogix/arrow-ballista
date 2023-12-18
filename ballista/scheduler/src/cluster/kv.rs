@@ -45,6 +45,7 @@ use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 use futures::StreamExt;
 use itertools::Itertools;
 use log::{info, warn};
+use object_store::ObjectStore;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -75,6 +76,7 @@ pub struct KeyValueState<
     session_builder: SessionBuilder,
     /// Default datafusion config extensions
     default_extensions: Extensions,
+    object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
@@ -86,6 +88,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         codec: BallistaCodec<T, U>,
         session_builder: SessionBuilder,
         default_extensions: Extensions,
+        object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
         Self {
             store,
@@ -96,6 +99,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             queued_jobs: DashMap::new(),
             session_builder,
             default_extensions,
+            object_store,
         }
     }
 
@@ -596,8 +600,13 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         let session = self.get_session(&proto.session_id).await?;
 
         Ok(Some(
-            ExecutionGraph::decode_execution_graph(proto, &self.codec, session.as_ref())
-                .await?,
+            ExecutionGraph::decode_execution_graph(
+                proto,
+                &self.codec,
+                session.as_ref(),
+                self.object_store.clone(),
+            )
+            .await?,
         ))
     }
 
@@ -859,14 +868,18 @@ mod test {
 
     #[cfg(feature = "sled")]
     fn make_sled_state() -> Result<KeyValueState<SledClient>> {
+        use std::sync::Arc;
+
         use datafusion::config::Extensions;
+        use object_store::local::LocalFileSystem;
 
         Ok(KeyValueState::new(
             "",
             SledClient::try_new_temporary()?,
-            BallistaCodec::default(),
+            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
             default_session_builder,
             Extensions::default(),
+            None,
         ))
     }
 
