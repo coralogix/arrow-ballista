@@ -30,7 +30,7 @@ configure_me_codegen = { version = "0.4.4" }
 datafusion = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v32.0.0-cx.5", features=["avro"] }
 datafusion-cli = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v32.0.0-cx.5" }
 datafusion-proto = { git = "https://github.com/coralogix/arrow-datafusion.git", tag = "v32.0.0-cx.5" }
-object_store = { git = "https://github.com/Coralogix/arrow-rs.git", tag = "object-store0.7.1-cx.0" }
+object_store = { version = "0.7.1", features=["aws"] }
 sqlparser = "0.39.0"
 tonic = { version = "0.10" }
 tonic-build = { version = "0.10", default-features = false, features = [
