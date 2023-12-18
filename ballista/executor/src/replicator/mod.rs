@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ballista_core::async_reader::AsyncFileReader;
+use ballista_core::async_reader::{AsyncFileReader, AsyncStreamReader};
 use ballista_core::error::BallistaError;
 use ballista_core::replicator::Command;
 use bytes::Bytes;
@@ -8,6 +8,7 @@ use bytes::Bytes;
 use datafusion::arrow::ipc::writer::{IpcWriteOptions, StreamWriter};
 use datafusion::arrow::ipc::CompressionType;
 use datafusion::arrow::record_batch::RecordBatch;
+use futures::io::BufReader;
 use lazy_static::lazy_static;
 use object_store::{path::Path, ObjectStore};
 use prometheus::{
@@ -92,9 +93,11 @@ pub async fn start_replication(
     Ok(())
 }
 
-async fn load_file(path: &str) -> Result<AsyncFileReader<Compat<File>>, BallistaError> {
+async fn load_file(
+    path: &str,
+) -> Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await?;
-    let reader = AsyncFileReader::try_new(file.compat(), None).await?;
+    let reader = AsyncStreamReader::try_new(file.compat(), None).await?;
 
     Ok(reader)
 }
@@ -122,7 +125,7 @@ fn serialize_batch(batch: RecordBatch) -> Result<bytes::Bytes, BallistaError> {
 
 async fn replicate_to_object_store(
     destination: &Path,
-    mut reader: AsyncFileReader<Compat<File>>,
+    mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<(), BallistaError> {
     let (_, mut upload) = object_store.put_multipart(destination).await.map_err(|e| {
