@@ -466,6 +466,7 @@ impl BallistaContext {
 
 #[cfg(test)]
 mod tests {
+    use datafusion::datasource::listing::ListingTableInsertMode;
     #[cfg(feature = "standalone")]
     use datafusion::datasource::listing::ListingTableUrl;
 
@@ -621,6 +622,7 @@ mod tests {
                         infinite_source: false,
                         file_type_write_options: None,
                         single_file: false,
+                        insert_mode: ListingTableInsertMode::AppendToFile,
                     };
 
                     let table_paths = listing_table

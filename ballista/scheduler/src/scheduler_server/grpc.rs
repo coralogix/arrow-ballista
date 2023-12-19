@@ -40,6 +40,7 @@ use datafusion::datasource::file_format::parquet::ParquetFormat;
 use datafusion::datasource::file_format::FileFormat;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+// use futures::TryFutureExt;
 use futures::TryStreamExt;
 use object_store::{local::LocalFileSystem, path::Path, ObjectStore};
 use tracing::{debug, error, info, trace, warn};
@@ -314,11 +315,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         let path = Path::from(path.as_str());
         let file_metas: Vec<_> = obj_store
             .list(Some(&path))
+            .await
             .map_err(|e| {
                 let msg = format!("Error listing files: {e}");
                 error!("{}", msg);
                 tonic::Status::internal(msg)
-            })
+            })?
             .try_collect()
             .await
             .map_err(|e| {
