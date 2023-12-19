@@ -147,12 +147,6 @@ async fn replicate_to_object_store(
         }
     }
 
-    upload.flush().await.map_err(|e| {
-        REPLICATION_FAILURE
-            .with_label_values(&["writer_flush"])
-            .inc();
-        BallistaError::General(format!("Failed to flush async writer: {:?}", e))
-    })?;
     upload.shutdown().await.map_err(|e| {
         REPLICATION_FAILURE
             .with_label_values(&["writer_shutdown"])
