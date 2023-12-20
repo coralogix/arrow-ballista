@@ -325,7 +325,7 @@ impl ExecutorManager {
         reserve: bool,
         test_connection: bool,
     ) -> Result<Vec<ExecutorReservation>> {
-        debug!(
+        info!(
             "registering executor {} at version {} with {} task slots",
             metadata.id,
             metadata.version(),
