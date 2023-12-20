@@ -48,15 +48,15 @@ lazy_static! {
 }
 
 pub async fn start_replication(
-    base_path: String,
+    executor_id: String,
     object_store: Arc<dyn ObjectStore>,
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
     while let Some(Command::Replicate { job_id, path }) = receiver.recv().await {
         TOTAL_FILES.inc();
-        let destination = format!("{}{}", base_path, path);
+        let destination = format!("{}{}", executor_id, path);
         let start = Instant::now();
-        info!(?job_id, destination, "Start replication");
+        info!(executor_id, job_id, destination, path, "Start replication");
 
         match Path::parse(destination) {
             Ok(dest) => match load_file(path.as_str()).await {
@@ -66,8 +66,9 @@ pub async fn start_replication(
                             .await
                     {
                         warn!(
-                            ?job_id,
-                            ?path,
+                            executor_id,
+                            job_id,
+                            path,
                             ?error,
                             "Failed to upload file to object store"
                         );
@@ -75,17 +76,23 @@ pub async fn start_replication(
                         let elapsed = start.elapsed();
                         REPLICATED_FILES.inc();
                         REPLICATION_LATENCY_SECONDS.observe(elapsed.as_secs_f64());
-                        info!(?job_id, ?path, "Replication complete");
+                        info!(executor_id, job_id, path, "Replication complete");
                     }
                 }
                 Err(error) => {
                     REPLICATION_FAILURE.with_label_values(&["open_file"]).inc();
-                    warn!(?job_id, ?path, ?error, "Failed to open file");
+                    warn!(executor_id, job_id, path, ?error, "Failed to open file");
                 }
             },
             Err(error) => {
                 REPLICATION_FAILURE.with_label_values(&["parse_path"]).inc();
-                warn!(?job_id, ?error, ?path, "Failed to parse replication path");
+                warn!(
+                    executor_id,
+                    job_id,
+                    path,
+                    ?error,
+                    "Failed to parse replication path"
+                );
             }
         }
     }
