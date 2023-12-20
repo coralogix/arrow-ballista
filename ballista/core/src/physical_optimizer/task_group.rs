@@ -168,8 +168,8 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::arrow::datatypes::{DataType, Field};
-    use datafusion::physical_plan::ExecutionPlan;
     use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
+    use datafusion::physical_plan::ExecutionPlan;
     use datafusion::{
         arrow::datatypes::Schema,
         physical_plan::{limit::LocalLimitExec, union::UnionExec},
@@ -196,13 +196,11 @@ mod tests {
 
     fn scan(partitions: usize) -> Arc<dyn ExecutionPlan> {
         Arc::new(
-            PlaceholderRowExec::new(
-                Arc::new(Schema::new(vec![
-                    Field::new("a", DataType::UInt32, false),
-                    Field::new("b", DataType::UInt32, false),
-                    Field::new("c", DataType::UInt32, false),
-                ])),
-            )
+            PlaceholderRowExec::new(Arc::new(Schema::new(vec![
+                Field::new("a", DataType::UInt32, false),
+                Field::new("b", DataType::UInt32, false),
+                Field::new("c", DataType::UInt32, false),
+            ])))
             .with_partitions(partitions),
         )
     }
