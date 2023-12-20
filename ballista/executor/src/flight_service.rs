@@ -26,6 +26,7 @@ use arrow::ipc::CompressionType;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
 
+use arrow::ipc::reader::StreamReader;
 use arrow_flight::encode::FlightDataEncoderBuilder;
 use arrow_flight::error::FlightError;
 use arrow_flight::{
@@ -33,11 +34,8 @@ use arrow_flight::{
     FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse,
     PutResult, SchemaResult, Ticket,
 };
-use datafusion::arrow::{
-    error::ArrowError, ipc::reader::FileReader, record_batch::RecordBatch,
-};
+use datafusion::arrow::{error::ArrowError, record_batch::RecordBatch};
 use futures::{Stream, TryStreamExt};
-
 use std::io::{Read, Seek};
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::SendError;
@@ -100,7 +98,7 @@ impl FlightService for BallistaFlightService {
         let file = File::open(path.as_str()).map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
-        let reader = FileReader::try_new(file, None).map_err(from_arrow_err)?;
+        let reader = StreamReader::try_new(file, None).map_err(from_arrow_err)?;
         let schema = reader.schema();
 
         let (tx, rx) = channel(2);
@@ -203,7 +201,7 @@ impl FlightService for BallistaFlightService {
 }
 
 fn read_partition<T>(
-    reader: FileReader<T>,
+    reader: StreamReader<std::io::BufReader<T>>,
     tx: Sender<Result<RecordBatch, FlightError>>,
 ) -> Result<(), FlightError>
 where
