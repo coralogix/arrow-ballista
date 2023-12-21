@@ -231,6 +231,7 @@ impl ShuffleWriterExec {
                     )
                     .await
                     .map_err(DataFusionError::from)?;
+                    let created = Instant::now();
 
                     write_metrics
                         .input_rows
@@ -250,6 +251,7 @@ impl ShuffleWriterExec {
                         let cmd = replicator::Command::Replicate {
                             job_id: job_id.clone(),
                             path: path.to_string(),
+                            created,
                         };
 
                         if let Err(error) = sender.send(cmd).await {
@@ -347,6 +349,7 @@ impl ShuffleWriterExec {
                                 w.num_rows,
                                 num_bytes
                             );
+                            let created = Instant::now();
                             let path = w.path.to_string_lossy().to_string();
                             part_locs.push(ShuffleWritePartition {
                                 partitions: partitions
@@ -364,6 +367,7 @@ impl ShuffleWriterExec {
                                 let cmd = replicator::Command::Replicate {
                                     job_id: job_id.clone(),
                                     path: path.clone(),
+                                    created,
                                 };
 
                                 if let Err(error) = sender.send(cmd).await {
