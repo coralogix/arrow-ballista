@@ -574,7 +574,7 @@ pub async fn fetch_partition_object_store(
     path: String,
     object_store: Arc<dyn ObjectStore>,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
-    let path = Path::parse(format!("{}/{}", executor_id, path)).map_err(|e| {
+    let path = Path::parse(format!("{}{}", executor_id, path)).map_err(|e| {
         BallistaError::General(format!("Failed to parse partition location - {:?}", e))
     })?;
     let stream = batch_stream_from_object_store(executor_id, &path, object_store).await?;
