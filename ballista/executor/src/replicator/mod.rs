@@ -29,7 +29,7 @@ lazy_static! {
         vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
     )
     .unwrap();
-    static ref REPLICATION_LAG_SECONDS: Histogram = register_histogram!(
+    static ref REPLICATION_LAG_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_replicator_lag_latency",
         "Replication latency in seconds",
         vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
@@ -88,7 +88,7 @@ pub async fn start_replication(
                         let lag = created.elapsed();
                         REPLICATED_FILES.inc();
                         REPLICATION_LATENCY_SECONDS.observe(elapsed.as_secs_f64());
-                        REPLICATION_LAG_SECONDS.observe(lag.as_secs_f64());
+                        REPLICATION_LAG_LATENCY_SECONDS.observe(lag.as_secs_f64());
                         info!(executor_id, job_id, path, "Replication complete");
                     }
                 }
