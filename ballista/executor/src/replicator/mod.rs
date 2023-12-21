@@ -29,6 +29,12 @@ lazy_static! {
         vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
     )
     .unwrap();
+    static ref REPLICATION_LAG_LATENCY_SECONDS: Histogram = register_histogram!(
+        "ballista_replicator_lag_latency",
+        "Replication latency in seconds",
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
+    )
+    .unwrap();
     static ref TOTAL_FILES: IntCounter = register_int_counter!(
         "ballista_replicator_total_files",
         "Number of files for replication"
@@ -52,7 +58,12 @@ pub async fn start_replication(
     object_store: Arc<dyn ObjectStore>,
     mut receiver: mpsc::Receiver<Command>,
 ) -> Result<(), BallistaError> {
-    while let Some(Command::Replicate { job_id, path }) = receiver.recv().await {
+    while let Some(Command::Replicate {
+        job_id,
+        path,
+        created,
+    }) = receiver.recv().await
+    {
         TOTAL_FILES.inc();
         let destination = format!("{}{}", executor_id, path);
         let start = Instant::now();
@@ -74,8 +85,10 @@ pub async fn start_replication(
                         );
                     } else {
                         let elapsed = start.elapsed();
+                        let lag = created.elapsed();
                         REPLICATED_FILES.inc();
                         REPLICATION_LATENCY_SECONDS.observe(elapsed.as_secs_f64());
+                        REPLICATION_LAG_LATENCY_SECONDS.observe(lag.as_secs_f64());
                         info!(executor_id, job_id, path, "Replication complete");
                     }
                 }
