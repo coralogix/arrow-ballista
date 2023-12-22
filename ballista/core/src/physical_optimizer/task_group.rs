@@ -168,6 +168,7 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::arrow::datatypes::{DataType, Field};
+    use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::{
         arrow::datatypes::Schema,
@@ -188,7 +189,6 @@ mod tests {
         AggregateExec, AggregateMode, PhysicalGroupBy,
     };
     use datafusion::physical_plan::display::DisplayableExecutionPlan;
-    use datafusion::physical_plan::empty::EmptyExec;
     use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
     use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 
@@ -196,14 +196,11 @@ mod tests {
 
     fn scan(partitions: usize) -> Arc<dyn ExecutionPlan> {
         Arc::new(
-            EmptyExec::new(
-                true,
-                Arc::new(Schema::new(vec![
-                    Field::new("a", DataType::UInt32, false),
-                    Field::new("b", DataType::UInt32, false),
-                    Field::new("c", DataType::UInt32, false),
-                ])),
-            )
+            PlaceholderRowExec::new(Arc::new(Schema::new(vec![
+                Field::new("a", DataType::UInt32, false),
+                Field::new("b", DataType::UInt32, false),
+                Field::new("c", DataType::UInt32, false),
+            ])))
             .with_partitions(partitions),
         )
     }
@@ -409,7 +406,6 @@ mod tests {
             AggregateExec::try_new(
                 AggregateMode::Partial,
                 PhysicalGroupBy::new(vec![], vec![], vec![]),
-                vec![],
                 vec![],
                 vec![],
                 scan(10),
