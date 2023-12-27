@@ -163,13 +163,13 @@ async fn replicate_to_object_store(
     while let Some(batch) = reader.maybe_next().await.transpose() {
         if let Ok(batch) = batch {
             let data = serialize_batch(batch)?;
-            REPLICATED_BYTES_TOTAL.inc_by(data.len() as u64);
             upload.write_all(&data).await.map_err(|e| {
                 REPLICATION_FAILURE
                     .with_label_values(&["write_batch"])
                     .inc();
                 BallistaError::General(format!("Failed to write batch: {:?}", e))
             })?;
+            REPLICATED_BYTES_TOTAL.inc_by(data.len() as u64);
         }
     }
 
