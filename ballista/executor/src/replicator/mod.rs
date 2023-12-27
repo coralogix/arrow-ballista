@@ -51,6 +51,11 @@ lazy_static! {
         &["reason"]
     )
     .unwrap();
+    static ref REPLICATED_BYTES_TOTAL: IntCounter = register_int_counter!(
+        "ballista_replicator_replicated_bytes_total",
+        "Number of bytes replicated"
+    )
+    .unwrap();
 }
 
 pub async fn start_replication(
@@ -164,6 +169,7 @@ async fn replicate_to_object_store(
                     .inc();
                 BallistaError::General(format!("Failed to write batch: {:?}", e))
             })?;
+            REPLICATED_BYTES_TOTAL.inc_by(data.len() as u64);
         }
     }
 
