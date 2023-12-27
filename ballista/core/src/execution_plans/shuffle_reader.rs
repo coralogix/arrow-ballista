@@ -19,6 +19,9 @@ use async_trait::async_trait;
 use datafusion::common::stats::Precision;
 use object_store::path::Path;
 use object_store::ObjectStore;
+use prometheus::{
+    register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
+};
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -28,6 +31,7 @@ use std::pin::Pin;
 use std::result;
 use std::sync::Arc;
 use std::task::{Context, Poll};
+use std::time::Instant;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -54,6 +58,7 @@ use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::common::AbortOnDropMany;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use itertools::Itertools;
+use lazy_static::lazy_static;
 use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use tokio::sync::mpsc::channel;
@@ -61,6 +66,24 @@ use tokio::sync::{mpsc, Semaphore};
 use tokio::task::{self, JoinHandle};
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{info, warn};
+
+lazy_static! {
+    static ref SHUFFLE_READER_FETCH_PARTITION_LATENCY: HistogramVec =
+        register_histogram_vec!(
+            "ballista_shuffle_reader_fetch_partition_latency",
+            "Fetch partition latency in seconds",
+            &["type"],
+            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0],
+        )
+        .unwrap();
+    static ref SHUFFLE_READER_FETCH_PARTITION_TOTAL: IntCounterVec =
+        register_int_counter_vec!(
+            "ballista_shuffle_reader_fetch_partition_total",
+            "Number of fetch partition calls",
+            &["type"]
+        )
+        .unwrap();
+}
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
 /// being executed by an executor
@@ -308,7 +331,14 @@ fn send_fetch_partitions_with_fallback(
     let sender_for_local = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
         for p in local_locations {
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["local"])
+                .inc();
+            let now = Instant::now();
             let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["local"])
+                .observe(now.elapsed().as_secs_f64());
             if let Err(e) = sender_for_local.send(r).await {
                 warn!(
                     job_id = p.job_id,
@@ -326,11 +356,20 @@ fn send_fetch_partitions_with_fallback(
     let semaphore_for_remote: Arc<Semaphore> = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.into_iter() {
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["remote"])
+                .inc();
             let failed_partition_sender = failed_partition_sender.clone();
 
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
-            match PartitionReaderEnum::FlightRemote.fetch_partition(&p).await {
+            let now = Instant::now();
+            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["remote"])
+                .observe(now.elapsed().as_secs_f64());
+
+            match r {
                 Ok(batch_stream) => {
                     // Block if the channel buffer is ful
                     if let Err(e) = sender_to_remote.send(Ok(batch_stream)).await {
@@ -371,16 +410,23 @@ fn send_fetch_partitions_with_fallback(
     let semaphore_for_object_store: Arc<Semaphore> = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["object_store"])
+                .inc();
             let permit = semaphore_for_object_store
                 .clone()
                 .acquire_owned()
                 .await
                 .unwrap();
+            let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
             }
             .fetch_partition(&partition)
             .await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["object_store"])
+                .observe(now.elapsed().as_secs_f64());
 
             if let Err(e) = response_sender.send(r).await {
                 warn!(

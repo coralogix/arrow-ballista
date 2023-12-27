@@ -40,6 +40,8 @@ tonic-build = { version = "0.10", default-features = false, features = [
 tracing = "0.1.36"
 tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.15", features = ["env-filter"] }
+lazy_static = "1.4.0"
+prometheus = { version = "0.13", features = ["process"] }
 
 # cargo build --profile release-lto
 [profile.release-lto]
