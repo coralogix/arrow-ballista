@@ -364,12 +364,12 @@ fn send_fetch_partitions_with_fallback(
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
             let now = Instant::now();
-            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let result = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["remote"])
                 .observe(now.elapsed().as_secs_f64());
 
-            match r {
+            match result {
                 Ok(batch_stream) => {
                     // Block if the channel buffer is ful
                     if let Err(e) = sender_to_remote.send(Ok(batch_stream)).await {
