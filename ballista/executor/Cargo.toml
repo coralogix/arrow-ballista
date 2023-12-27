@@ -50,14 +50,14 @@ datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 futures = "0.3"
 hyper = "0.14.4"
-lazy_static = "1.4.0"
+lazy_static = { workspace = true }
 log = "0.4"
 mimalloc = { version = "0.1", default-features = false, optional = true }
 nix = { version = "0.27.1", features = ["process", "signal"] }
 num_cpus = "1.13.0"
 object_store = { workspace = true }
 parking_lot = "0.12"
-prometheus = { version = "0.13", features = ["process"] }
+prometheus = { workspace = true } 
 tempfile = "3"
 tokio = { version = "1.0", features = [
     "macros",
