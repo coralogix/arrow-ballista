@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use ballista_core::async_reader::AsyncStreamReader;
@@ -153,7 +152,7 @@ async fn upload_to_object_store(
     mut writer: Box<dyn AsyncWrite + Send + Unpin>,
     mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
 ) -> Result<(), BallistaError> {
-    let written = std::sync::atomic::AtomicU64::new(0);
+    let mut written = 0;
 
     while let Some(batch) = reader.maybe_next().await.transpose() {
         if let Ok(batch) = batch {
@@ -164,7 +163,7 @@ async fn upload_to_object_store(
                     .inc();
                 BallistaError::General(format!("Failed to write batch: {:?}", e))
             })?;
-            written.fetch_add(data.len() as u64, Ordering::Release);
+            written += data.len();
         }
     }
 
@@ -174,7 +173,7 @@ async fn upload_to_object_store(
             .inc();
         BallistaError::General(format!("Failed to shutdown async writer: {:?}", e))
     })?;
-    REPLICATED_BYTES_TOTAL.inc_by(written.load(Ordering::Acquire));
+    REPLICATED_BYTES_TOTAL.inc_by(written as u64);
 
     Ok(())
 }
