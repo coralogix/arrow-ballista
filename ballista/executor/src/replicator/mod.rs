@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::error::BallistaError;
@@ -16,7 +17,6 @@ use prometheus::{
     IntCounter, IntCounterVec,
 };
 use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::time::Instant;
 use tokio::{fs::File, sync::mpsc};
 use tracing::{info, warn};
 
@@ -67,35 +67,22 @@ pub async fn start_replication(
     {
         PROCESSED_FILES.with_label_values(&["total"]).inc();
         let destination = format!("{}{}", executor_id, path);
-        let start = Instant::now();
+        let received = Instant::now();
         info!(executor_id, job_id, destination, path, "Start replication");
 
         match Path::parse(destination) {
             Ok(dest) => match load_file(path.as_str()).await {
                 Ok(reader) => {
-                    if let Err(error) = replicate_to_object_store(
+                    replicate_to_object_store(
+                        created,
+                        received,
                         &executor_id,
                         &job_id,
                         &dest,
                         reader,
                         object_store.clone(),
                     )
-                    .await
-                    {
-                        warn!(
-                            executor_id,
-                            job_id,
-                            path,
-                            ?error,
-                            "Failed to upload file to object store"
-                        );
-                    } else {
-                        let elapsed = start.elapsed();
-                        let lag = created.elapsed();
-                        REPLICATION_LATENCY_SECONDS.observe(elapsed.as_secs_f64());
-                        REPLICATION_LAG_LATENCY_SECONDS.observe(lag.as_secs_f64());
-                        info!(executor_id, job_id, path, "Replication complete");
-                    }
+                    .await;
                 }
                 Err(error) => {
                     REPLICATION_FAILURE.with_label_values(&["open_file"]).inc();
@@ -151,7 +138,7 @@ fn serialize_batch(batch: RecordBatch) -> Result<bytes::Bytes, BallistaError> {
 async fn upload_to_object_store(
     mut writer: Box<dyn AsyncWrite + Send + Unpin>,
     mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
-) -> Result<(), BallistaError> {
+) -> Result<usize, BallistaError> {
     let mut written = 0;
 
     while let Some(batch) = reader.maybe_next().await.transpose() {
@@ -173,51 +160,64 @@ async fn upload_to_object_store(
             .inc();
         BallistaError::General(format!("Failed to shutdown async writer: {:?}", e))
     })?;
-    REPLICATED_BYTES_TOTAL.inc_by(written as u64);
 
-    Ok(())
+    Ok(written)
 }
 
 async fn replicate_to_object_store(
+    created: Instant,
+    received: Instant,
     executor_id: &str,
     job_id: &str,
     destination: &Path,
     reader: AsyncStreamReader<BufReader<Compat<File>>>,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<(), BallistaError> {
-    let (upload_id, upload) =
-        object_store.put_multipart(destination).await.map_err(|e| {
+) {
+    let (upload_id, upload) = match object_store.put_multipart(destination).await {
+        Err(error) => {
+            warn!(
+                executor_id,
+                job_id,
+                ?destination,
+                ?error,
+                "Failed to create object store writer"
+            );
             REPLICATION_FAILURE
                 .with_label_values(&["create_writer"])
                 .inc();
-            BallistaError::General(format!(
-                "Failed to create object store writer: {:?}",
-                e
-            ))
-        })?;
+            PROCESSED_FILES.with_label_values(&["failed"]).inc();
+            return;
+        }
+        Ok(upload) => upload,
+    };
 
     match upload_to_object_store(upload, reader).await {
-        Err(e) => {
+        Err(error) => {
             warn!(
                 executor_id,
                 job_id,
                 ?destination,
                 upload_id,
-                ?e,
+                ?error,
                 "Failed to upload file to object store, aborting multipart upload"
             );
-            object_store
-                .abort_multipart(destination, &upload_id)
-                .await
-                .map_err(|e| {
-                    REPLICATION_FAILURE
-                        .with_label_values(&["abort_writer"])
-                        .inc();
-                    BallistaError::General(format!(
-                        "Failed to abort multipart upload: {}-{:?}",
-                        upload_id, e
-                    ))
-                })?;
+            if let Err(error) =
+                object_store.abort_multipart(destination, &upload_id).await
+            {
+                REPLICATION_FAILURE
+                    .with_label_values(&["abort_writer"])
+                    .inc();
+                warn!(
+                    executor_id,
+                    job_id,
+                    ?destination,
+                    upload_id,
+                    ?error,
+                    "Failed to abort multipart upload"
+                );
+                PROCESSED_FILES.with_label_values(&["failed"]).inc();
+                return;
+            }
             warn!(
                 executor_id,
                 job_id,
@@ -227,12 +227,21 @@ async fn replicate_to_object_store(
             );
             PROCESSED_FILES.with_label_values(&["aborted"]).inc();
         }
-        _ => {
+        Ok(written) => {
+            info!(
+                executor_id,
+                job_id,
+                ?destination,
+                upload_id,
+                size = written,
+                "Replication complete"
+            );
+            REPLICATED_BYTES_TOTAL.inc_by(written as u64);
             PROCESSED_FILES.with_label_values(&["replicated"]).inc();
+            REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
+            REPLICATION_LAG_LATENCY_SECONDS.observe(created.elapsed().as_secs_f64());
         }
-    };
-
-    Ok(())
+    }
 }
 #[cfg(test)]
 mod tests {
@@ -254,7 +263,7 @@ mod tests {
     };
     use futures::Stream;
     use object_store::{memory::InMemory, path::Path, ObjectStore};
-    use std::{pin::Pin, sync::Arc};
+    use std::{pin::Pin, sync::Arc, time::Instant};
     use tempfile::TempDir;
 
     use crate::replicator::{load_file, replicate_to_object_store, serialize_batch};
@@ -362,9 +371,16 @@ mod tests {
         assert!(stats.num_batches().unwrap() == 1);
         let reader = load_file(file_path).await.unwrap();
         let destination: Path = Path::parse("2.data").unwrap();
-        replicate_to_object_store("", "", &destination, reader, object_store.clone())
-            .await
-            .unwrap();
+        replicate_to_object_store(
+            Instant::now(),
+            Instant::now(),
+            "",
+            "",
+            &destination,
+            reader,
+            object_store.clone(),
+        )
+        .await;
 
         let object_meta = object_store.head(&destination).await.unwrap();
         assert!(object_meta.size == 552);
