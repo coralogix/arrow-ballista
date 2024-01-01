@@ -1,3 +1,4 @@
+use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -5,6 +6,7 @@ use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::error::BallistaError;
 use ballista_core::replicator::Command;
 use bytes::Bytes;
+use thiserror::Error;
 
 use datafusion::arrow::ipc::writer::{IpcWriteOptions, StreamWriter};
 use datafusion::arrow::ipc::CompressionType;
@@ -52,6 +54,26 @@ lazy_static! {
         "Number of bytes replicated"
     )
     .unwrap();
+}
+
+#[derive(Error, Debug)]
+enum ReplicationError {
+    #[error("failed to write batch: {:?}", source)]
+    Write { size: usize, source: io::Error },
+    #[error("failed to serialize batch: {:?}", source)]
+    Serialize { size: usize, source: io::Error },
+    #[error("failed to shutdown writer: {:?}", source)]
+    Shutdown { size: usize, source: io::Error },
+}
+
+impl ReplicationError {
+    fn size(&self) -> usize {
+        match self {
+            ReplicationError::Write { size, .. } => *size,
+            ReplicationError::Serialize { size, .. } => *size,
+            ReplicationError::Shutdown { size, .. } => *size,
+        }
+    }
 }
 
 pub async fn start_replication(
@@ -138,17 +160,24 @@ fn serialize_batch(batch: RecordBatch) -> Result<bytes::Bytes, BallistaError> {
 async fn upload_to_object_store(
     mut writer: Box<dyn AsyncWrite + Send + Unpin>,
     mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
-) -> Result<usize, BallistaError> {
+) -> Result<usize, ReplicationError> {
     let mut written = 0;
 
     while let Some(batch) = reader.maybe_next().await.transpose() {
         if let Ok(batch) = batch {
-            let data = serialize_batch(batch)?;
+            let data =
+                serialize_batch(batch).map_err(|e| ReplicationError::Serialize {
+                    size: written,
+                    source: to_io_error(e),
+                })?;
             writer.write_all(&data).await.map_err(|e| {
                 REPLICATION_FAILURE
                     .with_label_values(&["write_batch"])
                     .inc();
-                BallistaError::General(format!("Failed to write batch: {:?}", e))
+                ReplicationError::Write {
+                    size: written,
+                    source: e,
+                }
             })?;
             written += data.len();
         }
@@ -158,7 +187,10 @@ async fn upload_to_object_store(
         REPLICATION_FAILURE
             .with_label_values(&["writer_shutdown"])
             .inc();
-        BallistaError::General(format!("Failed to shutdown async writer: {:?}", e))
+        ReplicationError::Shutdown {
+            size: written,
+            source: e,
+        }
     })?;
 
     Ok(written)
@@ -198,6 +230,7 @@ async fn replicate_to_object_store(
                 job_id,
                 ?destination,
                 upload_id,
+                size = error.size(),
                 ?error,
                 "Failed to upload file to object store, aborting multipart upload"
             );
@@ -241,6 +274,13 @@ async fn replicate_to_object_store(
             REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
             REPLICATION_LAG_LATENCY_SECONDS.observe(created.elapsed().as_secs_f64());
         }
+    }
+}
+
+fn to_io_error(error: BallistaError) -> io::Error {
+    match error {
+        BallistaError::IoError(error) => error,
+        _ => io::Error::new(io::ErrorKind::Other, format!("{:?}", error)),
     }
 }
 #[cfg(test)]
