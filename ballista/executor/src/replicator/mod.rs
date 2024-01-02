@@ -52,7 +52,7 @@ lazy_static! {
         &["type"]
     )
     .unwrap();
-    static ref REPLICATION_UPLOAD_ABORTION: IntCounterVec = register_int_counter_vec!(
+    static ref UPLOAD_ABORTION: IntCounterVec = register_int_counter_vec!(
         "ballista_replicator_upload_abortion",
         "Number of replication upload abortion",
         &["reason"]
@@ -173,9 +173,7 @@ async fn abort_upload(
             PROCESSED_BYTES_TOTAL
                 .with_label_values(&[label])
                 .inc_by(written as u64);
-            REPLICATION_UPLOAD_ABORTION
-                .with_label_values(&[label])
-                .inc();
+            UPLOAD_ABORTION.with_label_values(&[label]).inc();
             warn!(
                 executor_id,
                 job_id,
