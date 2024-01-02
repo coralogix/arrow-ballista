@@ -15,8 +15,7 @@ use futures::io::BufReader;
 use lazy_static::lazy_static;
 use object_store::{path::Path, ObjectStore};
 use prometheus::{
-    register_histogram, register_int_counter, register_int_counter_vec, Histogram,
-    IntCounter, IntCounterVec,
+    register_histogram, register_int_counter_vec, Histogram, IntCounterVec,
 };
 use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::{fs::File, sync::mpsc};
@@ -49,9 +48,10 @@ lazy_static! {
         &["reason"]
     )
     .unwrap();
-    static ref REPLICATED_BYTES_TOTAL: IntCounter = register_int_counter!(
-        "ballista_replicator_replicated_bytes_total",
-        "Number of bytes replicated"
+    static ref PROCESSED_BYTES_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "ballista_replicator_processed_bytes_total",
+        "Number of bytes processed",
+        &["type"]
     )
     .unwrap();
 }
@@ -225,12 +225,13 @@ async fn replicate_to_object_store(
 
     match upload_to_object_store(upload, reader).await {
         Err(error) => {
+            let written = error.size();
             warn!(
                 executor_id,
                 job_id,
                 ?destination,
                 upload_id,
-                size = error.size(),
+                written,
                 ?error,
                 "Failed to upload file to object store, aborting multipart upload"
             );
@@ -248,6 +249,9 @@ async fn replicate_to_object_store(
                     ?error,
                     "Failed to abort multipart upload"
                 );
+                PROCESSED_BYTES_TOTAL
+                    .with_label_values(&["failed"])
+                    .inc_by(written as u64);
                 PROCESSED_FILES.with_label_values(&["failed"]).inc();
                 return;
             }
@@ -259,6 +263,9 @@ async fn replicate_to_object_store(
                 "Multipart upload aborted"
             );
             PROCESSED_FILES.with_label_values(&["aborted"]).inc();
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&["aborted"])
+                .inc_by(written as u64);
         }
         Ok(written) => {
             info!(
@@ -269,7 +276,9 @@ async fn replicate_to_object_store(
                 size = written,
                 "Replication complete"
             );
-            REPLICATED_BYTES_TOTAL.inc_by(written as u64);
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&["replicated"])
+                .inc_by(written as u64);
             PROCESSED_FILES.with_label_values(&["replicated"]).inc();
             REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
             REPLICATION_LAG_LATENCY_SECONDS.observe(created.elapsed().as_secs_f64());
