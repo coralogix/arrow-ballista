@@ -293,6 +293,13 @@ async fn replicate_to_object_store(
                     )
                     .await;
                 } else {
+                    PROCESSED_BYTES_TOTAL
+                        .with_label_values(&["replicated"])
+                        .inc_by(written as u64);
+                    PROCESSED_FILES.with_label_values(&["replicated"]).inc();
+                    REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
+                    REPLICATION_LAG_LATENCY_SECONDS
+                        .observe(created.elapsed().as_secs_f64());
                     info!(
                         executor_id,
                         job_id,
@@ -301,15 +308,9 @@ async fn replicate_to_object_store(
                         written,
                         "Replication complete"
                     );
-                    PROCESSED_BYTES_TOTAL
-                        .with_label_values(&["replicated"])
-                        .inc_by(written as u64);
-                    PROCESSED_FILES.with_label_values(&["replicated"]).inc();
-                    REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
-                    REPLICATION_LAG_LATENCY_SECONDS
-                        .observe(created.elapsed().as_secs_f64());
                 }
             } else {
+                PROCESSED_FILES.with_label_values(&["skipped"]).inc();
                 info!(
                     executor_id,
                     job_id,
