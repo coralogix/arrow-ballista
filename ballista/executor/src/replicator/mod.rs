@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -6,7 +5,6 @@ use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::error::BallistaError;
 use ballista_core::replicator::Command;
 use bytes::Bytes;
-use thiserror::Error;
 
 use datafusion::arrow::ipc::writer::{IpcWriteOptions, StreamWriter};
 use datafusion::arrow::ipc::CompressionType;
@@ -17,7 +15,7 @@ use object_store::{path::Path, ObjectStore};
 use prometheus::{
     register_histogram, register_int_counter_vec, Histogram, IntCounterVec,
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 use tokio::{fs::File, sync::mpsc};
 use tracing::{info, warn};
 
@@ -54,26 +52,6 @@ lazy_static! {
         &["type"]
     )
     .unwrap();
-}
-
-#[derive(Error, Debug)]
-enum ReplicationError {
-    #[error("failed to write batch: {:?}", source)]
-    Write { size: usize, source: io::Error },
-    #[error("failed to serialize batch: {:?}", source)]
-    Serialize { size: usize, source: io::Error },
-    #[error("failed to shutdown writer: {:?}", source)]
-    Shutdown { size: usize, source: io::Error },
-}
-
-impl ReplicationError {
-    fn size(&self) -> usize {
-        match self {
-            ReplicationError::Write { size, .. } => *size,
-            ReplicationError::Serialize { size, .. } => *size,
-            ReplicationError::Shutdown { size, .. } => *size,
-        }
-    }
 }
 
 pub async fn start_replication(
@@ -157,43 +135,47 @@ fn serialize_batch(batch: RecordBatch) -> Result<bytes::Bytes, BallistaError> {
     Ok(Bytes::from(serialized_data))
 }
 
-async fn upload_to_object_store(
-    mut writer: Box<dyn AsyncWrite + Send + Unpin>,
-    mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
-) -> Result<usize, ReplicationError> {
-    let mut written = 0;
-
-    while let Some(batch) = reader.maybe_next().await.transpose() {
-        if let Ok(batch) = batch {
-            let data =
-                serialize_batch(batch).map_err(|e| ReplicationError::Serialize {
-                    size: written,
-                    source: to_io_error(e),
-                })?;
-            writer.write_all(&data).await.map_err(|e| {
-                REPLICATION_FAILURE
-                    .with_label_values(&["write_batch"])
-                    .inc();
-                ReplicationError::Write {
-                    size: written,
-                    source: e,
-                }
-            })?;
-            written += data.len();
+async fn abort_upload(
+    object_store: Arc<dyn ObjectStore>,
+    dest: &Path,
+    upload_id: &String,
+    executor_id: &str,
+    job_id: &str,
+    written: usize,
+) {
+    match object_store.abort_multipart(dest, upload_id).await {
+        Err(error) => {
+            REPLICATION_FAILURE
+                .with_label_values(&["abort_writer"])
+                .inc();
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&["failed"])
+                .inc_by(written as u64);
+            PROCESSED_FILES.with_label_values(&["failed"]).inc();
+            warn!(
+                executor_id,
+                job_id,
+                ?dest,
+                upload_id,
+                ?error,
+                "Failed to abort multipart upload"
+            );
+        }
+        _ => {
+            PROCESSED_FILES.with_label_values(&["aborted"]).inc();
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&["aborted"])
+                .inc_by(written as u64);
+            warn!(
+                executor_id,
+                job_id,
+                ?dest,
+                upload_id,
+                written,
+                "Multipart upload aborted"
+            );
         }
     }
-
-    writer.shutdown().await.map_err(|e| {
-        REPLICATION_FAILURE
-            .with_label_values(&["writer_shutdown"])
-            .inc();
-        ReplicationError::Shutdown {
-            size: written,
-            source: e,
-        }
-    })?;
-
-    Ok(written)
 }
 
 async fn replicate_to_object_store(
@@ -202,11 +184,15 @@ async fn replicate_to_object_store(
     executor_id: &str,
     job_id: &str,
     destination: &Path,
-    reader: AsyncStreamReader<BufReader<Compat<File>>>,
+    mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
     object_store: Arc<dyn ObjectStore>,
 ) {
-    let (upload_id, upload) = match object_store.put_multipart(destination).await {
+    match object_store.put_multipart(destination).await {
         Err(error) => {
+            REPLICATION_FAILURE
+                .with_label_values(&["create_writer"])
+                .inc();
+            PROCESSED_FILES.with_label_values(&["failed"]).inc();
             warn!(
                 executor_id,
                 job_id,
@@ -214,84 +200,107 @@ async fn replicate_to_object_store(
                 ?error,
                 "Failed to create object store writer"
             );
-            REPLICATION_FAILURE
-                .with_label_values(&["create_writer"])
-                .inc();
-            PROCESSED_FILES.with_label_values(&["failed"]).inc();
-            return;
         }
-        Ok(upload) => upload,
-    };
+        Ok((upload_id, mut upload)) => {
+            let mut written = 0;
 
-    match upload_to_object_store(upload, reader).await {
-        Err(error) => {
-            let written = error.size();
-            warn!(
-                executor_id,
-                job_id,
-                ?destination,
-                upload_id,
-                written,
-                ?error,
-                "Failed to upload file to object store, aborting multipart upload"
-            );
-            if let Err(error) =
-                object_store.abort_multipart(destination, &upload_id).await
-            {
+            while let Some(batch) = reader.maybe_next().await.transpose() {
+                if let Ok(batch) = batch {
+                    match serialize_batch(batch) {
+                        Ok(data) => {
+                            if let Err(error) = upload.write_all(&data).await {
+                                REPLICATION_FAILURE
+                                    .with_label_values(&["write_batch"])
+                                    .inc();
+                                warn!(
+                                    executor_id,
+                                    job_id,
+                                    ?destination,
+                                    upload_id,
+                                    ?error,
+                                    "Failed to write batch, aborting multipart upload"
+                                );
+                                return abort_upload(
+                                    object_store,
+                                    destination,
+                                    &upload_id,
+                                    executor_id,
+                                    job_id,
+                                    written,
+                                )
+                                .await;
+                            }
+
+                            written += data.len();
+                        }
+                        Err(error) => {
+                            REPLICATION_FAILURE
+                                .with_label_values(&["serialize_batch"])
+                                .inc();
+                            warn!(
+                                executor_id,
+                                job_id,
+                                ?destination,
+                                upload_id,
+                                ?error,
+                                "Failed to serialize batch, aborting multipart upload"
+                            );
+                            return abort_upload(
+                                object_store,
+                                destination,
+                                &upload_id,
+                                executor_id,
+                                job_id,
+                                written,
+                            )
+                            .await;
+                        }
+                    }
+                }
+            }
+
+            if let Err(error) = upload.shutdown().await {
                 REPLICATION_FAILURE
-                    .with_label_values(&["abort_writer"])
+                    .with_label_values(&["writer_shutdown"])
                     .inc();
                 warn!(
                     executor_id,
                     job_id,
                     ?destination,
                     upload_id,
+                    written,
                     ?error,
-                    "Failed to abort multipart upload"
+                    "Failed to shutdown writer, aborting multipart upload"
+                );
+                abort_upload(
+                    object_store,
+                    destination,
+                    &upload_id,
+                    executor_id,
+                    job_id,
+                    written,
+                )
+                .await;
+            } else {
+                info!(
+                    executor_id,
+                    job_id,
+                    ?destination,
+                    upload_id,
+                    size = written,
+                    "Replication complete"
                 );
                 PROCESSED_BYTES_TOTAL
-                    .with_label_values(&["failed"])
+                    .with_label_values(&["replicated"])
                     .inc_by(written as u64);
-                PROCESSED_FILES.with_label_values(&["failed"]).inc();
-                return;
+                PROCESSED_FILES.with_label_values(&["replicated"]).inc();
+                REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
+                REPLICATION_LAG_LATENCY_SECONDS.observe(created.elapsed().as_secs_f64());
             }
-            warn!(
-                executor_id,
-                job_id,
-                ?destination,
-                upload_id,
-                "Multipart upload aborted"
-            );
-            PROCESSED_FILES.with_label_values(&["aborted"]).inc();
-            PROCESSED_BYTES_TOTAL
-                .with_label_values(&["aborted"])
-                .inc_by(written as u64);
         }
-        Ok(written) => {
-            info!(
-                executor_id,
-                job_id,
-                ?destination,
-                upload_id,
-                size = written,
-                "Replication complete"
-            );
-            PROCESSED_BYTES_TOTAL
-                .with_label_values(&["replicated"])
-                .inc_by(written as u64);
-            PROCESSED_FILES.with_label_values(&["replicated"]).inc();
-            REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
-            REPLICATION_LAG_LATENCY_SECONDS.observe(created.elapsed().as_secs_f64());
-        }
-    }
+    };
 }
 
-fn to_io_error(error: BallistaError) -> io::Error {
-    match error {
-        BallistaError::IoError(error) => error,
-        _ => io::Error::new(io::ErrorKind::Other, format!("{:?}", error)),
-    }
-}
 #[cfg(test)]
 mod tests {
     use ballista_core::{
