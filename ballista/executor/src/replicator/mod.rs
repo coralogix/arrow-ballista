@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::error::BallistaError;
@@ -12,11 +13,9 @@ use futures::io::BufReader;
 use lazy_static::lazy_static;
 use object_store::{path::Path, ObjectStore};
 use prometheus::{
-    register_histogram, register_int_counter, register_int_counter_vec, Histogram,
-    IntCounter, IntCounterVec,
+    register_histogram, register_int_counter_vec, Histogram, IntCounterVec,
 };
-use tokio::io::{AsyncWrite, AsyncWriteExt};
-use tokio::time::Instant;
+use tokio::io::AsyncWriteExt;
 use tokio::{fs::File, sync::mpsc};
 use tracing::{info, warn};
 
@@ -47,9 +46,16 @@ lazy_static! {
         &["reason"]
     )
     .unwrap();
-    static ref REPLICATED_BYTES_TOTAL: IntCounter = register_int_counter!(
-        "ballista_replicator_replicated_bytes_total",
-        "Number of bytes replicated"
+    static ref PROCESSED_BYTES_TOTAL: IntCounterVec = register_int_counter_vec!(
+        "ballista_replicator_processed_bytes_total",
+        "Number of bytes processed",
+        &["type"]
+    )
+    .unwrap();
+    static ref UPLOAD_ABORTION: IntCounterVec = register_int_counter_vec!(
+        "ballista_replicator_upload_abortion",
+        "Number of replication upload abortion",
+        &["reason"]
     )
     .unwrap();
 }
@@ -67,35 +73,22 @@ pub async fn start_replication(
     {
         PROCESSED_FILES.with_label_values(&["total"]).inc();
         let destination = format!("{}{}", executor_id, path);
-        let start = Instant::now();
+        let received = Instant::now();
         info!(executor_id, job_id, destination, path, "Start replication");
 
         match Path::parse(destination) {
             Ok(dest) => match load_file(path.as_str()).await {
                 Ok(reader) => {
-                    if let Err(error) = replicate_to_object_store(
+                    replicate_to_object_store(
+                        created,
+                        received,
                         &executor_id,
                         &job_id,
                         &dest,
                         reader,
                         object_store.clone(),
                     )
-                    .await
-                    {
-                        warn!(
-                            executor_id,
-                            job_id,
-                            path,
-                            ?error,
-                            "Failed to upload file to object store"
-                        );
-                    } else {
-                        let elapsed = start.elapsed();
-                        let lag = created.elapsed();
-                        REPLICATION_LATENCY_SECONDS.observe(elapsed.as_secs_f64());
-                        REPLICATION_LAG_LATENCY_SECONDS.observe(lag.as_secs_f64());
-                        info!(executor_id, job_id, path, "Replication complete");
-                    }
+                    .await;
                 }
                 Err(error) => {
                     REPLICATION_FAILURE.with_label_values(&["open_file"]).inc();
@@ -148,92 +141,210 @@ fn serialize_batch(batch: RecordBatch) -> Result<bytes::Bytes, BallistaError> {
     Ok(Bytes::from(serialized_data))
 }
 
-async fn upload_to_object_store(
-    mut writer: Box<dyn AsyncWrite + Send + Unpin>,
-    mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
-) -> Result<(), BallistaError> {
-    let mut written = 0;
-
-    while let Some(batch) = reader.maybe_next().await.transpose() {
-        if let Ok(batch) = batch {
-            let data = serialize_batch(batch)?;
-            writer.write_all(&data).await.map_err(|e| {
-                REPLICATION_FAILURE
-                    .with_label_values(&["write_batch"])
-                    .inc();
-                BallistaError::General(format!("Failed to write batch: {:?}", e))
-            })?;
-            written += data.len();
+async fn abort_upload(
+    object_store: Arc<dyn ObjectStore>,
+    dest: &Path,
+    upload_id: &String,
+    executor_id: &str,
+    job_id: &str,
+    written: usize,
+    label: &str,
+) {
+    match object_store.abort_multipart(dest, upload_id).await {
+        Err(error) => {
+            REPLICATION_FAILURE
+                .with_label_values(&["abort_writer"])
+                .inc();
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&["failed"])
+                .inc_by(written as u64);
+            PROCESSED_FILES.with_label_values(&["failed"]).inc();
+            warn!(
+                executor_id,
+                job_id,
+                ?dest,
+                upload_id,
+                ?error,
+                "Failed to abort multipart upload"
+            );
+        }
+        _ => {
+            PROCESSED_FILES.with_label_values(&[label]).inc();
+            PROCESSED_BYTES_TOTAL
+                .with_label_values(&[label])
+                .inc_by(written as u64);
+            UPLOAD_ABORTION.with_label_values(&[label]).inc();
+            warn!(
+                executor_id,
+                job_id,
+                ?dest,
+                upload_id,
+                written,
+                reason = label,
+                "Multipart upload aborted"
+            );
         }
     }
-
-    writer.shutdown().await.map_err(|e| {
-        REPLICATION_FAILURE
-            .with_label_values(&["writer_shutdown"])
-            .inc();
-        BallistaError::General(format!("Failed to shutdown async writer: {:?}", e))
-    })?;
-    REPLICATED_BYTES_TOTAL.inc_by(written as u64);
-
-    Ok(())
 }
 
 async fn replicate_to_object_store(
+    created: Instant,
+    received: Instant,
     executor_id: &str,
     job_id: &str,
     destination: &Path,
-    reader: AsyncStreamReader<BufReader<Compat<File>>>,
+    mut reader: AsyncStreamReader<BufReader<Compat<File>>>,
     object_store: Arc<dyn ObjectStore>,
-) -> Result<(), BallistaError> {
-    let (upload_id, upload) =
-        object_store.put_multipart(destination).await.map_err(|e| {
+) {
+    match object_store.put_multipart(destination).await {
+        Err(error) => {
             REPLICATION_FAILURE
                 .with_label_values(&["create_writer"])
                 .inc();
-            BallistaError::General(format!(
-                "Failed to create object store writer: {:?}",
-                e
-            ))
-        })?;
-
-    match upload_to_object_store(upload, reader).await {
-        Err(e) => {
+            PROCESSED_FILES.with_label_values(&["failed"]).inc();
             warn!(
                 executor_id,
                 job_id,
                 ?destination,
-                upload_id,
-                ?e,
-                "Failed to upload file to object store, aborting multipart upload"
+                ?error,
+                "Failed to create object store writer"
             );
-            object_store
-                .abort_multipart(destination, &upload_id)
-                .await
-                .map_err(|e| {
-                    REPLICATION_FAILURE
-                        .with_label_values(&["abort_writer"])
-                        .inc();
-                    BallistaError::General(format!(
-                        "Failed to abort multipart upload: {}-{:?}",
-                        upload_id, e
-                    ))
-                })?;
-            warn!(
-                executor_id,
-                job_id,
-                ?destination,
-                upload_id,
-                "Multipart upload aborted"
-            );
-            PROCESSED_FILES.with_label_values(&["aborted"]).inc();
         }
-        _ => {
-            PROCESSED_FILES.with_label_values(&["replicated"]).inc();
+        Ok((upload_id, mut upload)) => {
+            let mut written = 0;
+
+            while let Some(batch) = reader.maybe_next().await.transpose() {
+                if let Ok(batch) = batch {
+                    if batch.num_rows() > 0 {
+                        match serialize_batch(batch) {
+                            Ok(data) => {
+                                if let Err(error) = upload.write_all(&data).await {
+                                    REPLICATION_FAILURE
+                                        .with_label_values(&["write_batch"])
+                                        .inc();
+                                    warn!(
+                                    executor_id,
+                                    job_id,
+                                    ?destination,
+                                    upload_id,
+                                    ?error,
+                                    "Failed to write batch, aborting multipart upload"
+                                );
+                                    return abort_upload(
+                                        object_store,
+                                        destination,
+                                        &upload_id,
+                                        executor_id,
+                                        job_id,
+                                        written,
+                                        "aborted",
+                                    )
+                                    .await;
+                                }
+
+                                written += data.len();
+                            }
+                            Err(error) => {
+                                REPLICATION_FAILURE
+                                    .with_label_values(&["serialize_batch"])
+                                    .inc();
+                                warn!(
+                                executor_id,
+                                job_id,
+                                ?destination,
+                                upload_id,
+                                ?error,
+                                "Failed to serialize batch, aborting multipart upload"
+                            );
+                                return abort_upload(
+                                    object_store,
+                                    destination,
+                                    &upload_id,
+                                    executor_id,
+                                    job_id,
+                                    written,
+                                    "aborted",
+                                )
+                                .await;
+                            }
+                        }
+                    } else {
+                        info!(
+                            executor_id,
+                            job_id,
+                            ?destination,
+                            upload_id,
+                            "Skipping empty batch"
+                        )
+                    }
+                }
+            }
+
+            if written > 0 {
+                if let Err(error) = upload.shutdown().await {
+                    REPLICATION_FAILURE
+                        .with_label_values(&["writer_shutdown"])
+                        .inc();
+                    warn!(
+                        executor_id,
+                        job_id,
+                        ?destination,
+                        upload_id,
+                        written,
+                        ?error,
+                        "Failed to shutdown writer, aborting multipart upload"
+                    );
+                    abort_upload(
+                        object_store,
+                        destination,
+                        &upload_id,
+                        executor_id,
+                        job_id,
+                        written,
+                        "aborted",
+                    )
+                    .await;
+                } else {
+                    PROCESSED_BYTES_TOTAL
+                        .with_label_values(&["replicated"])
+                        .inc_by(written as u64);
+                    PROCESSED_FILES.with_label_values(&["replicated"]).inc();
+                    REPLICATION_LATENCY_SECONDS.observe(received.elapsed().as_secs_f64());
+                    REPLICATION_LAG_LATENCY_SECONDS
+                        .observe(created.elapsed().as_secs_f64());
+                    info!(
+                        executor_id,
+                        job_id,
+                        ?destination,
+                        upload_id,
+                        written,
+                        "Replication complete"
+                    );
+                }
+            } else {
+                PROCESSED_FILES.with_label_values(&["skipped"]).inc();
+                info!(
+                    executor_id,
+                    job_id,
+                    ?destination,
+                    upload_id,
+                    "No data to replicate"
+                );
+                abort_upload(
+                    object_store,
+                    destination,
+                    &upload_id,
+                    executor_id,
+                    job_id,
+                    written,
+                    "skipped",
+                )
+                .await;
+            }
         }
     };
-
-    Ok(())
 }
+
 #[cfg(test)]
 mod tests {
     use ballista_core::{
@@ -254,7 +365,7 @@ mod tests {
     };
     use futures::Stream;
     use object_store::{memory::InMemory, path::Path, ObjectStore};
-    use std::{pin::Pin, sync::Arc};
+    use std::{pin::Pin, sync::Arc, time::Instant};
     use tempfile::TempDir;
 
     use crate::replicator::{load_file, replicate_to_object_store, serialize_batch};
@@ -362,9 +473,16 @@ mod tests {
         assert!(stats.num_batches().unwrap() == 1);
         let reader = load_file(file_path).await.unwrap();
         let destination: Path = Path::parse("2.data").unwrap();
-        replicate_to_object_store("", "", &destination, reader, object_store.clone())
-            .await
-            .unwrap();
+        replicate_to_object_store(
+            Instant::now(),
+            Instant::now(),
+            "",
+            "",
+            &destination,
+            reader,
+            object_store.clone(),
+        )
+        .await;
 
         let object_meta = object_store.head(&destination).await.unwrap();
         assert!(object_meta.size == 552);
