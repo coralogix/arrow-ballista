@@ -52,6 +52,12 @@ lazy_static! {
         &["type"]
     )
     .unwrap();
+    static ref REPLICATION_UPLOAD_ABORTION: IntCounterVec = register_int_counter_vec!(
+        "ballista_replicator_upload_abortion",
+        "Number of replication upload abortion",
+        &["reason"]
+    )
+    .unwrap();
 }
 
 pub async fn start_replication(
@@ -142,6 +148,7 @@ async fn abort_upload(
     executor_id: &str,
     job_id: &str,
     written: usize,
+    label: &str,
 ) {
     match object_store.abort_multipart(dest, upload_id).await {
         Err(error) => {
@@ -162,16 +169,20 @@ async fn abort_upload(
             );
         }
         _ => {
-            PROCESSED_FILES.with_label_values(&["aborted"]).inc();
+            PROCESSED_FILES.with_label_values(&[label]).inc();
             PROCESSED_BYTES_TOTAL
-                .with_label_values(&["aborted"])
+                .with_label_values(&[label])
                 .inc_by(written as u64);
+            REPLICATION_UPLOAD_ABORTION
+                .with_label_values(&[label])
+                .inc();
             warn!(
                 executor_id,
                 job_id,
                 ?dest,
                 upload_id,
                 written,
+                reason = label,
                 "Multipart upload aborted"
             );
         }
@@ -228,6 +239,7 @@ async fn replicate_to_object_store(
                                         executor_id,
                                         job_id,
                                         written,
+                                        "aborted",
                                     )
                                     .await;
                                 }
@@ -253,6 +265,7 @@ async fn replicate_to_object_store(
                                     executor_id,
                                     job_id,
                                     written,
+                                    "aborted",
                                 )
                                 .await;
                             }
@@ -290,6 +303,7 @@ async fn replicate_to_object_store(
                         executor_id,
                         job_id,
                         written,
+                        "aborted",
                     )
                     .await;
                 } else {
@@ -325,6 +339,7 @@ async fn replicate_to_object_store(
                     executor_id,
                     job_id,
                     written,
+                    "skipped",
                 )
                 .await;
             }
