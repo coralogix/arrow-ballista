@@ -168,7 +168,8 @@ mod tests {
     use std::sync::Arc;
 
     use datafusion::arrow::datatypes::{DataType, Field};
-    use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
+    // use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
+    use datafusion::arrow::array::{RecordBatch, UInt32Array};
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::{
         arrow::datatypes::Schema,
@@ -190,19 +191,36 @@ mod tests {
     };
     use datafusion::physical_plan::display::DisplayableExecutionPlan;
     use datafusion::physical_plan::joins::{HashJoinExec, PartitionMode};
+    use datafusion::physical_plan::memory::MemoryExec;
     use datafusion::physical_plan::sorts::sort_preserving_merge::SortPreservingMergeExec;
 
     use super::OptimizeTaskGroup;
 
     fn scan(partitions: usize) -> Arc<dyn ExecutionPlan> {
-        Arc::new(
-            PlaceholderRowExec::new(Arc::new(Schema::new(vec![
-                Field::new("a", DataType::UInt32, false),
-                Field::new("b", DataType::UInt32, false),
-                Field::new("c", DataType::UInt32, false),
-            ])))
-            .with_partitions(partitions),
-        )
+        let a = Field::new("a", DataType::UInt32, false);
+        let a_data = &vec![1_u32, 1_u32, 2_u32, 2_u32];
+        let b = Field::new("b", DataType::UInt32, false);
+        let b_data = &vec![0_u32, 1_u32, 2_u32, 2_u32];
+        let c = Field::new("c", DataType::UInt32, false);
+        let c_data = &vec![1_u32, 5_u32, 8_u32, 9_u32];
+        let schema = Arc::new(Schema::new(vec![a.clone(), b.clone(), c.clone()]));
+
+        let batches = (0..partitions)
+            .into_iter()
+            .map(|_| {
+                vec![RecordBatch::try_new(
+                    schema.clone(),
+                    vec![
+                        Arc::new(UInt32Array::from(a_data.clone())),
+                        Arc::new(UInt32Array::from(b_data.clone())),
+                        Arc::new(UInt32Array::from(c_data.clone())),
+                    ],
+                )
+                .unwrap()]
+            })
+            .collect::<Vec<Vec<RecordBatch>>>();
+
+        Arc::new(MemoryExec::try_new(batches.as_slice(), schema, None).unwrap())
     }
 
     fn shuffle_write(plan: Arc<dyn ExecutionPlan>) -> Arc<dyn ExecutionPlan> {
@@ -406,6 +424,7 @@ mod tests {
             AggregateExec::try_new(
                 AggregateMode::Partial,
                 PhysicalGroupBy::new(vec![], vec![], vec![]),
+                vec![],
                 vec![],
                 vec![],
                 scan(10),
