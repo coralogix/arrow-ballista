@@ -44,7 +44,7 @@ s3 = ["object_store/aws"]
 simd = ["datafusion/simd"]
 
 [dependencies]
-ahash = { version = "0.8", default-features = false }
+ahash = { version = "0.8.6", default-features = false }
 arrow-flight = { workspace = true }
 async-trait = "0.1.73"
 chrono = { version = "0.4", default-features = false }
