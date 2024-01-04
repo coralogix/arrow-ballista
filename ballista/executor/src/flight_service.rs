@@ -66,11 +66,19 @@ impl BallistaFlightService {
 type BoxedFlightStream<T> =
     Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
-fn decode_partition_location(ticket: &Ticket) -> Result<String, Status> {
-    match &decode_protobuf(&ticket.ticket)
+fn decode_partition_location(
+    ticket: &Ticket,
+) -> Result<(String, String, usize, usize), Status> {
+    match decode_protobuf(&ticket.ticket)
         .map_err(|e| Status::internal(format!("Ballista Error: {e:?}")))?
     {
-        BallistaAction::FetchPartition { path, .. } => Ok(path.clone()),
+        BallistaAction::FetchPartition {
+            path,
+            job_id,
+            stage_id,
+            partition_id,
+            ..
+        } => Ok((path, job_id, stage_id, partition_id)),
     }
 }
 
@@ -89,15 +97,16 @@ impl FlightService for BallistaFlightService {
         request: Request<Ticket>,
     ) -> Result<Response<Self::DoGetStream>, Status> {
         let ticket = request.into_inner();
-        let path = decode_partition_location(&ticket)?;
+        let (path, job_id, stage_id, partition) = decode_partition_location(&ticket)?;
 
         info!(
             executor_id = self.executor_id,
-            path, "fetching shuffle partition"
+            job_id, stage_id, partition, path, "fetching shuffle partition"
         );
         let file = File::open(path.as_str()).map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
+
         let reader = StreamReader::try_new(file, None).map_err(from_arrow_err)?;
         let schema = reader.schema();
 
@@ -105,7 +114,7 @@ impl FlightService for BallistaFlightService {
 
         let executor_id = self.executor_id.clone();
         task::spawn_blocking(move || {
-            if let Err(e) = read_partition(reader, tx) {
+            if let Err(e) = read_partition(job_id, stage_id, partition, reader, tx) {
                 warn!(executor_id, error = %e, "error streaming shuffle partition");
             }
         });
@@ -201,6 +210,9 @@ impl FlightService for BallistaFlightService {
 }
 
 fn read_partition<T>(
+    job_id: String,
+    stage_id: usize,
+    partition: usize,
     reader: StreamReader<std::io::BufReader<T>>,
     tx: Sender<Result<RecordBatch, FlightError>>,
 ) -> Result<(), FlightError>
@@ -225,6 +237,9 @@ where
                 }
             })?
     }
+
+    info!(job_id, stage_id, partition, "finished reading partition");
+
     Ok(())
 }
 
