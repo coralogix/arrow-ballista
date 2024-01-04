@@ -26,7 +26,6 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
-use std::io::BufReader;
 use std::pin::Pin;
 use std::result;
 use std::sync::Arc;
@@ -41,7 +40,7 @@ use crate::serde::scheduler::{PartitionLocation, PartitionStats};
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::ipc::reader::StreamReader;
+use datafusion::arrow::ipc::reader::FileReader;
 use datafusion::arrow::record_batch::RecordBatch;
 
 use datafusion::error::{DataFusionError, Result};
@@ -243,11 +242,11 @@ fn stats_for_partitions(
 }
 
 struct LocalShuffleStream {
-    reader: StreamReader<BufReader<File>>,
+    reader: FileReader<File>,
 }
 
 impl LocalShuffleStream {
-    pub fn new(reader: StreamReader<BufReader<File>>) -> Self {
+    pub fn new(reader: FileReader<File>) -> Self {
         LocalShuffleStream { reader }
     }
 }
@@ -617,16 +616,13 @@ async fn fetch_partition_local(
 
 fn fetch_partition_local_inner(
     path: &str,
-) -> result::Result<StreamReader<BufReader<File>>, BallistaError> {
+) -> result::Result<FileReader<File>, BallistaError> {
     let file = File::open(path).map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader = StreamReader::try_new(file, None).map_err(|e| {
-        BallistaError::General(format!(
-            "Failed to new arrow StreamReader at {path}: {e:?}"
-        ))
-    })?;
-    Ok(reader)
+    FileReader::try_new(file, None).map_err(|e| {
+        BallistaError::General(format!("Failed to new arrow FileReader at {path}: {e:?}"))
+    })
 }
 
 pub async fn fetch_partition_object_store(
@@ -745,7 +741,7 @@ mod tests {
     use crate::utils;
     use datafusion::arrow::array::{Int32Array, StringArray, UInt32Array};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
-    use datafusion::arrow::ipc::writer::StreamWriter;
+    use datafusion::arrow::ipc::writer::FileWriter;
     use datafusion::arrow::record_batch::RecordBatch;
     use datafusion::physical_expr::expressions::Column;
     use datafusion::physical_plan::common;
@@ -933,7 +929,7 @@ mod tests {
         let tmp_dir = tempdir().unwrap();
         let file_path = tmp_dir.path().join("shuffle_data");
         let file = File::create(&file_path).unwrap();
-        let mut writer = StreamWriter::try_new(file, &schema).unwrap();
+        let mut writer = FileWriter::try_new(file, &schema).unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();
 

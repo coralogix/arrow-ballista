@@ -24,9 +24,8 @@ use crate::serde::scheduler::PartitionStats;
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
-use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::arrow::ipc::CompressionType;
-use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::arrow::{ipc::writer::FileWriter, record_batch::RecordBatch};
 use datafusion::datasource::object_store::{
     DefaultObjectStoreRegistry, ObjectStoreRegistry,
 };
@@ -193,7 +192,7 @@ pub async fn write_stream_to_disk(
         .try_with_compression(Some(CompressionType::LZ4_FRAME))?;
 
     let mut writer =
-        StreamWriter::try_new_with_options(file, stream.schema().as_ref(), options)?;
+        FileWriter::try_new_with_options(file, stream.schema().as_ref(), options)?;
 
     while let Some(result) = stream.next().await {
         let batch = result?;

@@ -28,8 +28,6 @@ use tracing::warn;
 
 use crate::{replicator, utils};
 use std::any::Any;
-use std::fs;
-use std::fs::File;
 use std::future::Future;
 use std::iter::Iterator;
 use std::path::PathBuf;
@@ -45,6 +43,7 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::{DataFusionError, Result};
+use datafusion::physical_plan::common::IPCWriter;
 use datafusion::physical_plan::memory::MemoryStream;
 use datafusion::physical_plan::metrics::{
     self, ExecutionPlanMetricsSet, MetricBuilder, MetricsSet,
@@ -57,7 +56,6 @@ use datafusion::physical_plan::{
 use futures::{StreamExt, TryFutureExt, TryStreamExt};
 
 use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
@@ -84,13 +82,6 @@ pub struct ShuffleWriterExec {
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     sender: Option<mpsc::Sender<replicator::Command>>,
-}
-
-pub struct WriteTracker {
-    pub num_batches: usize,
-    pub num_rows: usize,
-    pub writer: StreamWriter<File>,
-    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
@@ -272,7 +263,7 @@ impl ShuffleWriterExec {
                 Some(Partitioning::Hash(exprs, num_output_partitions)) => {
                     // we won't necessary produce output for every possible partition, so we
                     // create writers on demand
-                    let mut writers: Vec<Option<WriteTracker>> = vec![];
+                    let mut writers: Vec<Option<IPCWriter>> = vec![];
                     for _ in 0..num_output_partitions {
                         writers.push(None);
                     }
@@ -295,9 +286,7 @@ impl ShuffleWriterExec {
                                     let timer = write_metrics.write_time.timer();
                                     match &mut writers[output_partition] {
                                         Some(w) => {
-                                            w.num_batches += 1;
-                                            w.num_rows += output_batch.num_rows();
-                                            w.writer.write(&output_batch)?;
+                                            w.write(&output_batch)?;
                                         }
                                         None => {
                                             let mut path = path.clone();
@@ -307,27 +296,19 @@ impl ShuffleWriterExec {
                                             path.push(format!("{}.arrow", shuffle_id));
                                             debug!("Writing results to {:?}", path);
 
-                                            let options = IpcWriteOptions::default()
-                                                .try_with_compression(Some(
-                                                    CompressionType::LZ4_FRAME,
-                                                ))?;
-
-                                            let file = File::create(path.clone())?;
-                                            let mut writer =
-                                                StreamWriter::try_new_with_options(
-                                                    file,
-                                                    stream.schema().as_ref(),
-                                                    options,
-                                                )?;
+                                        let options = IpcWriteOptions::default()
+                                            .try_with_compression(Some(
+                                                CompressionType::LZ4_FRAME,
+                                            ))?;
+                                        let mut writer = IPCWriter::new_with_options(
+                                                &path,
+                                            stream.schema().as_ref(),
+                                            options,
+                                        )?;
 
                                             writer.write(&output_batch)?;
                                             writers[output_partition] =
-                                                Some(WriteTracker {
-                                                    num_batches: 1,
-                                                    num_rows: output_batch.num_rows(),
-                                                    writer,
-                                                    path,
-                                                });
+                                                Some(writer);
                                         }
                                     }
                                     write_metrics
@@ -344,18 +325,17 @@ impl ShuffleWriterExec {
 
                     for (i, w) in writers.iter_mut().enumerate() {
                         if let Some(w) = w {
-                            let num_bytes = fs::metadata(&w.path)?.len();
-                            w.writer.finish()?;
+                            w.finish()?;
                             debug!(
                                 "Finished shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
                                 i,
-                                w.path,
+                                w.path(),
                                 w.num_batches,
                                 w.num_rows,
-                                num_bytes
+                                w.num_bytes
                             );
                             let created = Instant::now();
-                            let path = w.path.to_string_lossy().to_string();
+                            let path = w.path().to_string_lossy().to_string();
                             part_locs.push(ShuffleWritePartition {
                                 partitions: partitions
                                     .iter()
@@ -363,9 +343,9 @@ impl ShuffleWriterExec {
                                     .collect(),
                                 output_partition: i as u32,
                                 path: path.clone(),
-                                num_batches: w.num_batches as u64,
-                                num_rows: w.num_rows as u64,
-                                num_bytes,
+                                num_batches: w.num_batches,
+                                num_rows: w.num_rows,
+                                num_bytes: w.num_bytes,
                             });
 
                             if let Some(sender) = sender.as_ref() {
