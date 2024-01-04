@@ -296,19 +296,18 @@ impl ShuffleWriterExec {
                                             path.push(format!("{}.arrow", shuffle_id));
                                             debug!("Writing results to {:?}", path);
 
-                                        let options = IpcWriteOptions::default()
-                                            .try_with_compression(Some(
-                                                CompressionType::LZ4_FRAME,
-                                            ))?;
-                                        let mut writer = IPCWriter::new_with_options(
+                                            let options = IpcWriteOptions::default()
+                                                .try_with_compression(Some(
+                                                    CompressionType::LZ4_FRAME,
+                                                ))?;
+                                            let mut writer = IPCWriter::new_with_options(
                                                 &path,
-                                            stream.schema().as_ref(),
-                                            options,
-                                        )?;
+                                                stream.schema().as_ref(),
+                                                options,
+                                            )?;
 
                                             writer.write(&output_batch)?;
-                                            writers[output_partition] =
-                                                Some(writer);
+                                            writers[output_partition] = Some(writer);
                                         }
                                     }
                                     write_metrics
