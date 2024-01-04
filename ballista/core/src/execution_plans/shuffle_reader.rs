@@ -466,8 +466,15 @@ fn send_fetch_partitions(
     let sender_for_local = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
         for p in local_locations {
-            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
-            if let Err(e) = sender_for_local.send(r).await {
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["local"])
+                .inc();
+            let now = Instant::now();
+            let result = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["local"])
+                .observe(now.elapsed().as_secs_f64());
+            if let Err(e) = sender_for_local.send(result).await {
                 warn!(
                     job_id = p.job_id,
                     stage_id = p.stage_id,
@@ -482,11 +489,18 @@ fn send_fetch_partitions(
     let semaphore_for_remote: Arc<Semaphore> = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.into_iter() {
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["remote"])
+                .inc();
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
-            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let now = Instant::now();
+            let result = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["remote"])
+                .observe(now.elapsed().as_secs_f64());
 
-            if let Err(e) = response_sender.send(r).await {
+            if let Err(e) = response_sender.send(result).await {
                 warn!(
                     job_id = p.job_id,
                     stage_id = p.stage_id,
