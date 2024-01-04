@@ -470,7 +470,7 @@ fn send_fetch_partitions(
                 .with_label_values(&["local"])
                 .inc();
             let now = Instant::now();
-            let result = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let result = PartitionReaderEnum::Local.fetch_partition(&p).await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
                 .observe(now.elapsed().as_secs_f64());
