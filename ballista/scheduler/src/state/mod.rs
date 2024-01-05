@@ -419,7 +419,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             .state()
             .config()
             .get_extension::<WarningCollector>()
-            .map(|w| w.warnings(job_id.to_owned()))
+            .map(|w| w.warnings())
             .unwrap_or_default();
 
         self.task_manager

@@ -1,27 +1,22 @@
-use dashmap::DashMap;
+use dashmap::DashSet;
 
 #[derive(Debug, Clone)]
 pub struct WarningCollector {
-    warnings: DashMap<String, Vec<String>>,
+    warnings: DashSet<String>,
 }
 
 impl WarningCollector {
     pub fn new() -> Self {
         Self {
-            warnings: DashMap::new(),
+            warnings: DashSet::new(),
         }
     }
 
-    pub fn add_warning(&self, job_id: String, warning: String) {
-        self.warnings.entry(job_id).or_insert(vec![]).push(warning);
+    pub fn add_warning(&self, warning: String) {
+        self.warnings.insert(warning);
     }
 
-    pub fn warnings(&self, job_id: String) -> Vec<String> {
-        self.warnings
-            .entry(job_id)
-            .or_insert(vec![])
-            .iter()
-            .map(|s| s.clone())
-            .collect()
+    pub fn warnings(&self) -> Vec<String> {
+        self.warnings.iter().map(|s| s.clone()).collect()
     }
 }
