@@ -135,6 +135,7 @@ pub struct ExecutionGraph {
     failed_stage_attempts: HashMap<usize, HashSet<usize>>,
     pub(crate) circuit_breaker_tripped: bool,
     pub(crate) circuit_breaker_tripped_labels: HashSet<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -154,6 +155,7 @@ impl ExecutionGraph {
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        warnings: Vec<String>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -190,6 +192,7 @@ impl ExecutionGraph {
             failed_stage_attempts: HashMap::new(),
             circuit_breaker_tripped: false,
             circuit_breaker_tripped_labels: HashSet::new(),
+            warnings,
         })
     }
 
@@ -1371,6 +1374,7 @@ impl ExecutionGraph {
                     .iter()
                     .cloned()
                     .collect(),
+                warnings: self.warnings.clone(),
             })),
         };
 
@@ -1464,6 +1468,7 @@ impl ExecutionGraph {
             circuit_breaker_tripped_labels: HashSet::from_iter(
                 proto.circuit_breaker_tripped_labels,
             ),
+            warnings: proto.warnings,
         })
     }
 
@@ -1546,6 +1551,7 @@ impl ExecutionGraph {
                 .iter()
                 .cloned()
                 .collect(),
+            warnings: graph.warnings,
         })
     }
 

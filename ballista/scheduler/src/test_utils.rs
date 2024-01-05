@@ -869,7 +869,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![]).unwrap()
 }
 
 pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
@@ -904,7 +904,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![]).unwrap()
 }
 
 pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
@@ -931,7 +931,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         .await
         .unwrap();
 
-    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap()
+    ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![]).unwrap()
 }
 
 pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
@@ -980,7 +980,8 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
     );
 
     let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap();
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![])
+            .unwrap();
 
     println!("{graph:?}");
 
@@ -1012,7 +1013,8 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
     );
 
     let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap();
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![])
+            .unwrap();
 
     println!("{graph:?}");
 
@@ -1044,7 +1046,8 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
     );
 
     let graph =
-        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0).unwrap();
+        ExecutionGraph::new("localhost:50050", "job", "", "session", plan, 0, vec![])
+            .unwrap();
 
     println!("{graph:?}");
 

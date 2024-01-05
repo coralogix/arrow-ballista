@@ -432,6 +432,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         session_id: &str,
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
+        warnings: Vec<String>,
     ) -> Result<()> {
         let mut graph = ExecutionGraph::new(
             &self.scheduler_id,
@@ -440,6 +441,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             session_id,
             plan,
             queued_at,
+            warnings,
         )?;
         info!(
             job_id,
