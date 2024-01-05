@@ -165,7 +165,12 @@ impl ExecutionPlan for ShuffleReaderExec {
         context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let task_id = context.task_id().unwrap_or_else(|| partition.to_string());
-        info!("ShuffleReaderExec::execute({})", task_id);
+        info!(
+            task_id,
+            partition,
+            partition_location_count = self.partition[partition].len(),
+            "executing shuffle read"
+        );
 
         // TODO make the maximum size configurable, or make it depends on global memory control
         let max_request_num = 50usize;
@@ -188,12 +193,19 @@ impl ExecutionPlan for ShuffleReaderExec {
 
         let response_receiver = if let Some(object_store) = self.object_store.as_ref() {
             send_fetch_partitions_with_fallback(
+                task_id,
+                partition,
                 partition_locations,
                 max_request_num,
                 object_store.clone(),
             )
         } else {
-            send_fetch_partitions(partition_locations, max_request_num)
+            send_fetch_partitions(
+                task_id,
+                partition,
+                partition_locations,
+                max_request_num,
+            )
         };
 
         let result = RecordBatchStreamAdapter::new(
@@ -276,6 +288,9 @@ impl RecordBatchStream for LocalShuffleStream {
 struct AbortableReceiverStream {
     inner: ReceiverStream<result::Result<SendableRecordBatchStream, BallistaError>>,
 
+    task_id: String,
+    partition: usize,
+
     #[allow(dead_code)]
     drop_helper: AbortOnDropMany<()>,
 }
@@ -283,14 +298,16 @@ struct AbortableReceiverStream {
 impl AbortableReceiverStream {
     /// Construct a new SendableRecordBatchReceiverStream which will send batches of the specified schema from inner
     pub fn create(
-        rx: tokio::sync::mpsc::Receiver<
-            result::Result<SendableRecordBatchStream, BallistaError>,
-        >,
+        task_id: String,
+        partition: usize,
+        rx: Receiver<Result<SendableRecordBatchStream, BallistaError>>,
         join_handles: Vec<JoinHandle<()>>,
     ) -> AbortableReceiverStream {
         let inner = ReceiverStream::new(rx);
         Self {
             inner,
+            task_id,
+            partition,
             drop_helper: AbortOnDropMany(join_handles),
         }
     }
@@ -300,16 +317,28 @@ impl Stream for AbortableReceiverStream {
     type Item = result::Result<SendableRecordBatchStream, ArrowError>;
 
     fn poll_next(
-        mut self: std::pin::Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         self.inner
             .poll_next_unpin(cx)
             .map_err(|e| ArrowError::ExternalError(Box::new(e)))
     }
 }
 
+impl Drop for AbortableReceiverStream {
+    fn drop(&mut self) {
+        info!(
+            task_id = self.task_id,
+            partition = self.partition,
+            "receiver stream complete"
+        );
+    }
+}
+
 fn send_fetch_partitions_with_fallback(
+    task_id: String,
+    partition: usize,
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
     object_store: Arc<dyn ObjectStore>,
@@ -322,9 +351,10 @@ fn send_fetch_partitions_with_fallback(
         .partition(check_is_local_location);
 
     info!(
-        "local shuffle file counts:{}, remote shuffle file count:{}.",
-        local_locations.len(),
-        remote_locations.len()
+        task_id,
+        local_shuffles = local_locations.len(),
+        remote_shuffles = remote_locations.len(),
+        "fetching partitions with fallback"
     );
 
     // keep local shuffle files reading in serial order for memory control.
@@ -442,14 +472,17 @@ fn send_fetch_partitions_with_fallback(
         }
     }));
 
-    AbortableReceiverStream::create(response_receiver, join_handles)
+    AbortableReceiverStream::create(task_id, partition, response_receiver, join_handles)
 }
 
 fn send_fetch_partitions(
+    task_id: String,
+    partition: usize,
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
+    let (response_sender, response_receiver) = channel(max_request_num);
+
     let semaphore = Arc::new(Semaphore::new(max_request_num));
     let mut join_handles = Vec::with_capacity(2);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
@@ -457,9 +490,10 @@ fn send_fetch_partitions(
         .partition(check_is_local_location);
 
     info!(
-        "local shuffle file counts:{}, remote shuffle file count:{}.",
-        local_locations.len(),
-        remote_locations.len()
+        task_id,
+        local_shuffles = local_locations.len(),
+        remote_shuffles = remote_locations.len(),
+        "fetching partitions"
     );
 
     // keep local shuffle files reading in serial order for memory control.
@@ -501,7 +535,7 @@ fn send_fetch_partitions(
         }
     }));
 
-    AbortableReceiverStream::create(response_receiver, join_handles)
+    AbortableReceiverStream::create(task_id, partition, response_receiver, join_handles)
 }
 
 fn check_is_local_location(location: &PartitionLocation) -> bool {
@@ -549,7 +583,7 @@ impl PartitionReader for PartitionReaderEnum {
 
 async fn fetch_partition_remote(
     location: &PartitionLocation,
-) -> result::Result<SendableRecordBatchStream, BallistaError> {
+) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
@@ -668,8 +702,8 @@ pub async fn batch_stream_from_object_store(
 
 async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
     mut reader: AsyncStreamReader<T>,
-    tx: Sender<datafusion::error::Result<RecordBatch>>,
-) -> datafusion::error::Result<()> {
+    tx: Sender<Result<RecordBatch>>,
+) -> Result<()> {
     if tx.is_closed() {
         return Err(DataFusionError::Internal(
             "Can't send a batch, channel is closed".to_string(),
@@ -694,21 +728,18 @@ async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
 }
 
 pub struct RecordBatchReceiver {
-    inner: Receiver<datafusion::error::Result<RecordBatch>>,
+    inner: Receiver<Result<RecordBatch>>,
     schema: SchemaRef,
 }
 
 impl RecordBatchReceiver {
-    fn new(
-        inner: Receiver<datafusion::error::Result<RecordBatch>>,
-        schema: SchemaRef,
-    ) -> Self {
+    fn new(inner: Receiver<Result<RecordBatch>>, schema: SchemaRef) -> Self {
         Self { inner, schema }
     }
 }
 
 impl Stream for RecordBatchReceiver {
-    type Item = datafusion::error::Result<RecordBatch>;
+    type Item = Result<RecordBatch>;
 
     fn poll_next(
         mut self: Pin<&mut Self>,
@@ -928,8 +959,12 @@ mod tests {
             file_path.to_str().unwrap().to_string(),
         );
 
-        let response_receiver =
-            send_fetch_partitions(partition_locations, max_request_num);
+        let response_receiver = send_fetch_partitions(
+            "job_id".to_string(),
+            0,
+            partition_locations,
+            max_request_num,
+        );
 
         let stream = RecordBatchStreamAdapter::new(
             Arc::new(schema),
