@@ -322,7 +322,6 @@ async fn replicate_to_object_store(
                     );
                 }
             } else {
-                PROCESSED_FILES.with_label_values(&["skipped"]).inc();
                 info!(
                     executor_id,
                     job_id,

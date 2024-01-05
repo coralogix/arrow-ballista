@@ -285,54 +285,59 @@ impl ShuffleWriterExec {
                     while let Some(result) = stream.next().await {
                         let input_batch = result?;
 
-                        write_metrics.input_rows.add(input_batch.num_rows());
+                        if input_batch.num_rows() > 0 {
+                            write_metrics.input_rows.add(input_batch.num_rows());
 
-                        partitioner.partition(
-                            input_batch,
-                            |output_partition, output_batch| {
-                                // partition func in datafusion make sure not write empty output_batch.
-                                let timer = write_metrics.write_time.timer();
-                                match &mut writers[output_partition] {
-                                    Some(w) => {
-                                        w.num_batches += 1;
-                                        w.num_rows += output_batch.num_rows();
-                                        w.writer.write(&output_batch)?;
+                            partitioner.partition(
+                                input_batch,
+                                |output_partition, output_batch| {
+                                    // partition func in datafusion make sure not write empty output_batch.
+                                    let timer = write_metrics.write_time.timer();
+                                    match &mut writers[output_partition] {
+                                        Some(w) => {
+                                            w.num_batches += 1;
+                                            w.num_rows += output_batch.num_rows();
+                                            w.writer.write(&output_batch)?;
+                                        }
+                                        None => {
+                                            let mut path = path.clone();
+                                            path.push(output_partition.to_string());
+                                            std::fs::create_dir_all(&path)?;
+
+                                            path.push(format!("{}.arrow", shuffle_id));
+                                            debug!("Writing results to {:?}", path);
+
+                                            let options = IpcWriteOptions::default()
+                                                .try_with_compression(Some(
+                                                    CompressionType::LZ4_FRAME,
+                                                ))?;
+
+                                            let file = File::create(path.clone())?;
+                                            let mut writer =
+                                                StreamWriter::try_new_with_options(
+                                                    file,
+                                                    stream.schema().as_ref(),
+                                                    options,
+                                                )?;
+
+                                            writer.write(&output_batch)?;
+                                            writers[output_partition] =
+                                                Some(WriteTracker {
+                                                    num_batches: 1,
+                                                    num_rows: output_batch.num_rows(),
+                                                    writer,
+                                                    path,
+                                                });
+                                        }
                                     }
-                                    None => {
-                                        let mut path = path.clone();
-                                        path.push(output_partition.to_string());
-                                        std::fs::create_dir_all(&path)?;
-
-                                        path.push(format!("{}.arrow", shuffle_id));
-                                        debug!("Writing results to {:?}", path);
-
-                                        let options = IpcWriteOptions::default()
-                                            .try_with_compression(Some(
-                                                CompressionType::LZ4_FRAME,
-                                            ))?;
-
-                                        let file = File::create(path.clone())?;
-                                        let mut writer =
-                                            StreamWriter::try_new_with_options(
-                                                file,
-                                                stream.schema().as_ref(),
-                                                options,
-                                            )?;
-
-                                        writer.write(&output_batch)?;
-                                        writers[output_partition] = Some(WriteTracker {
-                                            num_batches: 1,
-                                            num_rows: output_batch.num_rows(),
-                                            writer,
-                                            path,
-                                        });
-                                    }
-                                }
-                                write_metrics.output_rows.add(output_batch.num_rows());
-                                timer.done();
-                                Ok(())
-                            },
-                        )?;
+                                    write_metrics
+                                        .output_rows
+                                        .add(output_batch.num_rows());
+                                    timer.done();
+                                    Ok(())
+                                },
+                            )?;
+                        }
                     }
 
                     let mut part_locs = vec![];
