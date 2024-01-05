@@ -16,7 +16,7 @@
 // under the License.
 
 use crate::scheduler_server::SessionBuilder;
-use ballista_core::config::BallistaConfig;
+use ballista_core::{config::BallistaConfig, warning_collector::WarningCollector};
 use ballista_core::error::Result;
 use datafusion::{
     config::Extensions,
@@ -80,7 +80,9 @@ pub fn create_datafusion_context(
             "datafusion.optimizer.hash_join_single_partition_threshold",
             ballista_config.hash_join_single_partition_threshold(),
         )
-        .set_bool("datafusion.optimizer.enable_round_robin_repartition", false);
+        .set_bool("datafusion.optimizer.enable_round_robin_repartition", false)
+        .with_extension(Arc::new(WarningCollector::new()));
+
     let mut config = propagate_ballista_configs(config, ballista_config);
     config.options_mut().extensions = extensions;
 
