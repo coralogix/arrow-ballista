@@ -206,7 +206,6 @@ mod tests {
         let schema = Arc::new(Schema::new(vec![a.clone(), b.clone(), c.clone()]));
 
         let batches = (0..partitions)
-            .into_iter()
             .map(|_| {
                 vec![RecordBatch::try_new(
                     schema.clone(),
