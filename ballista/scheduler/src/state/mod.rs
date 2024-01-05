@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::warning_collector::WarningCollector;
 use datafusion::common::tree_node::{TreeNode, VisitRecursion};
 use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
@@ -414,8 +415,22 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
         );
 
+        let warnings = session_ctx
+            .state()
+            .config()
+            .get_extension::<WarningCollector>()
+            .map(|w| w.warnings(job_id.to_owned()))
+            .unwrap_or_default();
+
         self.task_manager
-            .submit_job(job_id, job_name, &session_ctx.session_id(), plan, queued_at)
+            .submit_job(
+                job_id,
+                job_name,
+                &session_ctx.session_id(),
+                plan,
+                queued_at,
+                warnings,
+            )
             .await?;
 
         let elapsed = start.elapsed();
@@ -550,6 +565,7 @@ mod test {
                 session_ctx.session_id().as_str(),
                 plan.clone(),
                 0,
+                vec![],
             )
             .await?;
         state
@@ -564,6 +580,7 @@ mod test {
                 session_ctx.session_id().as_str(),
                 plan.clone(),
                 0,
+                vec![],
             )
             .await?;
         state
@@ -578,6 +595,7 @@ mod test {
                 session_ctx.session_id().as_str(),
                 plan.clone(),
                 0,
+                vec![],
             )
             .await?;
         state
@@ -592,6 +610,7 @@ mod test {
                 session_ctx.session_id().as_str(),
                 plan.clone(),
                 0,
+                vec![],
             )
             .await?;
 
