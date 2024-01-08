@@ -167,9 +167,8 @@ fn is_aggregation(plan: &dyn ExecutionPlan, mode: AggregateMode) -> bool {
 mod tests {
     use std::sync::Arc;
 
-    use datafusion::arrow::datatypes::{DataType, Field};
-    // use datafusion::physical_plan::placeholder_row::PlaceholderRowExec;
     use datafusion::arrow::array::{RecordBatch, UInt32Array};
+    use datafusion::arrow::datatypes::{DataType, Field};
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion::{
         arrow::datatypes::Schema,
