@@ -149,6 +149,7 @@ pub struct RunningTaskInfo {
 }
 
 impl ExecutionGraph {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         scheduler_id: &str,
         job_id: &str,

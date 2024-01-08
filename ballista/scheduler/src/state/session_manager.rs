@@ -81,7 +81,7 @@ pub fn create_datafusion_context(
             ballista_config.hash_join_single_partition_threshold(),
         )
         .set_bool("datafusion.optimizer.enable_round_robin_repartition", false)
-        .with_extension(Arc::new(WarningCollector::new()));
+        .with_extension(Arc::new(WarningCollector::default()));
 
     let mut config = propagate_ballista_configs(config, ballista_config);
     config.options_mut().extensions = extensions;
