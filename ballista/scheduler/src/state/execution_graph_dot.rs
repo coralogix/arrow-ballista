@@ -650,7 +650,7 @@ filter_expr="]
             plan,
             0,
             None,
-            vec![]
+            vec![],
         )
     }
 
