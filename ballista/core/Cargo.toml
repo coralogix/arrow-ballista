@@ -49,10 +49,10 @@ arrow-flight = { workspace = true }
 async-trait = "0.1.73"
 chrono = { version = "0.4", default-features = false }
 clap = { version = "3", features = ["derive", "cargo"] }
+dashmap = "5.4.0"
 datafusion = { workspace = true }
 datafusion-objectstore-hdfs = { version = "0.1.1", default-features = false, optional = true }
 datafusion-proto = { workspace = true }
-dashmap = "5.4.0"
 flume = { version = "0.10.14", features = ["async"] }
 futures = "0.3"
 hashbrown = "0.13"
