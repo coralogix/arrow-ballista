@@ -105,6 +105,7 @@ async fn main() -> Result<()> {
 
     let config = SchedulerConfig {
         namespace: opt.namespace,
+        version: opt.cluster_version,
         external_host: opt.external_host,
         bind_port: opt.bind_port,
         scheduling_policy: opt.scheduler_policy,

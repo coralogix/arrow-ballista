@@ -740,6 +740,8 @@ mod test {
 
     use super::{SchedulerGrpc, SchedulerServer};
 
+    const SCHEDULER_VERSION: &str = "test-v0.1";
+
     #[tokio::test]
     async fn test_poll_work() -> Result<(), BallistaError> {
         let cluster = test_cluster_context();
@@ -747,6 +749,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
@@ -780,7 +783,7 @@ mod test {
         // no response task since we told the scheduler we didn't want to accept one
         assert!(response.tasks.is_empty());
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
-            SchedulerState::new_with_default_scheduler_name(
+            SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 None,
@@ -813,7 +816,7 @@ mod test {
         // still no response task since there are no tasks in the scheduler
         assert!(response.tasks.is_empty());
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
-            SchedulerState::new_with_default_scheduler_name(
+            SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 None,
@@ -842,6 +845,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
@@ -937,6 +941,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster,
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
@@ -996,6 +1001,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),

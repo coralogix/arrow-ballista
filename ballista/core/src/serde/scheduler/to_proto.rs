@@ -225,6 +225,7 @@ impl Into<protobuf::ExecutorData> for ExecutorData {
     fn into(self) -> protobuf::ExecutorData {
         protobuf::ExecutorData {
             executor_id: self.executor_id,
+            executor_version: self.executor_version,
             resources: vec![ExecutorResourcePair {
                 total: protobuf::executor_resource::Resource::TaskSlots(
                     self.total_task_slots,

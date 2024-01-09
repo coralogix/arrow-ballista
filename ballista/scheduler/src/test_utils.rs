@@ -71,6 +71,7 @@ pub const TPCH_TABLES: &[&str] = &[
 ];
 
 const TEST_SCHEDULER_NAME: &str = "localhost:50050";
+const TEST_SCHEDULER_VERSION: &str = "test-v0.1";
 
 /// Sometimes we need to construct logical plans that will produce errors
 /// when we try and create physical plan. A scan using `ExplodingTableProvider`
@@ -455,7 +456,8 @@ impl SchedulerTest {
 
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new_with_task_launcher(
-                "localhost:50050".to_owned(),
+                TEST_SCHEDULER_NAME.into(),
+                TEST_SCHEDULER_VERSION.into(),
                 cluster,
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 config,
@@ -473,7 +475,7 @@ impl SchedulerTest {
                 grpc_port: 0,
                 specification: ExecutorSpecification {
                     task_slots: task_slots as u32,
-                    version: "0".to_string(),
+                    version: TEST_SCHEDULER_VERSION.into(),
                 },
             };
 
@@ -481,6 +483,7 @@ impl SchedulerTest {
                 executor_id,
                 total_task_slots: task_slots as u32,
                 available_task_slots: task_slots as u32,
+                executor_version: TEST_SCHEDULER_VERSION.into(),
             };
 
             scheduler

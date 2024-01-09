@@ -41,6 +41,7 @@ use ballista_core::serde::protobuf::{
     StopExecutorResult, TaskStatus, UpdateTaskStatusParams,
 };
 
+use ballista_core::serde::protobuf::executor_resource::Resource;
 use ballista_core::serde::scheduler::TaskDefinition;
 use ballista_core::serde::BallistaCodec;
 use ballista_core::utils::create_grpc_server;
@@ -122,8 +123,19 @@ pub async fn startup<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
         let addr = format!("{}:{}", bind_host, executor_meta.grpc_port);
         let addr = addr.parse().unwrap();
 
+        let mut executor_version: String = "unknown".to_string();
+        if let Some(spec) = executor_meta.specification {
+            for exec_res in spec.resources {
+                if let Some(Resource::Version(v)) = exec_res.resource {
+                    executor_version = v;
+                    break;
+                }
+            }
+        }
+
         info!(
             executor_id = executor_meta.id,
+            executor_version = executor_version,
             socket_address = %addr,
             version = BALLISTA_VERSION,
             "starting executor server",
