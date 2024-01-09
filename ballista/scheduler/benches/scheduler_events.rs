@@ -300,6 +300,7 @@ async fn setup_env(
     num_executors: usize,
 ) -> Arc<SchedulerServer<LogicalPlanNode, PhysicalPlanNode>> {
     let scheduler_name = "bench-server".to_string();
+    let global_version = "bench-1.0".to_string();
 
     let cluster = BallistaCluster::new(
         Arc::new(RemoteClusterState::new()),
@@ -324,6 +325,7 @@ async fn setup_env(
 
     let mut server = SchedulerServer::new_with_task_launcher(
         scheduler_name.clone(),
+        global_version.clone(),
         cluster,
         codec,
         config,
@@ -350,6 +352,7 @@ async fn setup_env(
 
         let executor_data = ExecutorData {
             executor_id: format!("executor-{id}"),
+            executor_version: global_version.clone(),
             total_task_slots: 10,
             available_task_slots: 10,
         };

@@ -348,6 +348,7 @@ message ExecutorTaskSlots {
 message ExecutorData {
   string executor_id = 1;
   repeated ExecutorResourcePair resources = 2;
+  string executor_version = 3;
 }
 
 message ExecutorResourcePair {
