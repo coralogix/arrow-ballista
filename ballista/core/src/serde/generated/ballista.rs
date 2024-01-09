@@ -118,6 +118,8 @@ pub struct ExecutionGraph {
     pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
         ::prost::alloc::string::String,
     >,
+    #[prost(string, repeated, tag = "16")]
+    pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -953,6 +955,8 @@ pub struct SuccessfulJob {
     pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
         ::prost::alloc::string::String,
     >,
+    #[prost(string, repeated, tag = "7")]
+    pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
