@@ -77,6 +77,7 @@ pub enum QueryStageSchedulerEvent {
         job_id: String,
         stage_id: usize,
         labels: Vec<String>,
+        preempt_stage: bool,
     },
 }
 

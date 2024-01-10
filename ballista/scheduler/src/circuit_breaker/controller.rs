@@ -4,7 +4,7 @@ use std::{
 };
 
 use ballista_core::circuit_breaker::model::{
-    CircuitBreakerStageKey, CircuitBreakerTaskKey,
+    CircuitBreakerStateKey, CircuitBreakerTaskKey,
 };
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -28,6 +28,7 @@ struct SharedState {
     percent: f64,
     executor_trip_state: HashMap<String, bool>,
     labels: HashSet<String>,
+    preempt_stage: bool,
 }
 
 impl SharedState {
@@ -40,6 +41,7 @@ impl SharedState {
             percent: 0.0,
             executor_trip_state,
             labels: HashSet::new(),
+            preempt_stage: false,
         }
     }
 }
@@ -109,11 +111,12 @@ impl CircuitBreakerController {
         info!(job_id, "deleted circuit breaker",);
     }
 
-    pub fn register_labels(
+    pub fn configure_state(
         &self,
-        key: CircuitBreakerStageKey,
+        key: CircuitBreakerStateKey,
         executor_id: String,
         labels: Vec<String>,
+        preempt_stage: bool,
     ) {
         let mut job_states = self.job_states.write();
 
@@ -135,6 +138,7 @@ impl CircuitBreakerController {
             .or_insert_with(|| SharedState::new(executor_id));
 
         entry.labels.extend(labels);
+        entry.preempt_stage = preempt_stage;
     }
 
     pub fn update(
@@ -142,12 +146,12 @@ impl CircuitBreakerController {
         key: CircuitBreakerTaskKey,
         percent: f64,
         executor_id: String,
-    ) -> Result<Option<Vec<String>>, String> {
+    ) -> Result<Option<TrippedStateInfo>, String> {
         RECEIVED_UPDATES.inc();
 
         let mut job_states = self.job_states.write();
 
-        let stage_key = key.stage_key.clone();
+        let stage_key = key.state_key.clone();
 
         let job_state = match job_states.get_mut(&stage_key.job_id) {
             Some(state) => state,
@@ -163,7 +167,7 @@ impl CircuitBreakerController {
         let shared_states = &mut job_state.shared_states;
 
         let shared_state = shared_states
-            .entry(key.stage_key.shared_state_id.clone())
+            .entry(key.state_key.shared_state_id.clone())
             .or_insert_with(|| {
                 let mut executor_trip_state = HashMap::new();
                 executor_trip_state.insert(executor_id.clone(), false);
@@ -172,6 +176,7 @@ impl CircuitBreakerController {
                     executor_trip_state,
                     percent: 0.0,
                     labels: HashSet::new(),
+                    preempt_stage: false,
                 }
             });
 
@@ -181,14 +186,14 @@ impl CircuitBreakerController {
             &mut stage_states
                 .entry(stage_key.stage_id)
                 .or_insert_with(|| StageState {
-                    latest_attempt_num: key.stage_key.attempt_num,
+                    latest_attempt_num: key.state_key.attempt_num,
                     attempt_states: HashMap::new(),
                 });
 
         let old_latest_attempt_num = stage_state.latest_attempt_num;
 
         let new_latest_attempt_num =
-            max(old_latest_attempt_num, key.stage_key.attempt_num);
+            max(old_latest_attempt_num, key.state_key.attempt_num);
 
         stage_state.latest_attempt_num = new_latest_attempt_num;
 
@@ -200,7 +205,7 @@ impl CircuitBreakerController {
             .unwrap_or(0.0);
 
         let attempt_state = attempt_states
-            .entry(key.stage_key.attempt_num)
+            .entry(key.state_key.attempt_num)
             .or_insert_with(|| AttemptState {
                 partition_states: HashMap::new(),
                 percent: 0.0,
@@ -228,7 +233,7 @@ impl CircuitBreakerController {
 
         partition_state.percent = percent;
 
-        if key.stage_key.attempt_num == new_latest_attempt_num {
+        if key.state_key.attempt_num == new_latest_attempt_num {
             // No matter if the latest partition changed or remained the same,
             // this should update the shared percentage correctly.
             shared_state.percent += attempt_state.percent - old_latest_attempt_percent;
@@ -236,19 +241,22 @@ impl CircuitBreakerController {
 
         let should_trip = shared_state.percent >= 1.0 && old_sum_percentage < 1.0;
 
-        let labels = if should_trip {
-            Some(shared_state.labels.iter().cloned().collect_vec())
+        let configuration = if should_trip {
+            Some(TrippedStateInfo {
+                labels: shared_state.labels.iter().cloned().collect_vec(),
+                preempt_stage: shared_state.preempt_stage,
+            })
         } else {
             None
         };
 
-        Ok(labels)
+        Ok(configuration)
     }
 
     pub fn retrieve_tripped_stages(
         &self,
         executor_id: &str,
-    ) -> Vec<CircuitBreakerStageKey> {
+    ) -> Vec<CircuitBreakerStateKey> {
         let results = self
             .job_states
             .write()
@@ -267,7 +275,7 @@ impl CircuitBreakerController {
                                     .iter()
                                     .flat_map(|(stage_num, stage_state)| {
                                         stage_state.attempt_states.keys().map(
-                                            |attempt_num| CircuitBreakerStageKey {
+                                            |attempt_num| CircuitBreakerStateKey {
                                                 job_id: job_id.clone(),
                                                 stage_id: *stage_num,
                                                 shared_state_id: shared_state_id.clone(),
@@ -289,4 +297,9 @@ impl CircuitBreakerController {
 
         results
     }
+}
+
+pub struct TrippedStateInfo {
+    pub preempt_stage: bool,
+    pub labels: Vec<String>,
 }

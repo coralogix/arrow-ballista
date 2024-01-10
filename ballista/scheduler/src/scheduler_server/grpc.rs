@@ -567,18 +567,19 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
         let CircuitBreakerUpdateRequest {
             updates,
-            label_registrations,
+            state_configurations,
             executor_id,
         } = request.into_inner();
 
-        for label_registration in label_registrations {
-            if let Some(key) = label_registration.key {
+        for state_configuration in state_configurations {
+            if let Some(key) = state_configuration.key {
                 let key: CircuitBreakerTaskKey =
                     key.try_into().map_err(Status::invalid_argument)?;
-                self.state.circuit_breaker.register_labels(
-                    key.stage_key,
+                self.state.circuit_breaker.configure_state(
+                    key.state_key,
                     executor_id.clone(),
-                    label_registration.labels,
+                    state_configuration.labels,
+                    state_configuration.preempt_stage,
                 )
             }
         }
@@ -588,19 +589,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 let key: CircuitBreakerTaskKey =
                     key_proto.try_into().map_err(Status::invalid_argument)?;
 
-                let stage_key = &key.stage_key;
-                let labels = self
+                let stage_key = &key.state_key;
+                let configuration = self
                     .state
                     .circuit_breaker
                     .update(key.clone(), update.percent, executor_id.clone())
                     .map_err(Status::internal)?;
 
-                if let Some(labels) = labels {
+                if let Some(configuration) = configuration {
                     info!(
                         job_id = stage_key.job_id,
                         stage_id = stage_key.stage_id,
                         attempt_num = stage_key.attempt_num,
-                        labels = ?labels,
+                        labels = ?configuration.labels,
+                        preempt_stage = configuration.preempt_stage,
                         "Circuit breaker tripped!",
                     );
 
@@ -615,7 +617,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         .post_event(QueryStageSchedulerEvent::CircuitBreakerTripped {
                             job_id: stage_key.job_id.clone(),
                             stage_id: stage_key.stage_id as usize,
-                            labels: labels.clone(),
+                            labels: configuration.labels,
+                            preempt_stage: configuration.preempt_stage,
                         });
                 }
             }

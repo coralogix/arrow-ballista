@@ -1449,9 +1449,14 @@ impl ExecutionGraph {
         &mut self,
         stage_id: usize,
         labels: Vec<String>,
+        preempt: bool,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
         self.circuit_breaker_tripped = true;
         self.circuit_breaker_tripped_labels.extend(labels);
+
+        if !preempt {
+            return Ok(vec![]);
+        }
 
         let task_id = self.next_task_id() as u32;
 
