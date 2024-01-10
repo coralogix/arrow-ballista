@@ -1825,7 +1825,7 @@ pub struct RunningTaskInfo {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CircuitBreakerStageKey {
+pub struct CircuitBreakerStateKey {
     #[prost(string, tag = "1")]
     pub job_id: ::prost::alloc::string::String,
     #[prost(uint32, tag = "2")]
@@ -1839,7 +1839,7 @@ pub struct CircuitBreakerStageKey {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerTaskKey {
     #[prost(message, optional, tag = "1")]
-    pub stage_key: ::core::option::Option<CircuitBreakerStageKey>,
+    pub state_key: ::core::option::Option<CircuitBreakerStateKey>,
     #[prost(uint32, tag = "3")]
     pub partition: u32,
     #[prost(string, tag = "4")]
@@ -1853,7 +1853,7 @@ pub struct CircuitBreakerUpdateRequest {
     #[prost(string, tag = "2")]
     pub executor_id: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
-    pub label_registrations: ::prost::alloc::vec::Vec<CircuitBreakerLabelsRegistration>,
+    pub state_configurations: ::prost::alloc::vec::Vec<CircuitBreakerStateConfiguration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1865,11 +1865,13 @@ pub struct CircuitBreakerUpdate {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CircuitBreakerLabelsRegistration {
+pub struct CircuitBreakerStateConfiguration {
     #[prost(message, optional, tag = "1")]
     pub key: ::core::option::Option<CircuitBreakerTaskKey>,
     #[prost(string, repeated, tag = "2")]
     pub labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(bool, tag = "3")]
+    pub preempt_stage: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1881,7 +1883,7 @@ pub struct CircuitBreakerUpdateResponse {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CircuitBreakerCommand {
     #[prost(message, optional, tag = "1")]
-    pub key: ::core::option::Option<CircuitBreakerStageKey>,
+    pub key: ::core::option::Option<CircuitBreakerStateKey>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

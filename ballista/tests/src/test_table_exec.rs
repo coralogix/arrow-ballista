@@ -1,6 +1,6 @@
 use crate::proto;
 use crate::test_table::TestTable;
-use ballista_core::circuit_breaker::model::CircuitBreakerStageKey;
+use ballista_core::circuit_breaker::model::CircuitBreakerStateKey;
 use ballista_core::circuit_breaker::model::CircuitBreakerTaskKey;
 use ballista_executor::circuit_breaker::client::CircuitBreakerClient;
 use ballista_executor::circuit_breaker::client::CircuitBreakerMetadataExtension;
@@ -123,7 +123,7 @@ impl ExecutionPlan for TestTableExec {
         {
             let boxed: Pin<Box<dyn RecordBatchStream + Send>> = Box::pin(stream);
 
-            let stage_key = CircuitBreakerStageKey {
+            let state_key = CircuitBreakerStateKey {
                 job_id: metadata.job_id.clone(),
                 shared_state_id: metadata.stage_id.to_string(),
                 stage_id: metadata.stage_id,
@@ -131,7 +131,7 @@ impl ExecutionPlan for TestTableExec {
             };
 
             let key = CircuitBreakerTaskKey {
-                stage_key,
+                state_key,
                 partition: partition as u32,
                 task_id,
             };
@@ -142,10 +142,17 @@ impl ExecutionPlan for TestTableExec {
                 as Box<dyn CircuitBreakerCalculation + Send>;
 
             let labels = vec!["test".to_owned(), format!("partition-{}", partition)];
+            let preempt_stage = true;
 
-            let limited_stream =
-                CircuitBreakerStream::new(boxed, calc, key, client, labels)
-                    .map_err(|e| DataFusionError::Execution(e.to_string()))?;
+            let limited_stream = CircuitBreakerStream::new(
+                boxed,
+                calc,
+                key,
+                client,
+                labels,
+                preempt_stage,
+            )
+            .map_err(|e| DataFusionError::Execution(e.to_string()))?;
 
             return Ok(Box::pin(limited_stream));
         }

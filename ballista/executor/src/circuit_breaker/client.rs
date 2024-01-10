@@ -1,6 +1,6 @@
 use anyhow::Error;
 use ballista_core::{
-    circuit_breaker::model::{CircuitBreakerStageKey, CircuitBreakerTaskKey},
+    circuit_breaker::model::{CircuitBreakerStateKey, CircuitBreakerTaskKey},
     error::BallistaError,
     serde::protobuf::{self, CircuitBreakerUpdateRequest, CircuitBreakerUpdateResponse},
 };
@@ -32,7 +32,7 @@ use crate::{
     scheduler_client_registry::SchedulerClientRegistry,
 };
 
-use super::stream::CircuitBreakerLabelsRegistration;
+use super::stream::CircuitBreakerStateConfiguration;
 
 #[derive(Eq, PartialEq, Hash, Debug, Clone)]
 pub struct CircuitBreakerMetadataExtension {
@@ -64,7 +64,7 @@ impl Default for CircuitBreakerClientConfig {
 
 pub struct CircuitBreakerClient {
     update_sender: Sender<ClientUpdate>,
-    state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+    state_per_stage: Arc<DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>>,
 }
 
 struct CircuitBreakerStageState {
@@ -91,7 +91,7 @@ struct SchedulerDeregistration {
 
 #[derive(Debug)]
 enum ClientUpdate {
-    LabelsRegistration(CircuitBreakerLabelsRegistration),
+    Configuration(CircuitBreakerStateConfiguration),
     Update(CircuitBreakerUpdate),
     SchedulerRegistration(SchedulerRegistration),
     SchedulerDeregistration(SchedulerDeregistration),
@@ -110,9 +110,9 @@ lazy_static! {
         vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
     )
     .unwrap();
-    static ref SENT_LABEL_REGISTRATIONS: IntCounter = register_int_counter!(
-        "ballista_circuit_breaker_client_sent_label_registrations",
-        "Number of registrations sent to the schedulers"
+    static ref SENT_STATE_CONFIGURATIONS: IntCounter = register_int_counter!(
+        "ballista_circuit_breaker_client_sent_state_configurations",
+        "Number of state configurations sent to the schedulers"
     )
     .unwrap();
     static ref SENT_UPDATES: IntCounter = register_int_counter!(
@@ -171,18 +171,23 @@ impl CircuitBreakerClient {
         &self,
         key: CircuitBreakerTaskKey,
         labels: Vec<String>,
+        preempt_stage: bool,
     ) -> Result<Arc<AtomicBool>, Error> {
         let state = self
             .state_per_stage
-            .entry(key.stage_key.clone())
+            .entry(key.state_key.clone())
             .or_insert_with(|| CircuitBreakerStageState {
                 circuit_breaker: Arc::new(AtomicBool::new(false)),
                 last_updated: Instant::now(),
             });
 
-        let registration = CircuitBreakerLabelsRegistration { key, labels };
+        let registration = CircuitBreakerStateConfiguration {
+            key,
+            labels,
+            preempt_stage,
+        };
 
-        self.send_update_internal(ClientUpdate::LabelsRegistration(registration))
+        self.send_update_internal(ClientUpdate::Configuration(registration))
             .map(|_| state.circuit_breaker.clone())
     }
 
@@ -237,7 +242,7 @@ impl CircuitBreakerClient {
         mut update_receiver: Receiver<ClientUpdate>,
         config: CircuitBreakerClientConfig,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
-        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        state_per_stage: Arc<DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>>,
         executor_id: String,
     ) {
         let mut last_cleanup = Instant::now();
@@ -288,15 +293,15 @@ impl CircuitBreakerClient {
         task_scheduler_lookup: &mut HashMap<String, String>,
         config: &CircuitBreakerClientConfig,
         executor_id: &str,
-        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        state_per_stage: Arc<DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>>,
         scheduler_lookup: Arc<dyn SchedulerClientRegistry>,
         last_update_request: &mut Option<JoinHandle<()>>,
     ) {
         let now = Instant::now();
 
         match received {
-            ClientUpdate::LabelsRegistration(reg) => {
-                if let Some(mut state) = state_per_stage.get_mut(&reg.key.stage_key) {
+            ClientUpdate::Configuration(reg) => {
+                if let Some(mut state) = state_per_stage.get_mut(&reg.key.state_key) {
                     state.last_updated = now;
                 }
 
@@ -312,7 +317,7 @@ impl CircuitBreakerClient {
                 }
             }
             ClientUpdate::Update(update) => {
-                if let Some(mut state) = state_per_stage.get_mut(&update.key.stage_key) {
+                if let Some(mut state) = state_per_stage.get_mut(&update.key.state_key) {
                     state.last_updated = now;
                 }
 
@@ -379,8 +384,8 @@ impl CircuitBreakerClient {
     async fn process_batch(
         scheduler_id: &str,
         updates: &mut HashMap<CircuitBreakerTaskKey, f64>,
-        label_registrations: &mut Vec<CircuitBreakerLabelsRegistration>,
-        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        label_registrations: &mut Vec<CircuitBreakerStateConfiguration>,
+        state_per_stage: Arc<DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>>,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
         executor_id: &str,
         config: &CircuitBreakerClientConfig,
@@ -393,17 +398,18 @@ impl CircuitBreakerClient {
             })
             .collect::<Vec<_>>();
 
-        let label_registration_protos = label_registrations
+        let state_configuration_protos = label_registrations
             .drain(..)
-            .map(|r| protobuf::CircuitBreakerLabelsRegistration {
+            .map(|r| protobuf::CircuitBreakerStateConfiguration {
                 key: Some(r.key.into()),
                 labels: r.labels,
+                preempt_stage: r.preempt_stage,
             })
             .collect::<Vec<_>>();
 
         let request = CircuitBreakerUpdateRequest {
             updates: update_protos,
-            label_registrations: label_registration_protos,
+            state_configurations: state_configuration_protos,
             executor_id: executor_id.to_owned(),
         };
 
@@ -424,7 +430,7 @@ impl CircuitBreakerClient {
 
     async fn send_request(
         scheduler_id: String,
-        state_per_stage: Arc<DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>>,
+        state_per_stage: Arc<DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>>,
         max_batch_size: usize,
         request: CircuitBreakerUpdateRequest,
         get_scheduler: Arc<dyn SchedulerClientRegistry>,
@@ -442,7 +448,7 @@ impl CircuitBreakerClient {
 
         let request_time = Instant::now();
         let updates_len = request.updates.len();
-        let label_registrations_len = request.label_registrations.len();
+        let state_configurations_len = request.state_configurations.len();
 
         scheduler
             .send_circuit_breaker_update(request)
@@ -458,7 +464,7 @@ impl CircuitBreakerClient {
 
                     SENT_UPDATES.inc_by(updates_len as u64);
                     BATCH_SIZE.observe(updates_len as f64 / max_batch_size as f64);
-                    SENT_LABEL_REGISTRATIONS.inc_by(label_registrations_len as u64);
+                    SENT_STATE_CONFIGURATIONS.inc_by(state_configurations_len as u64);
                     UPDATE_LATENCY_SECONDS.observe(request_latency.as_secs_f64());
 
                     Self::handle_response(response.into_inner(), &state_per_stage);
@@ -469,7 +475,7 @@ impl CircuitBreakerClient {
 
     fn handle_response(
         response: CircuitBreakerUpdateResponse,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
+        state_per_stage: &DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>,
     ) {
         for command in response.commands {
             if let Some(key_proto) = command.key {
@@ -486,7 +492,7 @@ impl CircuitBreakerClient {
 
     fn delete_old_stage_states(
         config: &CircuitBreakerClientConfig,
-        state_per_stage: &DashMap<CircuitBreakerStageKey, CircuitBreakerStageState>,
+        state_per_stage: &DashMap<CircuitBreakerStateKey, CircuitBreakerStageState>,
         timestamp: Instant,
     ) {
         let mut keys_to_delete = Vec::new();
@@ -525,7 +531,7 @@ impl CircuitBreakerClient {
 
 struct PerSchedulerState {
     updates: HashMap<CircuitBreakerTaskKey, f64>,
-    label_registrations: Vec<CircuitBreakerLabelsRegistration>,
+    label_registrations: Vec<CircuitBreakerStateConfiguration>,
     last_sent: Instant,
 }
 
