@@ -328,11 +328,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 job_id,
                 stage_id,
                 labels,
+                preempt_stage,
             } => {
                 let events = self
                     .state
                     .task_manager
-                    .trip_circuit_breaker(job_id, stage_id, labels)
+                    .trip_circuit_breaker(job_id, stage_id, labels, preempt_stage)
                     .await?;
 
                 for event in events {

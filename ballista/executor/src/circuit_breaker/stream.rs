@@ -33,10 +33,11 @@ impl CircuitBreakerStream {
         key: CircuitBreakerTaskKey,
         client: Arc<CircuitBreakerClient>,
         labels: Vec<String>,
+        preempt_stage: bool,
     ) -> Result<Self, Error> {
         let mut noop = false;
 
-        let circuit_breaker = match client.register(key.clone(), labels) {
+        let circuit_breaker = match client.register(key.clone(), labels, preempt_stage) {
             Ok(circuit_breaker) => circuit_breaker,
             Err(e) => {
                 error!("Failed to register circuit breaker: {:?}", e);
@@ -85,9 +86,10 @@ pub trait CircuitBreakerCalculation {
 }
 
 #[derive(Debug)]
-pub struct CircuitBreakerLabelsRegistration {
+pub struct CircuitBreakerStateConfiguration {
     pub key: CircuitBreakerTaskKey,
     pub labels: Vec<String>,
+    pub preempt_stage: bool,
 }
 
 #[derive(Debug)]
