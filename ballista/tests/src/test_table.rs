@@ -17,16 +17,28 @@ pub(crate) struct TestTable {
     pub parallelism: usize,
     pub schema: SchemaRef,
     pub global_limit: u64,
+    pub state_id: String,
+    pub value: i32,
+    pub preempt_stage: bool,
 }
 
 impl TestTable {
-    pub(crate) fn new(parallelism: usize, global_limit: u64) -> Self {
+    pub(crate) fn new(
+        parallelism: usize,
+        global_limit: u64,
+        state_id: String,
+        value: i32,
+        preempt_stage: bool,
+    ) -> Self {
         let schema =
             SchemaRef::new(Schema::new(vec![Field::new("a", DataType::Int32, false)]));
         Self {
             parallelism,
             schema,
             global_limit,
+            state_id,
+            value,
+            preempt_stage,
         }
     }
 }
@@ -59,13 +71,22 @@ impl TableProvider for TestTable {
             limit,
             projection.cloned(),
             self.global_limit,
+            self.state_id.clone(),
+            self.value,
+            self.preempt_stage,
         )))
     }
 }
 
 impl From<proto::TestTable> for TestTable {
     fn from(proto: proto::TestTable) -> Self {
-        Self::new(proto.parallelism as usize, proto.global_limit)
+        Self::new(
+            proto.parallelism as usize,
+            proto.global_limit,
+            proto.state_id,
+            proto.value as i32,
+            proto.preempt_stage,
+        )
     }
 }
 
@@ -74,6 +95,9 @@ impl From<TestTable> for proto::TestTable {
         Self {
             parallelism: table.parallelism as u64,
             global_limit: table.global_limit,
+            state_id: table.state_id,
+            value: table.value as u32,
+            preempt_stage: table.preempt_stage,
         }
     }
 }

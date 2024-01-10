@@ -7,4 +7,7 @@ message TestTableExec {
 	optional uint64 limit = 2;
 	repeated uint64 projection = 3;
 	uint64 global_limit = 4;
+  string state_id = 5;
+	uint32 value = 6;
+	bool preempt_stage = 7;
 }

@@ -41,7 +41,7 @@ mod tests {
         config::Extensions,
         datasource::{provider_as_source, TableProvider},
         execution::runtime_env::{RuntimeConfig, RuntimeEnv},
-        logical_expr::{LogicalPlan, TableScan},
+        logical_expr::{LogicalPlan, LogicalPlanBuilder, TableScan},
         sql::TableReference,
     };
     use datafusion_proto::{
@@ -73,34 +73,20 @@ mod tests {
 
         let row_limit = 100;
 
-        let logical_codec = Arc::new(TestLogicalCodec::new());
-        let physical_codec = Arc::new(TestPhysicalCodec::default());
-
-        let scheduler_socket =
-            start_scheduler_local(logical_codec.clone(), physical_codec.clone()).await;
-
-        let scheduler_url = format!("http://localhost:{}", scheduler_socket.port());
-
-        let connection = create_grpc_client_connection(scheduler_url.clone())
-            .await
-            .context("Connecting to scheduler")
-            .unwrap();
-
-        let mut scheduler_client = SchedulerGrpcClient::new(connection);
-
-        let codec = BallistaCodec::new(logical_codec.clone(), physical_codec.clone());
-
-        let shutdown_not = Arc::new(ShutdownNotifier::new());
-
-        let executors = start_executors_local(
+        let mut test_env = TestEnvironment::new(
             2,
-            scheduler_client.clone(),
-            codec,
-            shutdown_not.clone(),
+            Arc::new(TestLogicalCodec::new()),
+            Arc::new(TestPhysicalCodec::default()),
         )
         .await;
 
-        let test_table = Arc::new(TestTable::new(2, row_limit));
+        let test_table = Arc::new(TestTable::new(
+            2,
+            row_limit,
+            "test-table".to_owned(),
+            111,
+            true,
+        ));
 
         let reference: TableReference = "test_table".into();
         let schema = DFSchema::try_from_qualified_schema(
@@ -123,7 +109,7 @@ mod tests {
 
         let mut buf = vec![];
 
-        LogicalPlanNode::try_from_logical_plan(&node, logical_codec.as_ref())
+        LogicalPlanNode::try_from_logical_plan(&node, test_env.logical_codec.as_ref())
             .context("Converting to protobuf")
             .unwrap()
             .try_encode(&mut buf)
@@ -136,7 +122,8 @@ mod tests {
             query: Some(Query::LogicalPlan(buf)),
         };
 
-        let result = scheduler_client
+        let result = test_env
+            .scheduler_client
             .execute_query(request)
             .await
             .context("Executing query")
@@ -144,9 +131,10 @@ mod tests {
 
         let job_id = result.into_inner().job_id;
 
-        let mut successful_job = await_job_completion(&mut scheduler_client, &job_id)
-            .await
-            .unwrap();
+        let mut successful_job =
+            await_job_completion(&mut test_env.scheduler_client, &job_id)
+                .await
+                .unwrap();
 
         assert!(successful_job.circuit_breaker_tripped);
 
@@ -161,42 +149,233 @@ mod tests {
             ]
         );
 
-        let partitions = successful_job.partition_location;
+        let num_rows = get_num_rows(successful_job);
+        assert!(num_rows.len() == 2);
+        let sum_num_rows = num_rows[0] + num_rows[1];
 
-        assert_eq!(partitions.len(), 2);
+        assert!(sum_num_rows > row_limit.try_into().unwrap());
+        assert!(sum_num_rows < row_limit as i64 * 2);
 
-        let partition1 = &partitions[0];
-        let partition2 = &partitions[1];
+        test_env.shutdown().await;
+    }
 
-        let num_rows1 = partition1
-            .partition_stats
-            .clone()
-            .context("Get partition stats")
+    #[tokio::test]
+    async fn test_circuit_breaker_union() {
+        env_logger::init();
+
+        let row_limit_1 = 15;
+        let row_limit_2 = 100;
+
+        let mut test_env = TestEnvironment::new(
+            2,
+            Arc::new(TestLogicalCodec::new()),
+            Arc::new(TestPhysicalCodec::default()),
+        )
+        .await;
+
+        let test_table1 = Arc::new(TestTable::new(
+            2,
+            row_limit_1,
+            "first-test-table".to_owned(),
+            111,
+            false, // <- this is important so the stage doesn't get preempted here
+        ));
+
+        let test_table2 = Arc::new(TestTable::new(
+            2,
+            row_limit_2,
+            "second-test-table".to_owned(),
+            222,
+            false, // <- this is important so the stage doesn't get preempted here
+        ));
+
+        let reference1: TableReference = "test_table1".into();
+        let schema1 = DFSchema::try_from_qualified_schema(
+            reference1.clone(),
+            test_table1.schema().as_ref(),
+        )
+        .context("Creating schema")
+        .unwrap();
+
+        let reference2: TableReference = "test_table2".into();
+        let schema2 = DFSchema::try_from_qualified_schema(
+            reference2.clone(),
+            test_table2.schema().as_ref(),
+        )
+        .context("Creating schema")
+        .unwrap();
+
+        let test_data1 = TableScan {
+            table_name: reference1,
+            source: provider_as_source(test_table1),
+            fetch: None,
+            filters: vec![],
+            projection: None,
+            projected_schema: Arc::new(schema1),
+        };
+
+        let test_data2 = TableScan {
+            table_name: reference2,
+            source: provider_as_source(test_table2),
+            fetch: None,
+            filters: vec![],
+            projection: None,
+            projected_schema: Arc::new(schema2),
+        };
+
+        let builder = LogicalPlanBuilder::from(LogicalPlan::TableScan(test_data1));
+
+        let plan = builder
+            .union(LogicalPlan::TableScan(test_data2))
+            .context("Building union")
             .unwrap()
-            .num_rows;
+            .build()
+            .context("Building logical plan")
+            .unwrap();
 
-        let num_rows2 = partition2
-            .partition_stats
-            .clone()
-            .context("Get partition stats")
+        let mut buf = vec![];
+
+        LogicalPlanNode::try_from_logical_plan(&plan, test_env.logical_codec.as_ref())
+            .context("Converting to protobuf")
             .unwrap()
-            .num_rows;
+            .try_encode(&mut buf)
+            .context("Encoding protobuf")
+            .unwrap();
 
-        println!("num_rows1: {}", num_rows1);
-        println!("num_rows2: {}", num_rows2);
+        let request = ExecuteQueryParams {
+            settings: vec![],
+            optional_session_id: None,
+            query: Some(Query::LogicalPlan(buf)),
+        };
 
-        assert!(num_rows1 + num_rows2 > row_limit.try_into().unwrap());
-        assert!(num_rows1 + num_rows2 < row_limit as i64 * 2);
+        let result = test_env
+            .scheduler_client
+            .execute_query(request)
+            .await
+            .context("Executing query")
+            .unwrap();
 
-        shutdown_not.notify_shutdown.send(()).unwrap();
+        let job_id = result.into_inner().job_id;
 
-        for (_, handle) in executors {
-            handle
+        let mut successful_job =
+            await_job_completion(&mut test_env.scheduler_client, &job_id)
                 .await
-                .context("Waiting for executor to shutdown")
-                .unwrap()
-                .context("Waiting for executor to shutdown 2")
                 .unwrap();
+
+        assert!(successful_job.circuit_breaker_tripped);
+
+        println!(
+            "circuit_breaker_tripped_labels: {:?}",
+            successful_job.circuit_breaker_tripped_labels
+        );
+
+        successful_job.circuit_breaker_tripped_labels.sort();
+
+        assert_eq!(
+            successful_job.circuit_breaker_tripped_labels,
+            vec![
+                "first-test-table".to_owned(),
+                "partition-0".to_owned(),
+                "partition-1".to_owned(),
+                "second-test-table".to_owned(),
+                "test".to_owned()
+            ]
+        );
+
+        let num_rows = get_num_rows(successful_job);
+        assert_eq!(num_rows.len(), 4);
+
+        // Not sure why this is inverted, I assume it's because of how UnionExec works
+        let num_rows_table1 = num_rows[2] + num_rows[3];
+        let num_rows_table2 = num_rows[0] + num_rows[1];
+
+        println!("num_rows table 1: {}", num_rows_table1);
+        println!("num rows table 2: {}", num_rows_table2);
+
+        assert!(num_rows_table1 > row_limit_1 as i64);
+        assert!(num_rows_table2 > row_limit_2 as i64);
+    }
+
+    fn get_num_rows(job: SuccessfulJob) -> Vec<i64> {
+        let partitions = job.partition_location;
+
+        let mut result = vec![];
+
+        for partition in partitions {
+            let num_rows = partition
+                .partition_stats
+                .clone()
+                .context("Get partition stats")
+                .unwrap()
+                .num_rows;
+
+            result.push(num_rows);
+        }
+
+        result
+    }
+
+    struct TestExecutor {
+        pub join_handle: ServerHandle,
+    }
+
+    struct TestEnvironment {
+        pub scheduler_client: SchedulerGrpcClient<Channel>,
+        pub logical_codec: Arc<dyn LogicalExtensionCodec>,
+        shutdown_not: Arc<ShutdownNotifier>,
+        executors: Vec<TestExecutor>,
+    }
+
+    impl TestEnvironment {
+        async fn new(
+            num_executors: usize,
+            logical_codec: Arc<dyn LogicalExtensionCodec>,
+            physical_codec: Arc<dyn PhysicalExtensionCodec>,
+        ) -> Self {
+            let scheduler_socket =
+                start_scheduler_local(logical_codec.clone(), physical_codec.clone())
+                    .await;
+
+            let scheduler_url = format!("http://localhost:{}", scheduler_socket.port());
+
+            let connection = create_grpc_client_connection(scheduler_url.clone())
+                .await
+                .context("Connecting to scheduler")
+                .unwrap();
+
+            let scheduler_client = SchedulerGrpcClient::new(connection);
+
+            let codec = BallistaCodec::new(logical_codec.clone(), physical_codec.clone());
+
+            let shutdown_not = Arc::new(ShutdownNotifier::new());
+
+            let executors = start_executors_local(
+                num_executors,
+                scheduler_client.clone(),
+                codec,
+                shutdown_not.clone(),
+            )
+            .await;
+
+            Self {
+                scheduler_client,
+                logical_codec,
+                shutdown_not,
+                executors,
+            }
+        }
+
+        async fn shutdown(self) {
+            self.shutdown_not.notify_shutdown.send(()).unwrap();
+
+            for exec in self.executors {
+                exec.join_handle
+                    .await
+                    .context("Waiting for executor to shutdown")
+                    .unwrap()
+                    .context("Waiting for executor to shutdown 2")
+                    .unwrap();
+            }
         }
     }
 
@@ -271,12 +450,12 @@ mod tests {
         scheduler: SchedulerGrpcClient<Channel>,
         codec: BallistaCodec,
         shutdown_not: Arc<ShutdownNotifier>,
-    ) -> Vec<(String, ServerHandle)> {
+    ) -> Vec<TestExecutor> {
         let work_dir = "/tmp";
         let cfg = RuntimeConfig::new();
         let runtime = Arc::new(RuntimeEnv::new(cfg).unwrap());
 
-        let mut handles = Vec::with_capacity(n);
+        let mut executors = Vec::with_capacity(n);
 
         for i in 0..n {
             let specification = ExecutorSpecification {
@@ -335,7 +514,9 @@ mod tests {
             .context(format!("Starting executor {}", i))
             .unwrap();
 
-            handles.push((format!("executor {} process", i), handle));
+            executors.push(TestExecutor {
+                join_handle: handle,
+            });
 
             // Don't save the handle as this one cannot be interrupted and just has to be dropped
             tokio::spawn(execution_loop::poll_loop(
@@ -346,6 +527,6 @@ mod tests {
             ));
         }
 
-        handles
+        executors
     }
 }
