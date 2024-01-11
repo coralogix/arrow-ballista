@@ -622,7 +622,6 @@ mod tests {
                         infinite_source: false,
                         file_type_write_options: None,
                         single_file: false,
-                        insert_mode: ListingTableInsertMode::AppendToFile,
                     };
 
                     let table_paths = listing_table

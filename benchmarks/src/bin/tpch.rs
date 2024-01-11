@@ -847,7 +847,6 @@ async fn get_table(
         infinite_source: false,
         file_type_write_options: None,
         single_file: false,
-        insert_mode: ListingTableInsertMode::AppendToFile,
     };
 
     let url = ListingTableUrl::parse(path)?;
