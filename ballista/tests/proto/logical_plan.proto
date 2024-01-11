@@ -3,4 +3,7 @@ syntax = "proto3";
 message TestTable {
 	uint64 parallelism = 1;
 	uint64 global_limit = 2;
+	string state_id = 3;
+	uint32 value = 4;
+	bool preempt_stage = 5;
 }

@@ -5,6 +5,12 @@ pub struct TestTable {
     pub parallelism: u64,
     #[prost(uint64, tag = "2")]
     pub global_limit: u64,
+    #[prost(string, tag = "3")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "4")]
+    pub value: u32,
+    #[prost(bool, tag = "5")]
+    pub preempt_stage: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -17,4 +23,10 @@ pub struct TestTableExec {
     pub projection: ::prost::alloc::vec::Vec<u64>,
     #[prost(uint64, tag = "4")]
     pub global_limit: u64,
+    #[prost(string, tag = "5")]
+    pub state_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "6")]
+    pub value: u32,
+    #[prost(bool, tag = "7")]
+    pub preempt_stage: bool,
 }
