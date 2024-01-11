@@ -35,6 +35,9 @@ pub(crate) struct TestTableExec {
     pub(crate) limit: Option<usize>,
     pub(crate) projection: Option<Vec<usize>>,
     pub(crate) global_limit: u64,
+    pub(crate) state_id: String,
+    pub(crate) value: i32,
+    pub(crate) preempt_stage: bool,
 }
 
 impl TestTableExec {
@@ -43,12 +46,18 @@ impl TestTableExec {
         limit: Option<usize>,
         projection: Option<Vec<usize>>,
         global_limit: u64,
+        state_id: String,
+        value: i32,
+        preempt_stage: bool,
     ) -> Self {
         Self {
             table,
             limit,
             projection,
             global_limit,
+            state_id,
+            value,
+            preempt_stage,
         }
     }
 }
@@ -98,7 +107,7 @@ impl ExecutionPlan for TestTableExec {
     ) -> Result<SendableRecordBatchStream> {
         let record_batch = RecordBatch::try_new(
             self.schema(),
-            vec![Arc::new(Int32Array::from(vec![1, 2, 3, 4, 5]))],
+            vec![Arc::new(Int32Array::from(vec![self.value; 5]))],
         )?;
 
         let stream = TestDataStream {
@@ -125,7 +134,7 @@ impl ExecutionPlan for TestTableExec {
 
             let state_key = CircuitBreakerStateKey {
                 job_id: metadata.job_id.clone(),
-                shared_state_id: metadata.stage_id.to_string(),
+                shared_state_id: self.state_id.clone(),
                 stage_id: metadata.stage_id,
                 attempt_num: metadata.attempt_number,
             };
@@ -141,8 +150,11 @@ impl ExecutionPlan for TestTableExec {
             let calc = Box::new(TestCalculation { limit })
                 as Box<dyn CircuitBreakerCalculation + Send>;
 
-            let labels = vec!["test".to_owned(), format!("partition-{}", partition)];
-            let preempt_stage = true;
+            let labels = vec![
+                "test".to_owned(),
+                format!("partition-{}", partition),
+                self.state_id.clone(),
+            ];
 
             let limited_stream = CircuitBreakerStream::new(
                 boxed,
@@ -150,7 +162,7 @@ impl ExecutionPlan for TestTableExec {
                 key,
                 client,
                 labels,
-                preempt_stage,
+                self.preempt_stage,
             )
             .map_err(|e| DataFusionError::Execution(e.to_string()))?;
 
@@ -189,6 +201,9 @@ impl TryFrom<proto::TestTableExec> for TestTableExec {
             limit,
             projection: projection_opt,
             global_limit,
+            state_id: value.state_id,
+            value: value.value as i32,
+            preempt_stage: value.preempt_stage,
         })
     }
 }
@@ -205,6 +220,9 @@ impl From<TestTableExec> for proto::TestTableExec {
                 .map(|x| x as u64)
                 .collect(),
             global_limit: value.global_limit,
+            state_id: value.state_id,
+            value: value.value as u32,
+            preempt_stage: value.preempt_stage,
         }
     }
 }
