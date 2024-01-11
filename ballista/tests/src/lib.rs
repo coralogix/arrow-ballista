@@ -69,8 +69,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_circuit_breaker() {
-        env_logger::init();
-
         let row_limit = 100;
 
         let mut test_env = TestEnvironment::new(
@@ -145,7 +143,8 @@ mod tests {
             vec![
                 "partition-0".to_owned(),
                 "partition-1".to_owned(),
-                "test".to_owned()
+                "test".to_owned(),
+                "test-table".to_owned()
             ]
         );
 
@@ -161,8 +160,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_circuit_breaker_union() {
-        env_logger::init();
-
         let row_limit_1 = 15;
         let row_limit_2 = 100;
 
@@ -294,6 +291,8 @@ mod tests {
 
         assert!(num_rows_table1 > row_limit_1 as i64);
         assert!(num_rows_table2 > row_limit_2 as i64);
+
+        test_env.shutdown().await;
     }
 
     fn get_num_rows(job: SuccessfulJob) -> Vec<i64> {
@@ -367,7 +366,6 @@ mod tests {
 
         async fn shutdown(self) {
             self.shutdown_not.notify_shutdown.send(()).unwrap();
-
             for exec in self.executors {
                 exec.join_handle
                     .await
