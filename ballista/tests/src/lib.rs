@@ -47,6 +47,7 @@ mod tests {
         protobuf::LogicalPlanNode,
     };
     use tokio::{
+        net::TcpListener,
         sync::mpsc,
         time::{sleep, Duration},
     };
@@ -438,13 +439,21 @@ mod tests {
                 ],
             };
 
-            let port = 50051 + i as u32;
-            let grpc_port = (50052 + n + i) as u32;
+            let addr1 = TcpListener::bind("localhost:0")
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap();
+            let addr2 = TcpListener::bind("localhost:0")
+                .await
+                .unwrap()
+                .local_addr()
+                .unwrap();
 
             let metadata = ExecutorRegistration {
                 id: format!("executor-{}", i),
-                port,
-                grpc_port,
+                port: addr1.port() as u32,
+                grpc_port: addr2.port() as u32,
                 specification: Some(specification),
                 optional_host: Some(OptionalHost::Host("localhost".to_owned())),
             };
