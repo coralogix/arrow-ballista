@@ -64,6 +64,7 @@ pub async fn start_server(
     let mut scheduler_server: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
         SchedulerServer::new(
             config.scheduler_name(),
+            config.version.clone(),
             cluster,
             BallistaCodec::new_with_optional_object_store(object_store.clone()),
             config,

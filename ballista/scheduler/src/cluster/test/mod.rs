@@ -63,13 +63,14 @@ impl<S: ClusterState> ClusterStateTest<S> {
                     grpc_port: 0,
                     specification: ExecutorSpecification {
                         task_slots,
-                        version,
+                        version: version.clone(),
                     },
                 },
                 ExecutorData {
                     executor_id: executor_id.to_string(),
                     total_task_slots: task_slots,
                     available_task_slots: task_slots,
+                    executor_version: version,
                 },
                 false,
             )
@@ -106,7 +107,7 @@ impl<S: ClusterState> ClusterStateTest<S> {
         assert_eq!(
             executor.version(),
             version,
-            "Unexpected version for executor"
+            "Unexpected version of executor"
         );
 
         // Heartbeat stream is async so wait up to 500ms for it to show up

@@ -76,6 +76,7 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T, U> {
     pub fn new(
         scheduler_name: String,
+        scheduler_version: String,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
@@ -86,6 +87,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             cluster,
             codec,
             scheduler_name.clone(),
+            scheduler_version,
             config.clone(),
             object_store,
         ));
@@ -111,9 +113,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub fn new_with_task_launcher(
         scheduler_name: String,
+        scheduler_version: String,
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
         config: SchedulerConfig,
@@ -125,6 +128,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             cluster,
             codec,
             scheduler_name.clone(),
+            scheduler_version,
             config.clone(),
             task_launcher,
             object_store,
@@ -374,6 +378,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             executor_id: metadata.id.clone(),
             total_task_slots: metadata.specification.task_slots,
             available_task_slots: metadata.specification.task_slots,
+            executor_version: metadata.version(),
         };
 
         // Save the executor to state
@@ -782,6 +787,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                "test-v0.1".to_owned(),
                 cluster,
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
@@ -812,6 +818,7 @@ mod test {
                     executor_id: "executor-1".to_owned(),
                     total_task_slots: task_slots,
                     available_task_slots: task_slots,
+                    executor_version: "test-v0.1".to_string(),
                 },
             ),
             (
@@ -829,6 +836,7 @@ mod test {
                     executor_id: "executor-2".to_owned(),
                     total_task_slots: num_partitions as u32 - task_slots,
                     available_task_slots: num_partitions as u32 - task_slots,
+                    executor_version: "test-v0.1".to_string(),
                 },
             ),
         ]

@@ -242,6 +242,7 @@ impl Into<ExecutorData> for protobuf::ExecutorData {
             executor_id: self.executor_id,
             total_task_slots: 0,
             available_task_slots: 0,
+            executor_version: "".to_string(),
         };
         for resource in self.resources {
             if let Some(task_slots) = resource.total {

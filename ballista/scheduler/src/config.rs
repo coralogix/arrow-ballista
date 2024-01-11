@@ -28,6 +28,7 @@ pub struct SchedulerConfig {
     /// Namespace of this scheduler. Schedulers using the same cluster storage and namespace
     /// will share global cluster state.
     pub namespace: String,
+    pub version: String,
     /// The external hostname of the scheduler
     pub external_host: String,
     /// The bind port for the scheduler's gRPC service
@@ -60,6 +61,7 @@ impl Default for SchedulerConfig {
     fn default() -> Self {
         Self {
             namespace: String::default(),
+            version: String::default(),
             external_host: "localhost".to_string(),
             bind_port: 50050,
             scheduling_policy: TaskSchedulingPolicy::PullStaged,

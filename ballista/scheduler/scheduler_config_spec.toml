@@ -153,3 +153,11 @@ name = "executor_termination_grace_period"
 type = "u64"
 default = "30"
 doc = "Time in seconds an executor should be considered lost after it enters terminating status"
+
+[[param]]
+name = "cluster_version"
+type = "String"
+default = "std::string::String::from(\"0.5.0\")"
+doc = "Version of the cluster"
+
+

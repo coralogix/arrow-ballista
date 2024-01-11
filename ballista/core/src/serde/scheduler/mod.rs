@@ -84,6 +84,7 @@ pub struct ExecutorSpecification {
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecutorData {
     pub executor_id: String,
+    pub executor_version: String,
     pub total_task_slots: u32,
     pub available_task_slots: u32,
 }

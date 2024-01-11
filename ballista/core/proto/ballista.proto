@@ -89,6 +89,7 @@ message ExecutionGraph {
   uint64 queued_at = 13;
   bool circuit_breaker_tripped = 14;
   repeated string circuit_breaker_tripped_labels = 15;
+  repeated string warnings = 16;
 }
 
 message StageAttempts {
@@ -347,6 +348,7 @@ message ExecutorTaskSlots {
 message ExecutorData {
   string executor_id = 1;
   repeated ExecutorResourcePair resources = 2;
+  string executor_version = 3;
 }
 
 message ExecutorResourcePair {
@@ -541,6 +543,7 @@ message SuccessfulJob {
   uint64 ended_at = 4;
   bool circuit_breaker_tripped = 5;
   repeated string circuit_breaker_tripped_labels = 6;
+  repeated string warnings = 7;
 }
 
 message QueuedJob {
@@ -944,7 +947,7 @@ message RunningTaskInfo {
   uint32 stage_id = 3;
 }
 
-message CircuitBreakerStageKey {
+message CircuitBreakerStateKey {
   string job_id = 1;
   uint32 stage_id = 2;
   uint32 attempt_num = 3;
@@ -952,7 +955,7 @@ message CircuitBreakerStageKey {
 }
 
 message CircuitBreakerTaskKey {
-  CircuitBreakerStageKey stage_key = 1;
+  CircuitBreakerStateKey state_key = 1;
   uint32 partition = 3;
   string task_id = 4;
 }
@@ -960,7 +963,7 @@ message CircuitBreakerTaskKey {
 message CircuitBreakerUpdateRequest {
   repeated CircuitBreakerUpdate updates = 1;
   string executor_id = 2;
-  repeated CircuitBreakerLabelsRegistration label_registrations = 3;
+  repeated CircuitBreakerStateConfiguration state_configurations = 3;
 }
 
 message CircuitBreakerUpdate {
@@ -968,9 +971,10 @@ message CircuitBreakerUpdate {
   double percent = 2;
 }
 
-message CircuitBreakerLabelsRegistration {
+message CircuitBreakerStateConfiguration {
   CircuitBreakerTaskKey key = 1;
   repeated string labels = 2;
+  bool preempt_stage = 3;
 }
 
 message CircuitBreakerUpdateResponse {
@@ -978,7 +982,7 @@ message CircuitBreakerUpdateResponse {
 }
 
 message CircuitBreakerCommand {
-  CircuitBreakerStageKey key = 1;
+  CircuitBreakerStateKey key = 1;
 }
 
 message SchedulerLostParams {

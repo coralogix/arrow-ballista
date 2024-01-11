@@ -566,18 +566,19 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
 
         let CircuitBreakerUpdateRequest {
             updates,
-            label_registrations,
+            state_configurations,
             executor_id,
         } = request.into_inner();
 
-        for label_registration in label_registrations {
-            if let Some(key) = label_registration.key {
+        for state_configuration in state_configurations {
+            if let Some(key) = state_configuration.key {
                 let key: CircuitBreakerTaskKey =
                     key.try_into().map_err(Status::invalid_argument)?;
-                self.state.circuit_breaker.register_labels(
-                    key.stage_key,
+                self.state.circuit_breaker.configure_state(
+                    key.state_key,
                     executor_id.clone(),
-                    label_registration.labels,
+                    state_configuration.labels,
+                    state_configuration.preempt_stage,
                 )
             }
         }
@@ -587,19 +588,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 let key: CircuitBreakerTaskKey =
                     key_proto.try_into().map_err(Status::invalid_argument)?;
 
-                let stage_key = &key.stage_key;
-                let labels = self
+                let stage_key = &key.state_key;
+                let configuration = self
                     .state
                     .circuit_breaker
                     .update(key.clone(), update.percent, executor_id.clone())
                     .map_err(Status::internal)?;
 
-                if let Some(labels) = labels {
+                if let Some(configuration) = configuration {
                     info!(
                         job_id = stage_key.job_id,
                         stage_id = stage_key.stage_id,
                         attempt_num = stage_key.attempt_num,
-                        labels = ?labels,
+                        labels = ?configuration.labels,
+                        preempt_stage = configuration.preempt_stage,
                         "Circuit breaker tripped!",
                     );
 
@@ -614,7 +616,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         .post_event(QueryStageSchedulerEvent::CircuitBreakerTripped {
                             job_id: stage_key.job_id.clone(),
                             stage_id: stage_key.stage_id as usize,
-                            labels: labels.clone(),
+                            labels: configuration.labels,
+                            preempt_stage: configuration.preempt_stage,
                         });
                 }
             }
@@ -740,6 +743,8 @@ mod test {
 
     use super::{SchedulerGrpc, SchedulerServer};
 
+    const SCHEDULER_VERSION: &str = "test-v0.1";
+
     #[tokio::test]
     async fn test_poll_work() -> Result<(), BallistaError> {
         let cluster = test_cluster_context();
@@ -747,6 +752,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),
@@ -780,7 +786,7 @@ mod test {
         // no response task since we told the scheduler we didn't want to accept one
         assert!(response.tasks.is_empty());
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
-            SchedulerState::new_with_default_scheduler_name(
+            SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 None,
@@ -813,7 +819,7 @@ mod test {
         // still no response task since there are no tasks in the scheduler
         assert!(response.tasks.is_empty());
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
-            SchedulerState::new_with_default_scheduler_name(
+            SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 None,
@@ -842,6 +848,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
@@ -937,6 +944,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster,
                 BallistaCodec::default(),
                 SchedulerConfig::default(),
@@ -996,6 +1004,7 @@ mod test {
         let mut scheduler: SchedulerServer<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerServer::new(
                 "localhost:50050".to_owned(),
+                SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
                 BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
                 SchedulerConfig::default(),

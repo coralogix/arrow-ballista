@@ -136,6 +136,7 @@ pub struct ExecutionGraph {
     failed_stage_attempts: HashMap<usize, HashSet<usize>>,
     pub(crate) circuit_breaker_tripped: bool,
     pub(crate) circuit_breaker_tripped_labels: HashSet<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -148,6 +149,7 @@ pub struct RunningTaskInfo {
 }
 
 impl ExecutionGraph {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         scheduler_id: &str,
         job_id: &str,
@@ -156,6 +158,7 @@ impl ExecutionGraph {
         plan: Arc<dyn ExecutionPlan>,
         queued_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
+        warnings: Vec<String>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -195,6 +198,7 @@ impl ExecutionGraph {
             failed_stage_attempts: HashMap::new(),
             circuit_breaker_tripped: false,
             circuit_breaker_tripped_labels: HashSet::new(),
+            warnings,
         })
     }
 
@@ -1247,6 +1251,7 @@ impl ExecutionGraph {
                     .iter()
                     .cloned()
                     .collect(),
+                warnings: self.warnings.clone(),
             })),
         };
 
@@ -1353,6 +1358,7 @@ impl ExecutionGraph {
             circuit_breaker_tripped_labels: HashSet::from_iter(
                 proto.circuit_breaker_tripped_labels,
             ),
+            warnings: proto.warnings,
         })
     }
 
@@ -1435,6 +1441,7 @@ impl ExecutionGraph {
                 .iter()
                 .cloned()
                 .collect(),
+            warnings: graph.warnings,
         })
     }
 
@@ -1442,9 +1449,14 @@ impl ExecutionGraph {
         &mut self,
         stage_id: usize,
         labels: Vec<String>,
+        preempt: bool,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
         self.circuit_breaker_tripped = true;
         self.circuit_breaker_tripped_labels.extend(labels);
+
+        if !preempt {
+            return Ok(vec![]);
+        }
 
         let task_id = self.next_task_id() as u32;
 
