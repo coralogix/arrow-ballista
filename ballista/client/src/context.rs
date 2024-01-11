@@ -466,7 +466,6 @@ impl BallistaContext {
 
 #[cfg(test)]
 mod tests {
-    use datafusion::datasource::listing::ListingTableInsertMode;
     #[cfg(feature = "standalone")]
     use datafusion::datasource::listing::ListingTableUrl;
 
