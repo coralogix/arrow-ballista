@@ -28,11 +28,8 @@ mod tests {
         utils::create_grpc_client_connection,
     };
     use ballista_executor::{
-        circuit_breaker::client::CircuitBreakerClientConfig,
-        execution_loop,
-        executor::Executor,
-        executor_server::{self, ServerHandle},
-        metrics::LoggingMetricsCollector,
+        circuit_breaker::client::CircuitBreakerClientConfig, execution_loop,
+        executor::Executor, executor_server, metrics::LoggingMetricsCollector,
         shutdown::ShutdownNotifier,
     };
     use ballista_scheduler::standalone::new_standalone_scheduler_with_codec;
@@ -154,8 +151,6 @@ mod tests {
 
         assert!(sum_num_rows > row_limit.try_into().unwrap());
         assert!(sum_num_rows < row_limit as i64 * 2);
-
-        test_env.shutdown().await;
     }
 
     #[tokio::test]
@@ -291,8 +286,6 @@ mod tests {
 
         assert!(num_rows_table1 > row_limit_1 as i64);
         assert!(num_rows_table2 > row_limit_2 as i64);
-
-        test_env.shutdown().await;
     }
 
     fn get_num_rows(job: SuccessfulJob) -> Vec<i64> {
@@ -314,15 +307,9 @@ mod tests {
         result
     }
 
-    struct TestExecutor {
-        pub join_handle: ServerHandle,
-    }
-
     struct TestEnvironment {
         pub scheduler_client: SchedulerGrpcClient<Channel>,
         pub logical_codec: Arc<dyn LogicalExtensionCodec>,
-        shutdown_not: Arc<ShutdownNotifier>,
-        executors: Vec<TestExecutor>,
     }
 
     impl TestEnvironment {
@@ -348,7 +335,7 @@ mod tests {
 
             let shutdown_not = Arc::new(ShutdownNotifier::new());
 
-            let executors = start_executors_local(
+            start_executors_local(
                 num_executors,
                 scheduler_client.clone(),
                 codec,
@@ -359,20 +346,6 @@ mod tests {
             Self {
                 scheduler_client,
                 logical_codec,
-                shutdown_not,
-                executors,
-            }
-        }
-
-        async fn shutdown(self) {
-            self.shutdown_not.notify_shutdown.send(()).unwrap();
-            for exec in self.executors {
-                exec.join_handle
-                    .await
-                    .context("Waiting for executor to shutdown")
-                    .unwrap()
-                    .context("Waiting for executor to shutdown 2")
-                    .unwrap();
             }
         }
     }
@@ -448,12 +421,10 @@ mod tests {
         scheduler: SchedulerGrpcClient<Channel>,
         codec: BallistaCodec,
         shutdown_not: Arc<ShutdownNotifier>,
-    ) -> Vec<TestExecutor> {
+    ) {
         let work_dir = "/tmp";
         let cfg = RuntimeConfig::new();
         let runtime = Arc::new(RuntimeEnv::new(cfg).unwrap());
-
-        let mut executors = Vec::with_capacity(n);
 
         for i in 0..n {
             let specification = ExecutorSpecification {
@@ -498,7 +469,7 @@ mod tests {
 
             let executor = Arc::new(executor);
 
-            let handle = executor_server::startup(
+            executor_server::startup(
                 scheduler.clone(),
                 "0.0.0.0".to_owned(),
                 executor.clone(),
@@ -512,10 +483,6 @@ mod tests {
             .context(format!("Starting executor {}", i))
             .unwrap();
 
-            executors.push(TestExecutor {
-                join_handle: handle,
-            });
-
             // Don't save the handle as this one cannot be interrupted and just has to be dropped
             tokio::spawn(execution_loop::poll_loop(
                 scheduler.clone(),
@@ -524,7 +491,5 @@ mod tests {
                 Extensions::default(),
             ));
         }
-
-        executors
     }
 }
