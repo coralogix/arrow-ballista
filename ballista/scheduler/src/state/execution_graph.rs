@@ -1455,6 +1455,7 @@ impl ExecutionGraph {
         self.circuit_breaker_tripped_labels.extend(labels);
 
         if !preempt {
+            info!("Will not preempt running tasks");
             return Ok(vec![]);
         }
 
@@ -1499,10 +1500,11 @@ impl ExecutionGraph {
         }
 
         info!(
-            "Stop scheduling of {} tasks due to tripped circuit breaker for stage {} in job {}",
+            "Preempted {} tasks due to tripped circuit breaker for stage {} in job {} (labels: {:?})",
             num_stopped,
             stage_id,
             self.job_id,
+            self.circuit_breaker_tripped_labels
         );
 
         let task_status = TaskStatus {
