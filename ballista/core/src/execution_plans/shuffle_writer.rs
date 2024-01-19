@@ -247,15 +247,21 @@ impl ShuffleWriterExec {
                         stats
                     );
 
-                    if let Some(sender) = sender.as_ref() {
-                        let cmd = replicator::Command::Replicate {
-                            job_id: job_id.clone(),
-                            path: path.to_string(),
-                            created,
-                        };
+                    if stats.num_rows.is_some_and(|v| v > 0) {
+                        if let Some(sender) = sender.as_ref() {
+                            let cmd = replicator::Command::Replicate {
+                                job_id: job_id.clone(),
+                                path: path.to_string(),
+                                created,
+                            };
 
-                        if let Err(error) = sender.send(cmd).await {
-                            warn!(?path, ?error, "Failed to send path for replication");
+                            if let Err(error) = sender.send(cmd).await {
+                                warn!(
+                                    ?path,
+                                    ?error,
+                                    "Failed to send path for replication"
+                                );
+                            }
                         }
                     }
 

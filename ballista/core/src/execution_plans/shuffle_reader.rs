@@ -673,8 +673,16 @@ pub async fn batch_stream_from_object_store(
         .as_ref()
         .get(path)
         .await
-        .map_err(|e| {
-            BallistaError::General(format!("Failed to fetch partition - {:?}", e))
+        .map_err(|e| match e {
+            object_store::Error::NotFound { path, source: _ } => {
+                BallistaError::FetchFailed(
+                    executor_id.clone(),
+                    0,
+                    vec![],
+                    format!("Partition not found in object store - {}", path),
+                )
+            }
+            _ => BallistaError::General(format!("Failed to fetch partition - {:?}", e)),
         })?
         .into_stream();
 
