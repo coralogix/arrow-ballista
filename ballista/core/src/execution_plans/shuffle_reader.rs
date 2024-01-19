@@ -572,7 +572,7 @@ impl PartitionReader for PartitionReaderEnum {
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
                 fetch_partition_object_store(
                     location.executor_meta.id.clone(),
-                    location.path.clone(),
+                    location,
                     object_store.clone(),
                 )
                 .await
@@ -651,13 +651,20 @@ fn fetch_partition_local_inner(
 
 pub async fn fetch_partition_object_store(
     executor_id: String,
-    path: String,
+    location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
-    let path = Path::parse(format!("{}{}", executor_id, path)).map_err(|e| {
+    let path = Path::parse(format!("{}{}", executor_id, location.path)).map_err(|e| {
         BallistaError::General(format!("Failed to parse partition location - {:?}", e))
     })?;
-    let stream = batch_stream_from_object_store(executor_id, &path, object_store).await?;
+    let stream = batch_stream_from_object_store(
+        executor_id,
+        &path,
+        location.stage_id,
+        &location.map_partitions,
+        object_store,
+    )
+    .await?;
     Ok(Box::pin(RecordBatchStreamAdapter::new(
         stream.schema(),
         stream,
@@ -667,6 +674,8 @@ pub async fn fetch_partition_object_store(
 pub async fn batch_stream_from_object_store(
     executor_id: String,
     path: &Path,
+    stage_id: usize,
+    map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
 ) -> Result<RecordBatchReceiver> {
     let stream = object_store
@@ -677,8 +686,8 @@ pub async fn batch_stream_from_object_store(
             object_store::Error::NotFound { path, source: _ } => {
                 BallistaError::FetchFailed(
                     executor_id.clone(),
-                    0,
-                    vec![],
+                    stage_id,
+                    map_partitions.to_vec(),
                     format!("Partition not found in object store - {}", path),
                 )
             }
