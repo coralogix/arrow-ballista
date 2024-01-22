@@ -197,15 +197,16 @@ pub async fn write_stream_to_disk(
 
     while let Some(result) = stream.next().await {
         let batch = result?;
+        if batch.num_rows() > 0 {
+            let batch_size_bytes: usize = batch.get_array_memory_size();
+            num_batches += 1;
+            num_rows += batch.num_rows();
+            num_bytes += batch_size_bytes;
 
-        let batch_size_bytes: usize = batch.get_array_memory_size();
-        num_batches += 1;
-        num_rows += batch.num_rows();
-        num_bytes += batch_size_bytes;
-
-        let timer = disk_write_metric.timer();
-        writer.write(&batch)?;
-        timer.done();
+            let timer = disk_write_metric.timer();
+            writer.write(&batch)?;
+            timer.done();
+        }
     }
     let timer = disk_write_metric.timer();
     writer.finish()?;

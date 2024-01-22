@@ -24,7 +24,7 @@ use datafusion::arrow::ipc::writer::IpcWriteOptions;
 use datafusion::arrow::ipc::CompressionType;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use tokio::sync::mpsc;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::{replicator, utils};
 use std::any::Any;
@@ -61,7 +61,7 @@ use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use log::{debug, info};
+use log::debug;
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -240,22 +240,32 @@ impl ShuffleWriterExec {
                         .output_rows
                         .add(stats.num_rows.unwrap_or(0) as usize);
 
+                    let elapsed = now.elapsed().as_secs();
                     info!(
-                        "Executed partitions {:?} in {} seconds. Statistics: {}",
+                        job_id,
+                        ?path,
+                        elapsed,
+                        "Executed partitions {:?}. Statistics: {}",
                         partitions,
-                        now.elapsed().as_secs(),
                         stats
                     );
 
-                    if let Some(sender) = sender.as_ref() {
-                        let cmd = replicator::Command::Replicate {
-                            job_id: job_id.clone(),
-                            path: path.to_string(),
-                            created,
-                        };
+                    if stats.num_rows.is_some_and(|v| v > 0) {
+                        if let Some(sender) = sender.as_ref() {
+                            let cmd = replicator::Command::Replicate {
+                                job_id: job_id.clone(),
+                                path: path.to_string(),
+                                created,
+                            };
 
-                        if let Err(error) = sender.send(cmd).await {
-                            warn!(?path, ?error, "Failed to send path for replication");
+                            if let Err(error) = sender.send(cmd).await {
+                                warn!(
+                                    job_id,
+                                    ?path,
+                                    ?error,
+                                    "Failed to send path for replication"
+                                );
+                            }
                         }
                     }
 

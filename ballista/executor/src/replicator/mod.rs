@@ -511,9 +511,14 @@ mod tests {
         let destination: Path = Path::parse("2.data").unwrap();
 
         object_store.put(&destination, bytes).await?;
-        let stream =
-            batch_stream_from_object_store("id".to_string(), &destination, object_store)
-                .await?;
+        let stream = batch_stream_from_object_store(
+            "id".to_string(),
+            &destination,
+            0,
+            &[],
+            object_store,
+        )
+        .await?;
 
         let mut stream: SendableRecordBatchStream =
             Box::pin(RecordBatchStreamAdapter::new(stream.schema(), stream));
