@@ -48,8 +48,9 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
-    ColumnStatistics, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning,
-    RecordBatchStream, SendableRecordBatchStream, Statistics,
+    ColumnStatistics, DisplayAs, DisplayFormatType, EmptyRecordBatchStream,
+    ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
+    Statistics,
 };
 use futures::{AsyncRead, Stream, StreamExt, TryStreamExt};
 
@@ -192,6 +193,14 @@ impl ExecutionPlan for ShuffleReaderExec {
             .sorted_by(|(p1_idx, _), (p2_idx, _)| Ord::cmp(p1_idx, p2_idx))
             .map(|(_, p)| p)
             .collect();
+
+        if partition_locations.is_empty() {
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                self.schema(),
+                EmptyRecordBatchStream::new(self.schema()),
+            )));
+        }
+
         // Shuffle partitions for evenly send fetching partition requests to avoid hot executors within multiple tasks
         partition_locations.shuffle(&mut thread_rng());
 
