@@ -20,12 +20,15 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::Result;
 use datafusion::common::Statistics;
 use datafusion::execution::context::TaskContext;
+use datafusion::execution::memory_pool::MemoryConsumer;
 use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::common::AbortOnDropMany;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet,
 };
+use datafusion::physical_plan::sorts::streaming_merge::streaming_merge;
+use datafusion::physical_plan::stream::RecordBatchReceiverStream;
 use datafusion::physical_plan::DisplayAs;
 use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
@@ -47,6 +50,8 @@ pub struct CoalesceTasksExec {
     input: Arc<dyn ExecutionPlan>,
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
+    /// sorting expression
+    sort_by: Option<Vec<PhysicalSortExpr>>,
 }
 
 impl CoalesceTasksExec {
@@ -55,6 +60,20 @@ impl CoalesceTasksExec {
             partitions,
             input,
             metrics: ExecutionPlanMetricsSet::new(),
+            sort_by: None,
+        }
+    }
+
+    pub fn new_sorted(
+        input: Arc<dyn ExecutionPlan>,
+        partitions: Vec<usize>,
+        sort_by: Vec<PhysicalSortExpr>,
+    ) -> Self {
+        Self {
+            partitions,
+            input,
+            metrics: ExecutionPlanMetricsSet::new(),
+            sort_by: Some(sort_by),
         }
     }
 
@@ -74,6 +93,39 @@ impl DisplayAs for CoalesceTasksExec {
                 write!(f, "CoalesceTasksExec")
             }
         }
+    }
+}
+
+/// If running in a tokio context spawns the execution of `stream` to a separate task
+/// allowing it to execute in parallel with an intermediate buffer of size `buffer`
+fn spawn_buffered(
+    mut input: SendableRecordBatchStream,
+    buffer: usize,
+) -> SendableRecordBatchStream {
+    // Use tokio only if running from a multi-thread tokio context
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle)
+            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread =>
+        {
+            let mut builder = RecordBatchReceiverStream::builder(input.schema(), buffer);
+
+            let sender = builder.tx();
+
+            builder.spawn(async move {
+                while let Some(item) = input.next().await {
+                    if sender.send(item).await.is_err() {
+                        // receiver dropped when query is shutdown early (e.g., limit) or error,
+                        // no need to return propagate the send error.
+                        return Ok(());
+                    }
+                }
+
+                Ok(())
+            });
+
+            builder.build()
+        }
+        _ => input,
     }
 }
 
@@ -126,56 +178,87 @@ impl ExecutionPlan for CoalesceTasksExec {
             return self.input.execute(self.partitions[0], context);
         }
 
-        // use a stream that allows each sender to put in at
-        // least one result in an attempt to maximize
-        // parallelism.
-        let (sender, receiver) = mpsc::channel::<Result<RecordBatch>>(input_partitions);
+        match self.sort_by.as_ref() {
+            Some(sort_expr) => {
+                let reservation =
+                    MemoryConsumer::new(format!("CoalesceTaslsExec[{partition}]"))
+                        .register(&context.runtime_env().memory_pool);
+                let receivers = (0..input_partitions)
+                    .map(|partition| {
+                        Ok(spawn_buffered(
+                            self.input.execute(partition, context.clone())?,
+                            1,
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
 
-        // spawn independent tasks whose resulting streams (of batches)
-        // are sent to the channel for consumption.
-        let mut join_handles = Vec::with_capacity(input_partitions);
-        for partition in self.partitions.iter().copied() {
-            let input = self.input.clone();
-            let context = context.clone();
-            let output = sender.clone();
+                let result = streaming_merge(
+                    receivers,
+                    self.schema(),
+                    sort_expr,
+                    BaselineMetrics::new(&self.metrics, partition),
+                    context.session_config().batch_size(),
+                    None,
+                    reservation,
+                )?;
 
-            let fut = async move {
-                let mut stream = match input.execute(partition, context) {
-                    Err(e) => {
-                        // If send fails, plan being torn down,
-                        // there is no place to send the error.
-                        output.send(Err(e)).await.ok();
-                        debug!(
-                            "Stopping execution: error executing input: {}",
-                            DisplayableExecutionPlan::new(input.as_ref()).one_line()
-                        );
-                        return;
-                    }
-                    Ok(stream) => stream,
-                };
+                Ok(result)
+            }
+            _ => {
+                // use a stream that allows each sender to put in at
+                // least one result in an attempt to maximize
+                // parallelism.
+                let (sender, receiver) =
+                    mpsc::channel::<Result<RecordBatch>>(input_partitions);
 
-                while let Some(item) = stream.next().await {
-                    // If send fails, plan being torn down,
-                    // there is no place to send the error.
-                    if output.send(item).await.is_err() {
-                        debug!(
+                // spawn independent tasks whose resulting streams (of batches)
+                // are sent to the channel for consumption.
+                let mut join_handles = Vec::with_capacity(input_partitions);
+                for partition in self.partitions.iter().copied() {
+                    let input = self.input.clone();
+                    let context = context.clone();
+                    let output = sender.clone();
+
+                    let fut = async move {
+                        let mut stream = match input.execute(partition, context) {
+                            Err(e) => {
+                                // If send fails, plan being torn down,
+                                // there is no place to send the error.
+                                output.send(Err(e)).await.ok();
+                                debug!(
+                                    "Stopping execution: error executing input: {}",
+                                    DisplayableExecutionPlan::new(input.as_ref())
+                                        .one_line()
+                                );
+                                return;
+                            }
+                            Ok(stream) => stream,
+                        };
+
+                        while let Some(item) = stream.next().await {
+                            // If send fails, plan being torn down,
+                            // there is no place to send the error.
+                            if output.send(item).await.is_err() {
+                                debug!(
                             "Stopping execution: output is gone, plan cancelling: {}",
                             DisplayableExecutionPlan::new(input.as_ref()).one_line()
                         );
-                        return;
-                    }
+                                return;
+                            }
+                        }
+                    };
+
+                    join_handles.push(tokio::spawn(fut.in_current_span()));
                 }
-            };
 
-            join_handles.push(tokio::spawn(fut.in_current_span()));
+                Ok(Box::pin(MergeStream {
+                    input: receiver,
+                    schema: self.schema(),
+                    baseline_metrics,
+                    drop_helper: AbortOnDropMany(join_handles),
+                }))
+            }
         }
-
-        Ok(Box::pin(MergeStream {
-            input: receiver,
-            schema: self.schema(),
-            baseline_metrics,
-            drop_helper: AbortOnDropMany(join_handles),
-        }))
     }
 
     fn metrics(&self) -> Option<MetricsSet> {
