@@ -150,7 +150,7 @@ impl ExecutionPlan for CoalesceTasksExec {
     }
 
     fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        self.input.output_ordering()
+        self.sort_by.as_deref()
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
