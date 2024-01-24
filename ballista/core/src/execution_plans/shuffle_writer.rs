@@ -409,11 +409,10 @@ impl DisplayAs for ShuffleWriterExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(
-                    f,
-                    "ShuffleWriterExec: {:?}",
-                    self.shuffle_output_partitioning
-                )
+                match self.shuffle_output_partitioning.as_ref() {
+                    Some(ord) => write!(f, "ShuffleWriterExec: {:?}", ord),
+                    _ => write!(f, "ShuffleWriterExec"),
+                }
             }
         }
     }
