@@ -161,10 +161,12 @@ impl ExecutionPlan for CoalesceTasksExec {
         self: Arc<Self>,
         children: Vec<Arc<dyn ExecutionPlan>>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(CoalesceTasksExec::new(
-            children[0].clone(),
-            self.partitions.clone(),
-        )))
+        Ok(Arc::new(Self {
+            partitions: self.partitions.clone(),
+            input: children[0].clone(),
+            metrics: ExecutionPlanMetricsSet::new(),
+            sort_by: self.sort_by.clone(),
+        }))
     }
 
     fn execute(
