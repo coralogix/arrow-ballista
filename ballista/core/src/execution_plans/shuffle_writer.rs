@@ -410,7 +410,9 @@ impl DisplayAs for ShuffleWriterExec {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
                 match self.shuffle_output_partitioning.as_ref() {
-                    Some(ord) => write!(f, "ShuffleWriterExec: {:?}", ord),
+                    Some(partitioning) => {
+                        write!(f, "ShuffleWriterExec: {:?}", partitioning)
+                    }
                     _ => write!(f, "ShuffleWriterExec"),
                 }
             }
