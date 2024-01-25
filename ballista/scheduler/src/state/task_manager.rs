@@ -39,18 +39,19 @@ use ballista_core::serde::BallistaCodec;
 use dashmap::DashMap;
 use datafusion::physical_plan::ExecutionPlan;
 
-use crossbeam_queue::SegQueue;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
+use datafusion::arrow::util::display::lexical_to_string;
 use datafusion::prelude::SessionContext;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use prometheus::{register_histogram, Histogram};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -77,20 +78,16 @@ type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
 
 #[derive(Default)]
 struct ActiveJobQueue {
-    queue: SegQueue<String>,
+    queue: Mutex<BinaryHeap<ActiveJob>>,
     jobs: ActiveJobCache,
 }
 
 impl ActiveJobQueue {
-    pub fn pop(&self) -> Option<ActiveJobRef> {
+    pub fn pop(&self) -> Option<JobInfoCache> {
         loop {
-            if let Some(job_id) = self.queue.pop() {
-                if let Some(job_info) = self.jobs.get(&job_id) {
-                    return Some(ActiveJobRef {
-                        queue: &self.queue,
-                        job: job_info.clone(),
-                        job_id,
-                    });
+            if let Some(active_job) = self.queue.lock().pop() {
+                if let Some(job_info) = self.jobs.get(&active_job.job_id) {
+                    return Some(job_info.clone());
                 } else {
                     continue;
                 }
@@ -110,8 +107,14 @@ impl ActiveJobQueue {
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
+        let running_stage = graph.running_stages().len();
+        let pending_tasks = graph.available_tasks();
         self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
-        self.queue.push(job_id);
+        self.queue.lock().push(ActiveJob {
+            job_id,
+            running_stage,
+            pending_tasks,
+        });
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -131,23 +134,36 @@ impl ActiveJobQueue {
     }
 }
 
-struct ActiveJobRef<'a> {
-    queue: &'a SegQueue<String>,
-    job: JobInfoCache,
+struct ActiveJob {
     job_id: String,
+    running_stage: usize,
+    pending_tasks: usize,
 }
 
-impl<'a> Deref for ActiveJobRef<'a> {
-    type Target = JobInfoCache;
+impl Eq for ActiveJob {}
 
-    fn deref(&self) -> &Self::Target {
-        &self.job
+impl PartialEq<Self> for ActiveJob {
+    fn eq(&self, other: &Self) -> bool {
+        self.cmp(other).is_eq()
     }
 }
 
-impl<'a> Drop for ActiveJobRef<'a> {
-    fn drop(&mut self) {
-        self.queue.push(std::mem::take(&mut self.job_id));
+impl PartialOrd<Self> for ActiveJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ActiveJob {
+    /// Jobs are priority ordered first by running_stage (higher stage = higher priority)
+    /// and then by Reverse(pending_tasks) (fewer pending tasks = higher priority)
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        lexical_to_string(other.running_stage)
+            .cmp(&lexical_to_string(self.running_stage))
+            .then_with(|| {
+                lexical_to_string(self.pending_tasks)
+                    .cmp(&lexical_to_string(other.pending_tasks))
+            })
     }
 }
 
@@ -589,6 +605,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut pending_tasks = 0usize;
         let mut assign_tasks = 0usize;
 
+        // let mut queue = self.active_job_queue.as_ref();
+        // let queue = Arc::get_mut(&mut self.active_job_queue).unwrap();
+
         for _ in 0..self.get_active_job_count() {
             if let Some(job_info) = self.active_job_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
@@ -974,5 +993,32 @@ impl From<&ExecutionGraph> for JobOverview {
             completed_stages,
             total_task_duration_ms,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::state::task_manager::ActiveJob;
+
+    #[test]
+    fn test_active_jobs_ordering() {
+        let a = ActiveJob {
+            job_id: "a".to_string(),
+            running_stage: 10,
+            pending_tasks: 100,
+        };
+        let b = ActiveJob {
+            job_id: "b".to_string(),
+            running_stage: 10,
+            pending_tasks: 10,
+        };
+        let c = ActiveJob {
+            job_id: "c".to_string(),
+            running_stage: 5,
+            pending_tasks: 10,
+        };
+        assert!(a > b);
+        assert!(b > c);
+        assert!(a > c);
     }
 }
