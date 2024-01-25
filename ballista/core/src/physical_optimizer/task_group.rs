@@ -63,23 +63,11 @@ impl OptimizeTaskGroup {
         }
 
         if insert_coalesce(node.as_ref()) {
-            match node.output_ordering().as_ref() {
-                Some(exprs) => {
-                    return Ok(Transformed::Yes(Arc::new(
-                        CoalesceTasksExec::new_sorted(
-                            node.clone(),
-                            self.partitions.clone(),
-                            exprs.to_vec(),
-                        ),
-                    )));
-                }
-                _ => {
-                    return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
-                        node,
-                        self.partitions.clone(),
-                    ))));
-                }
-            }
+            return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
+                node,
+                self.partitions.clone(),
+                node.output_ordering(),
+            ))));
         }
 
         Ok(Transformed::No(node))
@@ -99,6 +87,7 @@ impl OptimizeTaskGroup {
                     Arc::new(CoalesceTasksExec::new(
                         node.clone().with_new_children(coalesce.children())?,
                         self.partitions.clone(),
+                        coalesce.output_ordering(),
                     ));
 
                 // As we combine partitions in CoalesceTasksExec, add another top-level

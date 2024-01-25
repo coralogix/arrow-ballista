@@ -55,25 +55,16 @@ pub struct CoalesceTasksExec {
 }
 
 impl CoalesceTasksExec {
-    pub fn new(input: Arc<dyn ExecutionPlan>, partitions: Vec<usize>) -> Self {
-        Self {
-            partitions,
-            input,
-            metrics: ExecutionPlanMetricsSet::new(),
-            order_by: None,
-        }
-    }
-
-    pub fn new_with_order(
+    pub fn new(
         input: Arc<dyn ExecutionPlan>,
         partitions: Vec<usize>,
-        order_by: Vec<PhysicalSortExpr>,
+        order_by: Option<Vec<PhysicalSortExpr>>,
     ) -> Self {
         Self {
             partitions,
             input,
             metrics: ExecutionPlanMetricsSet::new(),
-            order_by: Some(order_by),
+            order_by,
         }
     }
 
@@ -150,7 +141,7 @@ impl ExecutionPlan for CoalesceTasksExec {
     }
 
     fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        self.sort_by.as_deref()
+        self.order_by.as_deref()
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {
@@ -187,7 +178,7 @@ impl ExecutionPlan for CoalesceTasksExec {
             return self.input.execute(self.partitions[0], context);
         }
 
-        match self.sort_by.as_ref() {
+        match self.order_by.as_ref() {
             Some(sort_expr) => {
                 let reservation =
                     MemoryConsumer::new(format!("CoalesceTaslsExec[{partition}]"))

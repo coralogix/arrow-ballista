@@ -671,6 +671,7 @@ mod tests {
         let task_exec = CoalesceTasksExec::new(
             Arc::new(MemoryExec::try_new(&partitions, schema, None)?),
             vec![0],
+            None,
         );
 
         Ok(Arc::new(task_exec))
