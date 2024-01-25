@@ -51,7 +51,7 @@ pub struct CoalesceTasksExec {
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     /// sorting expression
-    sort_by: Option<Vec<PhysicalSortExpr>>,
+    order_by: Option<Vec<PhysicalSortExpr>>,
 }
 
 impl CoalesceTasksExec {
@@ -60,20 +60,20 @@ impl CoalesceTasksExec {
             partitions,
             input,
             metrics: ExecutionPlanMetricsSet::new(),
-            sort_by: None,
+            order_by: None,
         }
     }
 
-    pub fn new_sorted(
+    pub fn new_with_order(
         input: Arc<dyn ExecutionPlan>,
         partitions: Vec<usize>,
-        sort_by: Vec<PhysicalSortExpr>,
+        order_by: Vec<PhysicalSortExpr>,
     ) -> Self {
         Self {
             partitions,
             input,
             metrics: ExecutionPlanMetricsSet::new(),
-            sort_by: Some(sort_by),
+            order_by: Some(sort_by),
         }
     }
 
@@ -165,7 +165,7 @@ impl ExecutionPlan for CoalesceTasksExec {
             partitions: self.partitions.clone(),
             input: children[0].clone(),
             metrics: ExecutionPlanMetricsSet::new(),
-            sort_by: self.sort_by.clone(),
+            order_by: self.order_by.clone(),
         }))
     }
 

@@ -64,12 +64,12 @@ impl OptimizeTaskGroup {
 
         if insert_coalesce(node.as_ref()) {
             match node.output_ordering().as_ref() {
-                Some(ordering) => {
+                Some(exprs) => {
                     return Ok(Transformed::Yes(Arc::new(
                         CoalesceTasksExec::new_sorted(
                             node.clone(),
                             self.partitions.clone(),
-                            ordering.to_vec(),
+                            exprs.to_vec(),
                         ),
                     )));
                 }
