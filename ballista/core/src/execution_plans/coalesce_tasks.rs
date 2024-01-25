@@ -73,7 +73,7 @@ impl CoalesceTasksExec {
             partitions,
             input,
             metrics: ExecutionPlanMetricsSet::new(),
-            order_by: Some(sort_by),
+            order_by: Some(order_by),
         }
     }
 
