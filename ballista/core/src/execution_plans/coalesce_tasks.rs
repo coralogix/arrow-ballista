@@ -90,7 +90,7 @@ impl DisplayAs for CoalesceTasksExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                match self.sort_by.as_ref() {
+                match self.output_ordering() {
                     Some(expr) => write!(
                         f,
                         "CoalesceTasksExec: sort_expr=[{}]",
