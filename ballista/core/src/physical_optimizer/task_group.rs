@@ -66,7 +66,7 @@ impl OptimizeTaskGroup {
             return Ok(Transformed::Yes(Arc::new(CoalesceTasksExec::new(
                 node,
                 self.partitions.clone(),
-                node.output_ordering(),
+                node.output_ordering().clone(),
             ))));
         }
 
@@ -87,7 +87,7 @@ impl OptimizeTaskGroup {
                     Arc::new(CoalesceTasksExec::new(
                         node.clone().with_new_children(coalesce.children())?,
                         self.partitions.clone(),
-                        coalesce.output_ordering(),
+                        coalesce.output_ordering().clone(),
                     ));
 
                 // As we combine partitions in CoalesceTasksExec, add another top-level
