@@ -22,6 +22,7 @@ use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 
 use arrow_flight::sql::ProstMessageExt;
 use datafusion::arrow::compute::SortOptions;
+use datafusion::arrow::datatypes::Schema;
 use datafusion::common::DataFusionError;
 use datafusion::execution::FunctionRegistry;
 use datafusion::physical_expr::PhysicalSortExpr;
@@ -250,24 +251,11 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                         .order_by
                         .iter()
                         .map(|n| {
-                            let proto_expr = n.expr.as_ref().map(|v| v.as_ref()).ok_or(
-                                DataFusionError::Internal(
-                                    "Physical sort expression node is missing"
-                                        .to_string(),
-                                ),
-                            )?;
-                            let expr = parse_physical_expr(
-                                proto_expr,
+                            decode_physical_sort_node(
+                                n,
                                 registry,
                                 input.schema().as_ref(),
-                            )?;
-                            Ok(PhysicalSortExpr {
-                                expr,
-                                options: SortOptions {
-                                    descending: !n.asc,
-                                    nulls_first: n.nulls_first,
-                                },
-                            })
+                            )
                         })
                         .collect::<Result<Vec<_>, DataFusionError>>()?;
                     Some(exprs)
@@ -383,16 +371,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .output_ordering()
                             .unwrap_or_default()
                             .iter()
-                            .map(|expr| {
-                                let proto_expr = expr.expr.clone().try_into()?;
-                                let asc = !expr.options.descending;
-                                let nulls_first = expr.options.nulls_first;
-                                Ok(PhysicalSortExprNode {
-                                    expr: Some(Box::new(proto_expr)),
-                                    asc,
-                                    nulls_first,
-                                })
-                            })
+                            .map(encode_physical_sort_expr)
                             .collect::<Result<Vec<_>, DataFusionError>>()?,
                     },
                 )),
@@ -411,4 +390,39 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             ))
         }
     }
+}
+
+pub fn encode_physical_sort_expr(
+    expr: &PhysicalSortExpr,
+) -> Result<PhysicalSortExprNode, DataFusionError> {
+    let proto_expr = expr.expr.clone().try_into()?;
+    let asc = !expr.options.descending;
+    let nulls_first = expr.options.nulls_first;
+    Ok(PhysicalSortExprNode {
+        expr: Some(Box::new(proto_expr)),
+        asc,
+        nulls_first,
+    })
+}
+
+pub fn decode_physical_sort_node(
+    n: &PhysicalSortExprNode,
+    registry: &dyn FunctionRegistry,
+    schema: &Schema,
+) -> Result<PhysicalSortExpr, DataFusionError> {
+    let proto_expr =
+        n.expr
+            .as_ref()
+            .map(|v| v.as_ref())
+            .ok_or(DataFusionError::Internal(
+                "Physical sort expression node is missing".to_string(),
+            ))?;
+    let expr = parse_physical_expr(proto_expr, registry, schema)?;
+    Ok(PhysicalSortExpr {
+        expr,
+        options: SortOptions {
+            descending: !n.asc,
+            nulls_first: n.nulls_first,
+        },
+    })
 }
