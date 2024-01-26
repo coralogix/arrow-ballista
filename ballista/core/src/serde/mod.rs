@@ -21,12 +21,19 @@
 use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 
 use arrow_flight::sql::ProstMessageExt;
+use datafusion::arrow::compute::SortOptions;
+use datafusion::arrow::datatypes::Schema;
 use datafusion::common::DataFusionError;
 use datafusion::execution::FunctionRegistry;
+use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::{ExecutionPlan, Partitioning};
 use datafusion_proto::common::proto_error;
-use datafusion_proto::physical_plan::from_proto::parse_protobuf_hash_partitioning;
-use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
+use datafusion_proto::physical_plan::from_proto::{
+    parse_physical_expr, parse_protobuf_hash_partitioning,
+};
+use datafusion_proto::protobuf::{
+    LogicalPlanNode, PhysicalPlanNode, PhysicalSortExprNode,
+};
 use datafusion_proto::{
     convert_required,
     logical_plan::{AsLogicalPlan, DefaultLogicalExtensionCodec, LogicalExtensionCodec},
@@ -237,8 +244,25 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     .map(|p| *p as usize)
                     .collect();
                 let input = inputs[0].clone();
-
-                Ok(Arc::new(CoalesceTasksExec::new(input, partitions)))
+                let order_by = if coalesce_task.order_by.is_empty() {
+                    None
+                } else {
+                    let exprs = coalesce_task
+                        .order_by
+                        .iter()
+                        .map(|n| {
+                            decode_physical_sort_node(
+                                n,
+                                registry,
+                                input.schema().as_ref(),
+                            )
+                        })
+                        .collect::<Result<Vec<_>, DataFusionError>>()?;
+                    Some(exprs)
+                };
+                Ok(Arc::new(CoalesceTasksExec::new(
+                    input, partitions, order_by,
+                )))
             }
         }
     }
@@ -343,6 +367,12 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     protobuf::CoalesceTaskExecNode {
                         partitions: exec.partitions().iter().map(|p| *p as u32).collect(),
                         input: None,
+                        order_by: exec
+                            .output_ordering()
+                            .unwrap_or_default()
+                            .iter()
+                            .map(encode_physical_sort_expr)
+                            .collect::<Result<Vec<_>, DataFusionError>>()?,
                     },
                 )),
             };
@@ -360,4 +390,39 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
             ))
         }
     }
+}
+
+pub fn encode_physical_sort_expr(
+    expr: &PhysicalSortExpr,
+) -> Result<PhysicalSortExprNode, DataFusionError> {
+    let proto_expr = expr.expr.clone().try_into()?;
+    let asc = !expr.options.descending;
+    let nulls_first = expr.options.nulls_first;
+    Ok(PhysicalSortExprNode {
+        expr: Some(Box::new(proto_expr)),
+        asc,
+        nulls_first,
+    })
+}
+
+pub fn decode_physical_sort_node(
+    n: &PhysicalSortExprNode,
+    registry: &dyn FunctionRegistry,
+    schema: &Schema,
+) -> Result<PhysicalSortExpr, DataFusionError> {
+    let proto_expr =
+        n.expr
+            .as_ref()
+            .map(|v| v.as_ref())
+            .ok_or(DataFusionError::Internal(
+                "Physical sort expression node is missing".to_string(),
+            ))?;
+    let expr = parse_physical_expr(proto_expr, registry, schema)?;
+    Ok(PhysicalSortExpr {
+        expr,
+        options: SortOptions {
+            descending: !n.asc,
+            nulls_first: n.nulls_first,
+        },
+    })
 }

@@ -416,6 +416,7 @@ mod test {
             Arc::new(CoalesceTasksExec::new(
                 Arc::new(NeverendingOperator),
                 vec![0],
+                None,
             )),
             work_dir.clone(),
             None,
@@ -530,6 +531,7 @@ mod test {
                 Arc::new(CoalesceTasksExec::new(
                     Arc::new(NeverendingOperator),
                     vec![5],
+                    None,
                 )),
                 work_dir.clone(),
                 None,

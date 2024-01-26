@@ -34,6 +34,10 @@ pub struct CoalesceTaskExecNode {
     pub input: ::core::option::Option<::datafusion_proto::protobuf::PhysicalPlanNode>,
     #[prost(uint32, repeated, tag = "2")]
     pub partitions: ::prost::alloc::vec::Vec<u32>,
+    #[prost(message, repeated, tag = "3")]
+    pub order_by: ::prost::alloc::vec::Vec<
+        ::datafusion_proto::protobuf::PhysicalSortExprNode,
+    >,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

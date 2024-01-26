@@ -92,6 +92,9 @@ rusty-tags.vi
 .flatbuffers/
 
 .vscode
+.metals
+.scala-build
+.bsp
 venv/
 
 # apache release artifacts
