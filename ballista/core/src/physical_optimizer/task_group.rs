@@ -88,7 +88,7 @@ impl OptimizeTaskGroup {
                     Arc::new(CoalesceTasksExec::new(
                         node.clone().with_new_children(coalesce.children())?,
                         self.partitions.clone(),
-                        coalesce.output_ordering().map(|v| v.to_vec()),
+                        node.output_ordering().map(|v| v.to_vec()),
                     ));
 
                 // As we combine partitions in CoalesceTasksExec, add another top-level
