@@ -22,13 +22,13 @@ use datafusion::common::Statistics;
 use datafusion::execution::context::TaskContext;
 use datafusion::execution::memory_pool::MemoryConsumer;
 use datafusion::physical_expr::PhysicalSortExpr;
+use datafusion::physical_plan::common::spawn_buffered;
 use datafusion::physical_plan::common::AbortOnDropMany;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet,
 };
 use datafusion::physical_plan::sorts::streaming_merge::streaming_merge;
-use datafusion::physical_plan::common::spawn_buffered;
 use datafusion::physical_plan::DisplayAs;
 use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
