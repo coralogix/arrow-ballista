@@ -28,7 +28,7 @@ use datafusion::physical_plan::metrics::{
     BaselineMetrics, ExecutionPlanMetricsSet, MetricsSet,
 };
 use datafusion::physical_plan::sorts::streaming_merge::streaming_merge;
-use datafusion::physical_plan::stream::RecordBatchReceiverStream;
+use datafusion::physical_plan::common::spawn_buffered;
 use datafusion::physical_plan::DisplayAs;
 use datafusion::physical_plan::{
     DisplayFormatType, ExecutionPlan, Partitioning, RecordBatchStream,
@@ -91,39 +91,6 @@ impl DisplayAs for CoalesceTasksExec {
                 }
             }
         }
-    }
-}
-
-/// If running in a tokio context spawns the execution of `stream` to a separate task
-/// allowing it to execute in parallel with an intermediate buffer of size `buffer`
-fn spawn_buffered(
-    mut input: SendableRecordBatchStream,
-    buffer: usize,
-) -> SendableRecordBatchStream {
-    // Use tokio only if running from a multi-thread tokio context
-    match tokio::runtime::Handle::try_current() {
-        Ok(handle)
-            if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread =>
-        {
-            let mut builder = RecordBatchReceiverStream::builder(input.schema(), buffer);
-
-            let sender = builder.tx();
-
-            builder.spawn(async move {
-                while let Some(item) = input.next().await {
-                    if sender.send(item).await.is_err() {
-                        // receiver dropped when query is shutdown early (e.g., limit) or error,
-                        // no need to return propagate the send error.
-                        return Ok(());
-                    }
-                }
-
-                Ok(())
-            });
-
-            builder.build()
-        }
-        _ => input,
     }
 }
 
