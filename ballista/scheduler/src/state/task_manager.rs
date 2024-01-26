@@ -107,7 +107,12 @@ impl ActiveJobQueue {
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
-        let running_stage = graph.running_stages().len();
+        let running_stage = graph
+            .running_stages()
+            .iter()
+            .max()
+            .copied()
+            .unwrap_or_default();
         let pending_tasks = graph.available_tasks();
         self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
         self.queue.lock().push(ActiveJob {
@@ -604,9 +609,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assignments: Vec<(String, TaskDescription)> = vec![];
         let mut pending_tasks = 0usize;
         let mut assign_tasks = 0usize;
-
-        // let mut queue = self.active_job_queue.as_ref();
-        // let queue = Arc::get_mut(&mut self.active_job_queue).unwrap();
 
         for _ in 0..self.get_active_job_count() {
             if let Some(job_info) = self.active_job_queue.pop() {
