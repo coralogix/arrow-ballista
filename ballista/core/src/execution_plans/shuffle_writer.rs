@@ -409,11 +409,12 @@ impl DisplayAs for ShuffleWriterExec {
     ) -> std::fmt::Result {
         match t {
             DisplayFormatType::Default | DisplayFormatType::Verbose => {
-                write!(
-                    f,
-                    "ShuffleWriterExec: {:?}",
-                    self.shuffle_output_partitioning
-                )
+                match self.shuffle_output_partitioning.as_ref() {
+                    Some(partitioning) => {
+                        write!(f, "ShuffleWriterExec: {:?}", partitioning)
+                    }
+                    _ => write!(f, "ShuffleWriterExec"),
+                }
             }
         }
     }
@@ -672,6 +673,7 @@ mod tests {
         let task_exec = CoalesceTasksExec::new(
             Arc::new(MemoryExec::try_new(&partitions, schema, None)?),
             vec![0],
+            None,
         );
 
         Ok(Arc::new(task_exec))
