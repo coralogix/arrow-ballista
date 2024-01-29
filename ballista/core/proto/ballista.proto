@@ -41,6 +41,7 @@ message BallistaPhysicalPlanNode {
 message CoalesceTaskExecNode {
   datafusion.PhysicalPlanNode input = 1;
   repeated uint32 partitions = 2;
+  repeated datafusion.PhysicalSortExprNode order_by = 3;
 }
 
 message ShuffleWriterExecNode {
