@@ -195,6 +195,12 @@ impl ExecutionPlan for ShuffleReaderExec {
             .collect();
 
         if partition_locations.is_empty() {
+            info!(
+                task_id,
+                partition,
+                partition_location_count = self.partition[partition].len(),
+                "There are no partitions to fetch, returning an empty stream"
+            );
             return Ok(Box::pin(RecordBatchStreamAdapter::new(
                 self.schema(),
                 EmptyRecordBatchStream::new(self.schema()),
