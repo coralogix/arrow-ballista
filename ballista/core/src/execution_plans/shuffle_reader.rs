@@ -48,8 +48,9 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
-    ColumnStatistics, DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning,
-    RecordBatchStream, SendableRecordBatchStream, Statistics,
+    ColumnStatistics, DisplayAs, DisplayFormatType, EmptyRecordBatchStream,
+    ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
+    Statistics,
 };
 use futures::{AsyncRead, Stream, StreamExt, TryStreamExt};
 
@@ -184,10 +185,28 @@ impl ExecutionPlan for ShuffleReaderExec {
         // Sort partitions for evenly send fetching partition requests to avoid hot executors within one task
         let mut partition_locations: Vec<PartitionLocation> = partition_locations
             .into_values()
-            .flat_map(|ps| ps.into_iter().enumerate())
+            .flat_map(|ps| {
+                ps.into_iter()
+                    .filter(|p| p.partition_stats.num_rows.map_or(true, |v| v > 0))
+                    .enumerate()
+            })
             .sorted_by(|(p1_idx, _), (p2_idx, _)| Ord::cmp(p1_idx, p2_idx))
             .map(|(_, p)| p)
             .collect();
+
+        if partition_locations.is_empty() {
+            info!(
+                task_id,
+                partition,
+                partition_location_count = self.partition[partition].len(),
+                "There are no partitions to fetch, returning an empty stream"
+            );
+            return Ok(Box::pin(RecordBatchStreamAdapter::new(
+                self.schema(),
+                EmptyRecordBatchStream::new(self.schema()),
+            )));
+        }
+
         // Shuffle partitions for evenly send fetching partition requests to avoid hot executors within multiple tasks
         partition_locations.shuffle(&mut thread_rng());
 
