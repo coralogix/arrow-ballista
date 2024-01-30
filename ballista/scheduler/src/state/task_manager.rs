@@ -43,7 +43,6 @@ use datafusion::physical_optimizer::PhysicalOptimizerRule;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
 
-use datafusion::arrow::util::display::lexical_to_string;
 use datafusion::prelude::SessionContext;
 use itertools::Itertools;
 use lazy_static::lazy_static;
@@ -139,18 +138,11 @@ impl ActiveJobQueue {
     }
 }
 
+#[derive(Debug, Eq, PartialEq)]
 struct ActiveJob {
     job_id: String,
     running_stage: usize,
     pending_tasks: usize,
-}
-
-impl Eq for ActiveJob {}
-
-impl PartialEq<Self> for ActiveJob {
-    fn eq(&self, other: &Self) -> bool {
-        self.cmp(other).is_eq()
-    }
 }
 
 impl PartialOrd<Self> for ActiveJob {
@@ -163,12 +155,11 @@ impl Ord for ActiveJob {
     /// Jobs are priority ordered first by running_stage (higher stage = higher priority)
     /// and then by Reverse(pending_tasks) (fewer pending tasks = higher priority)
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        lexical_to_string(other.running_stage)
-            .cmp(&lexical_to_string(self.running_stage))
-            .then_with(|| {
-                lexical_to_string(self.pending_tasks)
-                    .cmp(&lexical_to_string(other.pending_tasks))
-            })
+        // Notice that we flip ordering on pending_tasks. This is because we want to
+        // prioritize jobs with fewer tasks left to be executed.
+        self.running_stage
+            .cmp(&other.running_stage)
+            .then(other.pending_tasks.cmp(&self.pending_tasks))
     }
 }
 
@@ -1001,6 +992,7 @@ impl From<&ExecutionGraph> for JobOverview {
 #[cfg(test)]
 mod tests {
     use crate::state::task_manager::ActiveJob;
+    use std::collections::BinaryHeap;
 
     #[test]
     fn test_active_jobs_ordering() {
@@ -1019,8 +1011,32 @@ mod tests {
             running_stage: 5,
             pending_tasks: 10,
         };
-        assert!(a > b);
+        assert!(b > a);
         assert!(b > c);
         assert!(a > c);
+    }
+
+    #[test]
+    fn max_heap_binary_tree() {
+        let a = ActiveJob {
+            job_id: "a".to_string(),
+            running_stage: 10,
+            pending_tasks: 100,
+        };
+        let b = ActiveJob {
+            job_id: "b".to_string(),
+            running_stage: 10,
+            pending_tasks: 10,
+        };
+        let c = ActiveJob {
+            job_id: "c".to_string(),
+            running_stage: 5,
+            pending_tasks: 10,
+        };
+        let mut tree = BinaryHeap::from(vec![&a, &b, &c]);
+        assert_eq!(tree.pop(), Some(&b));
+        assert_eq!(tree.pop(), Some(&a));
+        assert_eq!(tree.pop(), Some(&c));
+        assert!(tree.is_empty());
     }
 }

@@ -335,7 +335,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                         tasks.push(task);
                     }
 
-                    // let mut join_handles = vec![];
                     for (executor_id, tasks) in executor_stage_assignments.into_iter() {
                         self.launch_tasks_async(executor_id, tasks, tx_event.clone());
                     }
