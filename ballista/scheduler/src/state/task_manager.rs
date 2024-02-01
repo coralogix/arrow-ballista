@@ -82,7 +82,10 @@ struct ActiveJobQueue {
 }
 
 impl ActiveJobQueue {
-    pub fn pop(&self) -> Option<JobInfoCache> {
+    /// Returns the `job_info` of the active job with the highest priority.
+    /// If an active job has no corresponding job info, it will be removed
+    /// from the queue.
+    pub fn get_job_info(&self) -> Option<JobInfoCache> {
         loop {
             let mut queue_guard = self.queue.lock();
             if let Some(active_job) = queue_guard.peek() {
@@ -160,7 +163,7 @@ impl Ord for ActiveJob {
     /// and then by Reverse(pending_tasks) (fewer pending tasks = higher priority)
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Notice that we flip ordering on pending_tasks. This is because we want to
-        // prioritize jobs with fewer tasks left to be executed.
+        // prioritize jobs with fewer tasks.
         self.running_stage
             .cmp(&other.running_stage)
             .then(other.pending_tasks.cmp(&self.pending_tasks))
@@ -606,7 +609,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assign_tasks = 0usize;
 
         for _ in 0..self.get_active_job_count() {
-            if let Some(job_info) = self.active_job_queue.pop() {
+            if let Some(job_info) = self.active_job_queue.get_job_info() {
                 let mut graph = job_info.graph_mut().await;
                 for (exec_id, slots) in free_reservations.iter_mut() {
                     if slots.is_empty() {

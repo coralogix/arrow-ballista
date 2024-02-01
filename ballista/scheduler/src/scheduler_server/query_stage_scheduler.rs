@@ -544,7 +544,7 @@ mod tests {
         test.tick().await?;
 
         // First task completes and another should be scheduler, so we should have 8
-        expect_pending_tasks(&test, 9).await;
+        expect_pending_tasks(&test, 8).await;
 
         // Complete the 8 remaining tasks in the first stage
         for _ in 0..8 {
