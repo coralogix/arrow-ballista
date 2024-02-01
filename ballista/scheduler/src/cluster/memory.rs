@@ -346,11 +346,8 @@ impl JobState for InMemoryJobState {
         if let Some(graph) = self.running_jobs.get(job_id) {
             Ok(Some(graph.clone()))
         } else {
-            Ok(self
-                .completed_jobs
-                .get(job_id)
-                .as_deref()
-                .and_then(|(_, graph)| graph.clone()))
+            // We drop the `ExecutionGraph` after job is completed so always return `None` here
+            Ok(None)
         }
     }
 
@@ -370,8 +367,9 @@ impl JobState for InMemoryJobState {
             status.status,
             Some(Status::Successful(_)) | Some(Status::Failed(_))
         ) {
+            // Once job is completed, remove the `ExecutionGraph`
             self.completed_jobs
-                .insert(job_id.to_string(), (status, Some(graph.clone())));
+                .insert(job_id.to_string(), (status, None));
             self.running_jobs.remove(job_id);
         } else if let Some(old_status) =
             self.running_jobs.insert(job_id.to_string(), graph.clone())

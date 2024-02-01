@@ -501,7 +501,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         Ok(jobs)
     }
 
-    /// Get the status of of a job. First look in the active cache.
+    /// Get the status of a job. First look in the active cache.
     /// If no one found, then in the Active/Completed jobs, and then in Failed jobs
     pub async fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>> {
         if let Some(graph) = self.get_active_execution_graph(job_id) {
@@ -524,9 +524,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             Ok(Some(Arc::new(guard.deref().clone())))
         } else {
-            let graph = self.state.get_execution_graph(job_id).await?;
-
-            Ok(graph.map(Arc::new))
+            // We drop the `ExecutionGraph` after job is completed so always return `None` here
+            Ok(None)
         }
     }
 
@@ -651,12 +650,14 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     /// and remove the job from ActiveJobs
     pub(crate) async fn succeed_job(&self, job_id: &str) -> Result<()> {
         debug!(job_id, "completing job");
-
-        if let Some(graph) = self.remove_active_execution_graph(job_id) {
+        if let Some(graph) = self.get_active_execution_graph(job_id) {
             let graph = graph.read().await.clone();
 
             if graph.is_successful() {
                 self.state.save_job(job_id, &graph).await?;
+
+                // After state is saved, remove job from active cache
+                let _ = self.remove_active_execution_graph(job_id);
             } else {
                 error!(job_id, "cannot complete job, not finished");
                 return Ok(());
