@@ -549,8 +549,7 @@ impl SchedulerTest {
         if let Some(receiver) = self.status_receiver.as_mut() {
             if let Some((executor_id, status)) = receiver.recv().await {
                 self.scheduler
-                    .update_task_status(&executor_id, status, offer)
-                    .await?;
+                    .update_task_status(&executor_id, status, offer)?;
             } else {
                 return Err(BallistaError::Internal("Task sender dropped".to_owned()));
             }
@@ -567,8 +566,7 @@ impl SchedulerTest {
         if let Some(receiver) = self.status_receiver.as_mut() {
             if let Some((executor_id, status)) = receiver.recv().await {
                 self.scheduler
-                    .update_task_status(&executor_id, status, true)
-                    .await?;
+                    .update_task_status(&executor_id, status, true)?;
             } else {
                 return Err(BallistaError::Internal("Task sender dropped".to_owned()));
             }
@@ -680,7 +678,6 @@ impl SchedulerTest {
             while let Some((executor_id, status)) = receiver.recv().await {
                 scheduler_clone
                     .update_task_status(&executor_id, status, true)
-                    .await
                     .unwrap();
             }
         });

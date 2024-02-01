@@ -223,7 +223,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
 
     /// It just send task status update event to the channel,
     /// and will not guarantee the event processing completed after return
-    pub async fn update_task_status(
+    pub fn update_task_status(
         &self,
         executor_id: &str,
         tasks_status: Vec<TaskStatus>,

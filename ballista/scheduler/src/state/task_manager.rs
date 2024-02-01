@@ -84,10 +84,13 @@ struct ActiveJobQueue {
 impl ActiveJobQueue {
     pub fn pop(&self) -> Option<JobInfoCache> {
         loop {
-            if let Some(active_job) = self.queue.lock().pop() {
+            let mut queue_guard = self.queue.lock();
+            if let Some(active_job) = queue_guard.peek() {
                 if let Some(job_info) = self.jobs.get(&active_job.job_id) {
                     return Some(job_info.clone());
                 } else {
+                    // Remove active job from queue if corresponding job info is absent
+                    queue_guard.pop();
                     continue;
                 }
             } else {
@@ -114,7 +117,8 @@ impl ActiveJobQueue {
             .unwrap_or_default();
         let pending_tasks = graph.available_tasks();
         self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
-        self.queue.lock().push(ActiveJob {
+        let mut guard = self.queue.lock();
+        guard.push(ActiveJob {
             job_id,
             running_stage,
             pending_tasks,
