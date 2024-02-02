@@ -206,59 +206,63 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
         .await
         .map_err(|_| warp::reject())?
     {
-        Ok(warp::reply::json(&QueryStagesResponse {
-            stages: graph
-                .as_ref()
-                .stages()
-                .unwrap()
-                .iter()
-                .map(|(id, stage)| {
-                    let mut summary = QueryStageSummary {
-                        stage_id: id.to_string(),
-                        stage_status: stage.variant_name().to_string(),
-                        input_rows: 0,
-                        output_rows: 0,
-                        elapsed_compute: "".to_string(),
-                    };
-                    match stage {
-                        ExecutionStage::Running(running_stage) => {
-                            summary.input_rows = running_stage
-                                .stage_metrics
-                                .as_ref()
-                                .map(|m| get_combined_count(m.as_slice(), "input_rows"))
-                                .unwrap_or(0);
-                            summary.output_rows = running_stage
-                                .stage_metrics
-                                .as_ref()
-                                .map(|m| get_combined_count(m.as_slice(), "output_rows"))
-                                .unwrap_or(0);
-                            summary.elapsed_compute = running_stage
-                                .stage_metrics
-                                .as_ref()
-                                .map(|m| get_elapsed_compute_nanos(m.as_slice()))
-                                .unwrap_or_default();
+        if let Some(stages) = graph.as_ref().stages() {
+            return Ok(warp::reply::json(&QueryStagesResponse {
+                stages: stages
+                    .iter()
+                    .map(|(id, stage)| {
+                        let mut summary = QueryStageSummary {
+                            stage_id: id.to_string(),
+                            stage_status: stage.variant_name().to_string(),
+                            input_rows: 0,
+                            output_rows: 0,
+                            elapsed_compute: "".to_string(),
+                        };
+                        match stage {
+                            ExecutionStage::Running(running_stage) => {
+                                summary.input_rows = running_stage
+                                    .stage_metrics
+                                    .as_ref()
+                                    .map(|m| {
+                                        get_combined_count(m.as_slice(), "input_rows")
+                                    })
+                                    .unwrap_or(0);
+                                summary.output_rows = running_stage
+                                    .stage_metrics
+                                    .as_ref()
+                                    .map(|m| {
+                                        get_combined_count(m.as_slice(), "output_rows")
+                                    })
+                                    .unwrap_or(0);
+                                summary.elapsed_compute = running_stage
+                                    .stage_metrics
+                                    .as_ref()
+                                    .map(|m| get_elapsed_compute_nanos(m.as_slice()))
+                                    .unwrap_or_default();
+                            }
+                            ExecutionStage::Successful(completed_stage) => {
+                                summary.input_rows = get_combined_count(
+                                    &completed_stage.stage_metrics,
+                                    "input_rows",
+                                );
+                                summary.output_rows = get_combined_count(
+                                    &completed_stage.stage_metrics,
+                                    "output_rows",
+                                );
+                                summary.elapsed_compute = get_elapsed_compute_nanos(
+                                    &completed_stage.stage_metrics,
+                                );
+                            }
+                            _ => {}
                         }
-                        ExecutionStage::Successful(completed_stage) => {
-                            summary.input_rows = get_combined_count(
-                                &completed_stage.stage_metrics,
-                                "input_rows",
-                            );
-                            summary.output_rows = get_combined_count(
-                                &completed_stage.stage_metrics,
-                                "output_rows",
-                            );
-                            summary.elapsed_compute =
-                                get_elapsed_compute_nanos(&completed_stage.stage_metrics);
-                        }
-                        _ => {}
-                    }
-                    summary
-                })
-                .collect(),
-        }))
-    } else {
-        Ok(warp::reply::json(&QueryStagesResponse { stages: vec![] }))
+                        summary
+                    })
+                    .collect(),
+            }));
+        }
     }
+
+    Ok(warp::reply::json(&QueryStagesResponse { stages: vec![] }))
 }
 
 fn get_elapsed_compute_nanos(metrics: &[MetricsSet]) -> String {
