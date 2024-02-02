@@ -56,7 +56,7 @@ use crate::scheduler_server::timestamp_millis;
 ///                                ↓
 ///                         SuccessfulStage
 #[derive(Clone)]
-pub(crate) enum ExecutionStage {
+pub enum ExecutionStage {
     UnResolved(UnresolvedStage),
     Resolved(ResolvedStage),
     Running(RunningStage),
@@ -78,7 +78,7 @@ impl Debug for ExecutionStage {
 
 impl ExecutionStage {
     /// Get the name of the variant
-    pub(crate) fn variant_name(&self) -> &str {
+    pub fn variant_name(&self) -> &str {
         match self {
             ExecutionStage::UnResolved(_) => "Unresolved",
             ExecutionStage::Resolved(_) => "Resolved",
@@ -89,7 +89,7 @@ impl ExecutionStage {
     }
 
     /// Get the query plan for this query stage
-    pub(crate) fn plan(&self) -> &dyn ExecutionPlan {
+    pub fn plan(&self) -> &dyn ExecutionPlan {
         match self {
             ExecutionStage::UnResolved(stage) => stage.plan.as_ref(),
             ExecutionStage::Resolved(stage) => stage.plan.as_ref(),
@@ -99,7 +99,7 @@ impl ExecutionStage {
         }
     }
 
-    pub(crate) fn stage_metrics(&self) -> Option<&Vec<MetricsSet>> {
+    pub fn stage_metrics(&self) -> Option<&Vec<MetricsSet>> {
         match self {
             ExecutionStage::UnResolved(_) | ExecutionStage::Resolved(_) => None,
             ExecutionStage::Running(RunningStage { stage_metrics, .. }) => {
@@ -117,53 +117,53 @@ impl ExecutionStage {
 
 /// For a stage whose input stages are not all completed, we say it's a unresolved stage
 #[derive(Clone)]
-pub(crate) struct UnresolvedStage {
+pub struct UnresolvedStage {
     /// Stage ID
-    pub(crate) stage_id: usize,
+    pub stage_id: usize,
     /// Stage Attempt number
-    pub(crate) stage_attempt_num: usize,
+    pub stage_attempt_num: usize,
     /// Output partitioning for this stage.
-    pub(crate) output_partitioning: Option<Partitioning>,
+    pub output_partitioning: Option<Partitioning>,
     /// Stage ID of the stage that will take this stages outputs as inputs.
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
+    pub output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
     /// This stage can only be resolved an executed once all child stages are completed.
-    pub(crate) inputs: HashMap<usize, StageOutput>,
+    pub inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
-    pub(crate) plan: Arc<dyn ExecutionPlan>,
+    pub plan: Arc<dyn ExecutionPlan>,
     /// Record last attempt's failure reasons to avoid duplicate resubmits
-    pub(crate) last_attempt_failure_reasons: HashSet<String>,
+    pub last_attempt_failure_reasons: HashSet<String>,
 
-    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
 /// then we call it as a resolved stage
 #[derive(Clone)]
-pub(crate) struct ResolvedStage {
+pub struct ResolvedStage {
     /// Stage ID
-    pub(crate) stage_id: usize,
+    pub stage_id: usize,
     /// Stage Attempt number
-    pub(crate) stage_attempt_num: usize,
+    pub stage_attempt_num: usize,
     /// Total number of partitions for this stage.
     /// This stage will produce on task for partition.
-    pub(crate) partitions: usize,
+    pub partitions: usize,
     /// Output partitioning for this stage.
-    pub(crate) output_partitioning: Option<Partitioning>,
+    pub output_partitioning: Option<Partitioning>,
     /// Stage ID of the stage that will take this stages outputs as inputs.
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
+    pub output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
-    pub(crate) inputs: HashMap<usize, StageOutput>,
+    pub inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
-    pub(crate) plan: Arc<dyn ExecutionPlan>,
+    pub plan: Arc<dyn ExecutionPlan>,
     /// Record last attempt's failure reasons to avoid duplicate resubmits
-    pub(crate) last_attempt_failure_reasons: HashSet<String>,
+    pub last_attempt_failure_reasons: HashSet<String>,
     /// Timestamp when then stage went into resolved state
-    pub(crate) resolved_at: u64,
+    pub resolved_at: u64,
 
-    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -172,90 +172,90 @@ pub(crate) struct ResolvedStage {
 /// 3. manage the stage-level combined metrics
 /// Running stages will only be maintained in memory and will not saved to the backend storage
 #[derive(Clone)]
-pub(crate) struct RunningStage {
+pub struct RunningStage {
     /// Stage ID
-    pub(crate) stage_id: usize,
+    pub stage_id: usize,
     /// Stage Attempt number
-    pub(crate) stage_attempt_num: usize,
+    pub stage_attempt_num: usize,
     /// Total number of partitions for this stage.
     /// This stage will produce on task for partition.
-    pub(crate) partitions: usize,
+    pub partitions: usize,
     /// Output partitioning for this stage.
-    pub(crate) output_partitioning: Option<Partitioning>,
+    pub output_partitioning: Option<Partitioning>,
     /// Stage ID of the stage that will take this stages outputs as inputs.
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
+    pub output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
-    pub(crate) inputs: HashMap<usize, StageOutput>,
+    pub inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
-    pub(crate) plan: Arc<dyn ExecutionPlan>,
+    pub plan: Arc<dyn ExecutionPlan>,
     /// TaskInfo of each already scheduled task. If info is None, the partition has not yet been scheduled.
     /// The index of the Vec is the task's partition id
-    pub(crate) task_infos: Vec<Option<TaskInfo>>,
+    pub task_infos: Vec<Option<TaskInfo>>,
     /// Track the number of task failures for this stage
-    pub(crate) task_failures: usize,
+    pub task_failures: usize,
     /// Combined metrics of the already finished tasks in the stage, If it is None, no task is finished yet.
-    pub(crate) stage_metrics: Option<Vec<MetricsSet>>,
+    pub stage_metrics: Option<Vec<MetricsSet>>,
     /// Timestamp when then stage went into resolved state
-    pub(crate) resolved_at: u64,
-    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub resolved_at: u64,
+    pub object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
 #[derive(Clone)]
-pub(crate) struct SuccessfulStage {
+pub struct SuccessfulStage {
     /// Stage ID
-    pub(crate) stage_id: usize,
+    pub stage_id: usize,
     /// Stage Attempt number
-    pub(crate) stage_attempt_num: usize,
+    pub stage_attempt_num: usize,
     /// Total number of partitions for this stage.
     /// This stage will produce on task for partition.
-    pub(crate) partitions: usize,
+    pub partitions: usize,
     /// Output partitioning for this stage.
-    pub(crate) output_partitioning: Option<Partitioning>,
+    pub output_partitioning: Option<Partitioning>,
     /// Stage ID of the stage that will take this stages outputs as inputs.
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
+    pub output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
-    pub(crate) inputs: HashMap<usize, StageOutput>,
+    pub inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
-    pub(crate) plan: Arc<dyn ExecutionPlan>,
+    pub plan: Arc<dyn ExecutionPlan>,
     /// TaskInfo of each already successful task.
     /// The index of the Vec is the task's partition id
-    pub(crate) task_infos: Vec<TaskInfo>,
+    pub task_infos: Vec<TaskInfo>,
     /// Combined metrics of the already finished tasks in the stage.
-    pub(crate) stage_metrics: Vec<MetricsSet>,
-    pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub stage_metrics: Vec<MetricsSet>,
+    pub object_store: Option<Arc<dyn ObjectStore>>,
 }
 
 /// If a stage fails, it will be with an error message
 #[derive(Clone)]
-pub(crate) struct FailedStage {
+pub struct FailedStage {
     /// Stage ID
-    pub(crate) stage_id: usize,
+    pub stage_id: usize,
     /// Stage Attempt number
-    pub(crate) stage_attempt_num: usize,
+    pub stage_attempt_num: usize,
     /// Total number of partitions for this stage.
     /// This stage will produce on task for partition.
-    pub(crate) partitions: usize,
+    pub partitions: usize,
     /// Output partitioning for this stage.
-    pub(crate) output_partitioning: Option<Partitioning>,
+    pub output_partitioning: Option<Partitioning>,
     /// Stage ID of the stage that will take this stages outputs as inputs.
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
-    pub(crate) output_links: Vec<usize>,
+    pub output_links: Vec<usize>,
     /// `ExecutionPlan` for this stage
-    pub(crate) plan: Arc<dyn ExecutionPlan>,
+    pub plan: Arc<dyn ExecutionPlan>,
     /// TaskInfo of each already scheduled tasks. If info is None, the partition has not yet been scheduled
     /// The index of the Vec is the task's partition id
-    pub(crate) task_infos: Vec<Option<TaskInfo>>,
+    pub task_infos: Vec<Option<TaskInfo>>,
     /// Combined metrics of the already finished tasks in the stage, If it is None, no task is finished yet.
-    pub(crate) stage_metrics: Option<Vec<MetricsSet>>,
+    pub stage_metrics: Option<Vec<MetricsSet>>,
     /// Error message
-    pub(crate) error_message: String,
+    pub error_message: String,
 }
 
 #[derive(Clone)]
-pub(crate) struct TaskInfo {
+pub struct TaskInfo {
     /// Task ID
     pub(super) task_id: usize,
     /// Task scheduled time
@@ -1247,7 +1247,7 @@ impl Debug for FailedStage {
 /// When all tasks for the child stage are complete, it will mark the `StageOutput`
 /// as complete.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct StageOutput {
+pub struct StageOutput {
     /// Map from partition -> partition locations
     pub partition_locations: HashMap<usize, Vec<PartitionLocation>>,
     /// Flag indicating whether all tasks are complete
