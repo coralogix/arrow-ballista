@@ -111,21 +111,18 @@ impl ActiveJobQueue {
         count
     }
 
-    pub fn push(&self, job_id: String, graph: ExecutionGraph) {
-        let running_stage = graph
-            .running_stages()
-            .iter()
-            .max()
-            .copied()
-            .unwrap_or_default();
-        let pending_tasks = graph.available_tasks();
-        self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
+    pub fn update_active_job(&self, graph: &ExecutionGraph) {
         let mut guard = self.queue.lock();
-        guard.push(ActiveJob {
-            job_id,
-            running_stage,
-            pending_tasks,
-        });
+        if let Some(active_job) = guard.pop() {
+            guard.push(ActiveJob::new(active_job.job_id, &graph));
+        }
+    }
+
+    pub fn push(&self, job_id: String, graph: ExecutionGraph) {
+        self.queue
+            .lock()
+            .push(ActiveJob::new(job_id.clone(), &graph));
+        self.jobs.insert(job_id, JobInfoCache::new(graph));
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -150,6 +147,23 @@ struct ActiveJob {
     job_id: String,
     running_stage: usize,
     pending_tasks: usize,
+}
+
+impl ActiveJob {
+    pub fn new(job_id: String, graph: &ExecutionGraph) -> Self {
+        let running_stage = graph
+            .running_stages()
+            .iter()
+            .max()
+            .copied()
+            .unwrap_or_default();
+        let pending_tasks = graph.available_tasks();
+        Self {
+            job_id,
+            running_stage,
+            pending_tasks,
+        }
+    }
 }
 
 impl PartialOrd<Self> for ActiveJob {
@@ -629,12 +643,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     }
                 }
 
+                self.active_job_queue.update_active_job(&graph);
+
                 if assign_tasks >= num_reservations {
                     pending_tasks += graph.available_tasks();
                     break;
                 }
-            } else {
-                break;
             }
         }
 
