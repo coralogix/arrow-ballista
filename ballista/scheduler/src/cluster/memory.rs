@@ -372,7 +372,7 @@ impl JobState for InMemoryJobState {
         ) {
             // Once job is completed, store completed execution graph
             self.completed_jobs
-                .insert(job_id.to_string(), (status, Some(graph.to_completed())));
+                .insert(job_id.to_string(), (status, Some(graph.to_completed()?)));
             self.running_jobs.remove(job_id);
         } else if let Some(old_status) =
             self.running_jobs.insert(job_id.to_string(), graph.clone())

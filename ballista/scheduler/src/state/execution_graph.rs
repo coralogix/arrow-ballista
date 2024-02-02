@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
@@ -23,9 +23,9 @@ use std::sync::Arc;
 
 use ballista_core::serde::protobuf::execution_graph::{self, Graph};
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
-use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{
-    accept, ExecutionPlan, ExecutionPlanVisitor, Partitioning,
+    accept, visit_execution_plan, ExecutionPlan, ExecutionPlanVisitor, Partitioning,
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
@@ -41,8 +41,8 @@ use ballista_core::serde::protobuf::{
     RunningJob, SuccessfulJob, TaskStatus,
 };
 use ballista_core::serde::protobuf::{
-    execution_error, job_status, ExecutionError, FailedJob, ShuffleWritePartition,
-    SuccessfulTask,
+    execution_error, job_status, ExecutionError, FailedJob, Metric, MetricType,
+    PlanMetrics, ShuffleWritePartition, StageMetrics, SuccessfulTask,
 };
 use ballista_core::serde::protobuf::{task_status, RunningTask};
 use ballista_core::serde::scheduler::{
@@ -195,6 +195,7 @@ pub enum ExecutionGraph {
         stage_count: usize,
         completed_stages: usize,
         total_task_duration_ms: u64,
+        stage_metrics: Vec<StageMetrics>,
     },
 }
 
@@ -261,7 +262,7 @@ impl ExecutionGraph {
         })
     }
 
-    pub fn to_completed(&self) -> ExecutionGraph {
+    pub fn to_completed(&self) -> Result<ExecutionGraph> {
         if let ExecutionGraph::Running {
             scheduler_id,
             job_id,
@@ -301,8 +302,36 @@ impl ExecutionGraph {
                     }
                 }
             }
+            let stage_count = stages.len();
+            let mut metrics = Vec::with_capacity(stage_count);
+            let mut stage_metrics = HashMap::with_capacity(stages.len());
+            for (stage_id, stage) in stages.iter() {
+                stage_metrics.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
+            }
 
-            return ExecutionGraph::Completed {
+            for stage_id in 1..=stage_count {
+                let (plan, metric_set) =
+                    stage_metrics.get(&stage_id).ok_or_else(|| {
+                        BallistaError::Internal(format!(
+                            "Invalid ExecutionGraph, stage {stage_id} missing"
+                        ))
+                    })?;
+
+                if let Some(metric_set) = metric_set.as_ref() {
+                    let builder =
+                        StageMetricsBuilder::new(stage_id, *plan, metric_set.as_slice());
+
+                    metrics.push(builder.build()?);
+                } else {
+                    metrics.push(StageMetrics {
+                        stage_id: stage_id as i64,
+                        partition_id: 0,
+                        plan_metrics: vec![],
+                    })
+                }
+            }
+
+            return Ok(ExecutionGraph::Completed {
                 scheduler_id: scheduler_id.clone(),
                 job_id: job_id.clone(),
                 job_name: job_name.clone(),
@@ -320,10 +349,11 @@ impl ExecutionGraph {
                 stage_count: stages.len(),
                 completed_stages,
                 total_task_duration_ms,
-            };
+                stage_metrics: metrics,
+            });
         }
 
-        self.clone()
+        Ok(self.clone())
     }
 
     pub fn job_id(&self) -> &str {
@@ -392,22 +422,49 @@ impl ExecutionGraph {
         }
     }
 
-    pub fn stage_metrics(
-        &self,
-    ) -> HashMap<usize, (&dyn ExecutionPlan, Option<&Vec<MetricsSet>>)> {
+    pub fn stage_metrics(&self) -> Result<Vec<StageMetrics>> {
         match self {
             ExecutionGraph::Running { stages, .. } => {
-                let mut result = HashMap::with_capacity(stages.len());
+                let stage_count = stages.len();
+                let mut metrics = Vec::with_capacity(stage_count);
+                let mut stage_metrics = HashMap::with_capacity(stages.len());
                 for (stage_id, stage) in stages.iter() {
-                    result.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
+                    stage_metrics
+                        .insert(*stage_id, (stage.plan(), stage.stage_metrics()));
                 }
-                result
+
+                for stage_id in 1..=stage_count {
+                    let (plan, metric_set) =
+                        stage_metrics.get(&stage_id).ok_or_else(|| {
+                            BallistaError::Internal(format!(
+                                "Invalid ExecutionGraph, stage {stage_id} missing"
+                            ))
+                        })?;
+
+                    if let Some(metric_set) = metric_set.as_ref() {
+                        let builder = StageMetricsBuilder::new(
+                            stage_id,
+                            *plan,
+                            metric_set.as_slice(),
+                        );
+
+                        metrics.push(builder.build()?);
+                    } else {
+                        metrics.push(StageMetrics {
+                            stage_id: stage_id as i64,
+                            partition_id: 0,
+                            plan_metrics: vec![],
+                        })
+                    }
+                }
+
+                Ok(metrics)
             }
-            ExecutionGraph::Completed { .. } => HashMap::default(),
+            ExecutionGraph::Completed { stage_metrics, .. } => Ok(stage_metrics.clone()),
         }
     }
 
-    pub(crate) fn stages(&self) -> Option<&HashMap<usize, ExecutionStage>> {
+    pub fn stages(&self) -> Option<&HashMap<usize, ExecutionStage>> {
         if let ExecutionGraph::Running { stages, .. } = self {
             return Some(stages);
         }
@@ -421,17 +478,24 @@ impl ExecutionGraph {
             ExecutionGraph::Running { stages, .. } => stages
                 .values()
                 .all(|s| matches!(s, ExecutionStage::Successful(_))),
-            ExecutionGraph::Completed { .. } => true,
+            ExecutionGraph::Completed { status, .. } => {
+                if let Some(status) = status.status.as_ref() {
+                    matches!(status, job_status::Status::Successful(_))
+                } else {
+                    false
+                }
+            }
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        match self {
-            ExecutionGraph::Completed { .. } => true,
-            ExecutionGraph::Running { stages, .. } => stages
+        if let ExecutionGraph::Running { stages, .. } = self {
+            return stages
                 .values()
-                .all(|s| matches!(s, ExecutionStage::Successful(_))),
+                .all(|s| matches!(s, ExecutionStage::Successful(_)));
         }
+
+        true
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
@@ -1704,6 +1768,7 @@ for (partition, status) in stage.task_infos
                 stage_count,
                 completed_stages,
                 total_task_duration_ms,
+                stage_metrics,
             }) => {
                 let status = status.ok_or_else(|| {
                     BallistaError::Internal("Invalid Execution Graph".to_owned())
@@ -1748,6 +1813,7 @@ for (partition, status) in stage.task_infos
                     stage_count: stage_count as usize,
                     completed_stages: completed_stages as usize,
                     total_task_duration_ms,
+                    stage_metrics,
                 })
             }
         }
@@ -1874,6 +1940,7 @@ for (partition, status) in stage.task_infos
                 stage_count,
                 completed_stages,
                 total_task_duration_ms,
+                stage_metrics,
             } => {
                 let output_locations: Vec<protobuf::PartitionLocation> = output_locations
                     .into_iter()
@@ -1916,6 +1983,7 @@ for (partition, status) in stage.task_infos
                         stage_count: stage_count as u32,
                         completed_stages: completed_stages as u64,
                         total_task_duration_ms,
+                        stage_metrics,
                     })),
                 })
             }
@@ -2226,6 +2294,135 @@ fn partition_to_location(
             path: shuffle.path,
         })
         .collect()
+}
+
+struct StageMetricsBuilder<'a> {
+    stage_id: usize,
+    plan: &'a dyn ExecutionPlan,
+    metrics: VecDeque<&'a MetricsSet>,
+    plan_metrics: Vec<PlanMetrics>,
+}
+
+impl<'a> StageMetricsBuilder<'a> {
+    pub fn new(
+        stage_id: usize,
+        plan: &'a dyn ExecutionPlan,
+        metrics: &'a [MetricsSet],
+    ) -> Self {
+        Self {
+            stage_id,
+            plan,
+            metrics: VecDeque::from_iter(metrics),
+            plan_metrics: vec![],
+        }
+    }
+
+    pub fn build(mut self) -> Result<StageMetrics> {
+        visit_execution_plan(self.plan, &mut self)?;
+
+        Ok(StageMetrics {
+            stage_id: self.stage_id as i64,
+            partition_id: 0,
+            plan_metrics: self.plan_metrics,
+        })
+    }
+}
+
+impl<'a> ExecutionPlanVisitor for StageMetricsBuilder<'a> {
+    type Error = BallistaError;
+
+    fn pre_visit(
+        &mut self,
+        plan: &dyn ExecutionPlan,
+    ) -> std::result::Result<bool, Self::Error> {
+        let plan_name = stringify!(plan.as_any());
+        let metrics = to_metric(self.metrics.pop_front());
+
+        self.plan_metrics.push(PlanMetrics {
+            plan_name: plan_name.to_owned(),
+            metrics,
+        });
+
+        Ok(!plan.children().is_empty())
+    }
+}
+
+fn to_metric(metrics: Option<&MetricsSet>) -> Vec<Metric> {
+    if let Some(metrics) = metrics {
+        metrics
+            .iter()
+            .map(|m| match m.value() {
+                MetricValue::OutputRows(count) => Metric {
+                    value: count.value() as i64,
+                    name: "output_rows".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::ElapsedCompute(time) => Metric {
+                    value: time.value() as i64,
+                    name: "elapsed_compute".to_string(),
+                    metric_type: MetricType::Time as i32,
+                    labels: vec![],
+                },
+                MetricValue::SpillCount(count) => Metric {
+                    value: count.value() as i64,
+                    name: "spill_count".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::SpilledBytes(count) => Metric {
+                    value: count.value() as i64,
+                    name: "spill_bytes".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::CurrentMemoryUsage(gauge) => Metric {
+                    value: gauge.value() as i64,
+                    name: "current_memory_usage".to_string(),
+                    metric_type: MetricType::Gauge as i32,
+                    labels: vec![],
+                },
+                MetricValue::Count { name, count } => Metric {
+                    value: count.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::Gauge { name, gauge } => Metric {
+                    value: gauge.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Gauge as i32,
+                    labels: vec![],
+                },
+                MetricValue::Time { name, time } => Metric {
+                    value: time.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Time as i32,
+                    labels: vec![],
+                },
+                MetricValue::StartTimestamp(timestamp) => Metric {
+                    value: timestamp
+                        .value()
+                        .map(|dt| dt.timestamp_millis())
+                        .unwrap_or_default(),
+                    name: "start_timestamp".to_string(),
+                    metric_type: MetricType::Timestamp as i32,
+                    labels: vec![],
+                },
+                MetricValue::EndTimestamp(timestamp) => Metric {
+                    value: timestamp
+                        .value()
+                        .map(|dt| dt.timestamp_millis())
+                        .unwrap_or_default(),
+                    name: "end_timestamp".to_string(),
+                    metric_type: MetricType::Timestamp as i32,
+                    labels: vec![],
+                },
+            })
+            .collect()
+    } else {
+        vec![]
+    }
 }
 
 #[cfg(test)]
