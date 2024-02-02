@@ -75,22 +75,47 @@ message ShuffleReaderPartition {
 // Ballista Scheduling
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 message ExecutionGraph {
-  string job_id = 1;
-  string session_id = 2;
-  JobStatus status = 3;
-  repeated ExecutionGraphStage stages = 4;
-  uint64 output_partitions = 5;
-  repeated PartitionLocation output_locations = 6;
-  string scheduler_id = 7;
-  uint32 task_id_gen = 8;
-  repeated StageAttempts failed_attempts = 9;
-  string job_name = 10;
-  uint64 start_time = 11;
-  uint64 end_time = 12;
-  uint64 queued_at = 13;
-  bool circuit_breaker_tripped = 14;
-  repeated string circuit_breaker_tripped_labels = 15;
-  repeated string warnings = 16;
+  oneof graph {
+    Running running = 1;
+    Completed completed = 2;        
+  }
+  message Running {
+    string job_id = 1;
+    string session_id = 2;
+    JobStatus status = 3;
+    repeated ExecutionGraphStage stages = 4;
+    uint64 output_partitions = 5;
+    repeated PartitionLocation output_locations = 6;
+    string scheduler_id = 7;
+    uint32 task_id_gen = 8;
+    repeated StageAttempts failed_attempts = 9;
+    string job_name = 10;
+    uint64 start_time = 11;
+    uint64 end_time = 12;
+    uint64 queued_at = 13;
+    bool circuit_breaker_tripped = 14;
+    repeated string circuit_breaker_tripped_labels = 15;
+    repeated string warnings = 16;
+  }
+  message Completed {
+    string job_id = 1;
+    string session_id = 2;
+    JobStatus status = 3;
+    uint64 output_partitions = 4;
+    repeated PartitionLocation output_locations = 5;
+    string scheduler_id = 6;
+    repeated StageAttempts failed_attempts = 7;
+    string job_name = 8;
+    uint64 start_time = 9;
+    uint64 end_time = 10;
+    uint64 queued_at = 11;
+    bool circuit_breaker_tripped = 12;
+    repeated string circuit_breaker_tripped_labels = 13;
+    repeated string warnings = 14;
+    uint64 completed_stages = 15;
+    uint64 total_task_duration_ms = 16;
+    uint32 stage_count = 17;
+  }
 }
 
 message StageAttempts {
