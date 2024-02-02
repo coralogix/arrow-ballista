@@ -302,34 +302,7 @@ impl ExecutionGraph {
                     }
                 }
             }
-            let stage_count = stages.len();
-            let mut metrics = Vec::with_capacity(stage_count);
-            let mut stage_metrics = HashMap::with_capacity(stages.len());
-            for (stage_id, stage) in stages.iter() {
-                stage_metrics.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
-            }
-
-            for stage_id in 1..=stage_count {
-                let (plan, metric_set) =
-                    stage_metrics.get(&stage_id).ok_or_else(|| {
-                        BallistaError::Internal(format!(
-                            "Invalid ExecutionGraph, stage {stage_id} missing"
-                        ))
-                    })?;
-
-                if let Some(metric_set) = metric_set.as_ref() {
-                    let builder =
-                        StageMetricsBuilder::new(stage_id, *plan, metric_set.as_slice());
-
-                    metrics.push(builder.build()?);
-                } else {
-                    metrics.push(StageMetrics {
-                        stage_id: stage_id as i64,
-                        partition_id: 0,
-                        plan_metrics: vec![],
-                    })
-                }
-            }
+            let metrics = ExecutionGraph::calculate_stage_metrics(stages)?;
 
             return Ok(ExecutionGraph::Completed {
                 scheduler_id: scheduler_id.clone(),
@@ -411,54 +384,44 @@ impl ExecutionGraph {
         }
     }
 
-    pub fn next_task_id(&mut self) -> Option<usize> {
-        match self {
-            ExecutionGraph::Running { task_id_gen, .. } => {
-                let new_tid = *task_id_gen;
-                *task_id_gen += 1;
-                Some(new_tid)
-            }
-            ExecutionGraph::Completed { .. } => None,
+    pub fn calculate_stage_metrics(
+        stages: &HashMap<usize, ExecutionStage>,
+    ) -> Result<Vec<StageMetrics>> {
+        let stage_count = stages.len();
+        let mut metrics = Vec::with_capacity(stage_count);
+        let mut stage_metrics = HashMap::with_capacity(stage_count);
+        for (stage_id, stage) in stages.iter() {
+            stage_metrics.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
         }
+
+        for stage_id in 1..=stage_count {
+            let (plan, metric_set) = stage_metrics.get(&stage_id).ok_or_else(|| {
+                BallistaError::Internal(format!(
+                    "Invalid ExecutionGraph, stage {stage_id} missing"
+                ))
+            })?;
+
+            if let Some(metric_set) = metric_set.as_ref() {
+                let builder =
+                    StageMetricsBuilder::new(stage_id, *plan, metric_set.as_slice());
+
+                metrics.push(builder.build()?);
+            } else {
+                metrics.push(StageMetrics {
+                    stage_id: stage_id as i64,
+                    partition_id: 0,
+                    plan_metrics: vec![],
+                })
+            }
+        }
+
+        Ok(metrics)
     }
 
     pub fn stage_metrics(&self) -> Result<Vec<StageMetrics>> {
         match self {
             ExecutionGraph::Running { stages, .. } => {
-                let stage_count = stages.len();
-                let mut metrics = Vec::with_capacity(stage_count);
-                let mut stage_metrics = HashMap::with_capacity(stages.len());
-                for (stage_id, stage) in stages.iter() {
-                    stage_metrics
-                        .insert(*stage_id, (stage.plan(), stage.stage_metrics()));
-                }
-
-                for stage_id in 1..=stage_count {
-                    let (plan, metric_set) =
-                        stage_metrics.get(&stage_id).ok_or_else(|| {
-                            BallistaError::Internal(format!(
-                                "Invalid ExecutionGraph, stage {stage_id} missing"
-                            ))
-                        })?;
-
-                    if let Some(metric_set) = metric_set.as_ref() {
-                        let builder = StageMetricsBuilder::new(
-                            stage_id,
-                            *plan,
-                            metric_set.as_slice(),
-                        );
-
-                        metrics.push(builder.build()?);
-                    } else {
-                        metrics.push(StageMetrics {
-                            stage_id: stage_id as i64,
-                            partition_id: 0,
-                            plan_metrics: vec![],
-                        })
-                    }
-                }
-
-                Ok(metrics)
+                ExecutionGraph::calculate_stage_metrics(stages)
             }
             ExecutionGraph::Completed { stage_metrics, .. } => Ok(stage_metrics.clone()),
         }
