@@ -441,13 +441,10 @@ impl ExecutionGraph {
             ExecutionGraph::Running { stages, .. } => stages
                 .values()
                 .all(|s| matches!(s, ExecutionStage::Successful(_))),
-            ExecutionGraph::Completed { status, .. } => {
-                if let Some(status) = status.status.as_ref() {
-                    matches!(status, job_status::Status::Successful(_))
-                } else {
-                    false
-                }
-            }
+            ExecutionGraph::Completed { status, .. } => status
+                .status
+                .as_ref()
+                .map_or(false, |s| matches!(s, job_status::Status::Successful(_))),
         }
     }
 
@@ -1545,7 +1542,7 @@ for (partition, status) in stage.task_infos
             ..
         } = self
         {
-            if stages
+            if !stages
                 .values()
                 .all(|s| matches!(s, ExecutionStage::Successful(_)))
             {
