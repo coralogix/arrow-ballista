@@ -82,18 +82,16 @@ struct ActiveJobQueue {
 }
 
 impl ActiveJobQueue {
-    /// Returns the `job_info` of the active job with the highest priority.
-    /// If an active job has no corresponding job info, it will be removed
-    /// from the queue.
-    pub fn get_job_info(&self) -> Option<JobInfoCache> {
+    pub fn pop(&self) -> Option<ActiveJobRef> {
         loop {
-            let mut queue_guard = self.queue.lock();
-            if let Some(active_job) = queue_guard.peek() {
+            if let Some(active_job) = self.queue.lock().pop() {
                 if let Some(job_info) = self.jobs.get(&active_job.job_id) {
-                    return Some(job_info.clone());
+                    return Some(ActiveJobRef {
+                        queue: &self.queue,
+                        job: job_info.clone(),
+                        active_job,
+                    });
                 } else {
-                    // Remove active job from queue if corresponding job info is absent
-                    queue_guard.pop();
                     continue;
                 }
             } else {
@@ -109,13 +107,6 @@ impl ActiveJobQueue {
         }
 
         count
-    }
-
-    pub fn update_active_job(&self, graph: &ExecutionGraph) {
-        let mut guard = self.queue.lock();
-        if let Some(active_job) = guard.pop() {
-            guard.push(ActiveJob::new(active_job.job_id, &graph));
-        }
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
@@ -138,11 +129,11 @@ impl ActiveJobQueue {
     }
 
     pub fn size(&self) -> usize {
-        self.jobs.len()
+        self.jobs.len().max(self.queue.lock().len())
     }
 }
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Default)]
 struct ActiveJob {
     job_id: String,
     running_stage: usize,
@@ -150,7 +141,7 @@ struct ActiveJob {
 }
 
 impl ActiveJob {
-    pub fn new(job_id: String, graph: &ExecutionGraph) -> Self {
+    fn new(job_id: String, graph: &ExecutionGraph) -> Self {
         let running_stage = graph
             .running_stages()
             .iter()
@@ -181,6 +172,26 @@ impl Ord for ActiveJob {
         self.running_stage
             .cmp(&other.running_stage)
             .then(other.pending_tasks.cmp(&self.pending_tasks))
+    }
+}
+
+struct ActiveJobRef<'a> {
+    queue: &'a Mutex<BinaryHeap<ActiveJob>>,
+    job: JobInfoCache,
+    active_job: ActiveJob,
+}
+
+impl<'a> Deref for ActiveJobRef<'a> {
+    type Target = JobInfoCache;
+
+    fn deref(&self) -> &Self::Target {
+        &self.job
+    }
+}
+
+impl<'a> Drop for ActiveJobRef<'a> {
+    fn drop(&mut self) {
+        self.queue.lock().push(std::mem::take(&mut self.active_job));
     }
 }
 
@@ -622,8 +633,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assign_tasks = 0usize;
 
         for _ in 0..self.get_active_job_count() {
-            if let Some(job_info) = self.active_job_queue.get_job_info() {
-                let mut graph = job_info.graph_mut().await;
+            if let Some(job_ref) = self.active_job_queue.pop() {
+                let mut graph = job_ref.graph_mut().await;
                 for (exec_id, slots) in free_reservations.iter_mut() {
                     if slots.is_empty() {
                         continue;
@@ -643,12 +654,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     }
                 }
 
-                self.active_job_queue.update_active_job(&graph);
-
                 if assign_tasks >= num_reservations {
                     pending_tasks += graph.available_tasks();
                     break;
                 }
+            } else {
+                break;
             }
         }
 
