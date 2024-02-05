@@ -129,7 +129,7 @@ impl ActiveJobQueue {
     }
 
     pub fn size(&self) -> usize {
-        self.jobs.len().max(self.queue.lock().len())
+        self.jobs.len()
     }
 }
 
