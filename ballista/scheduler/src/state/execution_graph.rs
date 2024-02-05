@@ -604,7 +604,7 @@ impl ExecutionGraph {
                                                 fetch_partiton_error,
                                             )) => {
                                                 let failed_attempts =
-                                                    failed_stage_attempts
+                                                    failed_stage_attempts_tmp
                                                         .entry(stage_id)
                                                         .or_default();
                                                 failed_attempts
