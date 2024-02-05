@@ -274,27 +274,8 @@ impl ExecutionGraph {
             ..
         } = self
         {
-            let mut completed_stages = 0;
-            let mut total_task_duration_ms = 0;
-            for stage in stages.values() {
-                if let ExecutionStage::Successful(stage) = stage {
-                    completed_stages += 1;
-                    for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
-                        total_task_duration_ms += task.execution_time() as u64
-                    }
-                }
-
-                if let ExecutionStage::Running(stage) = stage {
-                    for task in stage
-                        .task_infos
-                        .iter()
-                        .flatten()
-                        .filter(|t| t.is_finished())
-                    {
-                        total_task_duration_ms += task.execution_time() as u64
-                    }
-                }
-            }
+            let (completed_stages, total_task_duration_ms) =
+                ExecutionGraph::calculate_completed_stages_and_total_duration(stages);
             let metrics = ExecutionGraph::calculate_stage_metrics(stages)?;
 
             return Ok(ExecutionGraph::Completed {
@@ -406,6 +387,34 @@ impl ExecutionGraph {
         }
 
         Ok(metrics)
+    }
+
+    pub fn calculate_completed_stages_and_total_duration(
+        stages: &HashMap<usize, ExecutionStage>,
+    ) -> (usize, u64) {
+        let mut completed_stages = 0;
+        let mut total_task_duration_ms = 0;
+        for stage in stages.values() {
+            if let ExecutionStage::Successful(stage) = stage {
+                completed_stages += 1;
+                for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
+            }
+
+            if let ExecutionStage::Running(stage) = stage {
+                for task in stage
+                    .task_infos
+                    .iter()
+                    .flatten()
+                    .filter(|t| t.is_finished())
+                {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
+            }
+        }
+
+        (completed_stages, total_task_duration_ms)
     }
 
     pub fn stage_metrics(&self) -> Result<Vec<StageMetrics>> {
@@ -1551,7 +1560,9 @@ for (partition, status) in stage.task_infos
                 .into_iter()
                 .map(|l| l.try_into())
                 .collect::<Result<Vec<_>>>()?;
-
+            let (completed_stages, total_task_duration_ms) =
+                ExecutionGraph::calculate_completed_stages_and_total_duration(stages);
+            let stage_metrics = ExecutionGraph::calculate_stage_metrics(stages)?;
             *end_time = timestamp_millis();
             *status = JobStatus {
                 job_id: job_id.clone(),
@@ -1567,6 +1578,10 @@ for (partition, status) in stage.task_infos
                         .cloned()
                         .collect(),
                     warnings: warnings.clone(),
+                    stage_count: stages.len() as u32,
+                    completed_stages: completed_stages as u64,
+                    total_task_duration_ms,
+                    stage_metrics,
                 })),
             };
         }

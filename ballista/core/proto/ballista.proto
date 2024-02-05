@@ -600,6 +600,10 @@ message SuccessfulJob {
   bool circuit_breaker_tripped = 5;
   repeated string circuit_breaker_tripped_labels = 6;
   repeated string warnings = 7;
+  uint64 completed_stages = 8;
+  uint64 total_task_duration_ms = 9;
+  uint32 stage_count = 10;
+  repeated StageMetrics stage_metrics = 11;
 }
 
 message QueuedJob {

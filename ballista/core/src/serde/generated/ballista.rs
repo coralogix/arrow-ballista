@@ -1054,6 +1054,14 @@ pub struct SuccessfulJob {
     >,
     #[prost(string, repeated, tag = "7")]
     pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag = "8")]
+    pub completed_stages: u64,
+    #[prost(uint64, tag = "9")]
+    pub total_task_duration_ms: u64,
+    #[prost(uint32, tag = "10")]
+    pub stage_count: u32,
+    #[prost(message, repeated, tag = "11")]
+    pub stage_metrics: ::prost::alloc::vec::Vec<StageMetrics>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

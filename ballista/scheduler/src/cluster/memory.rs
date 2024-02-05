@@ -271,7 +271,7 @@ impl ClusterState for InMemoryClusterState {
 pub struct InMemoryJobState {
     scheduler: String,
     /// Jobs which have either completed successfully or failed
-    completed_jobs: DashMap<String, (JobStatus, Option<ExecutionGraph>)>,
+    completed_jobs: DashMap<String, JobStatus>,
     /// In-memory store of queued jobs. Map from Job ID -> (Job Name, queued_at timestamp)
     queued_jobs: DashMap<String, (String, u64)>,
     /// In-memory store of running job statuses. Map from Job ID -> JobStatus
@@ -335,7 +335,7 @@ impl JobState for InMemoryJobState {
             return Ok(Some(graph.status()));
         }
 
-        if let Some((status, _)) = self.completed_jobs.get(job_id).as_deref() {
+        if let Some(status) = self.completed_jobs.get(job_id).as_deref() {
             return Ok(Some(status.clone()));
         }
 
@@ -344,14 +344,10 @@ impl JobState for InMemoryJobState {
 
     async fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>> {
         if let Some(graph) = self.running_jobs.get(job_id) {
-            Ok(Some(graph.clone()))
-        } else {
-            Ok(self
-                .completed_jobs
-                .get(job_id)
-                .as_deref()
-                .and_then(|(_, graph)| graph.clone()))
+            return Ok(Some(graph.clone()));
         }
+
+        Ok(None)
     }
 
     async fn try_acquire_job(&self, _job_id: &str) -> Result<Option<ExecutionGraph>> {
@@ -371,8 +367,7 @@ impl JobState for InMemoryJobState {
             Some(Status::Successful(_)) | Some(Status::Failed(_))
         ) {
             // Once job is completed, store completed execution graph
-            self.completed_jobs
-                .insert(job_id.to_string(), (status, Some(graph.to_completed()?)));
+            self.completed_jobs.insert(job_id.to_string(), status);
             self.running_jobs.remove(job_id);
         } else if let Some(old_status) =
             self.running_jobs.insert(job_id.to_string(), graph.clone())
@@ -455,7 +450,7 @@ impl JobState for InMemoryJobState {
         Ok(self
             .completed_jobs
             .iter()
-            .map(|pair| (pair.key().clone(), pair.value().0.clone()))
+            .map(|pair| (pair.key().clone(), pair.value().clone()))
             .collect())
     }
 
@@ -482,21 +477,18 @@ impl JobState for InMemoryJobState {
             let job_id = job_id.to_string();
             self.completed_jobs.insert(
                 job_id.clone(),
-                (
-                    JobStatus {
-                        job_id,
-                        job_name: job_name.to_string(),
-                        status: Some(Status::Failed(FailedJob {
-                            error: Some(ExecutionError {
-                                error: Some(reason.as_ref().into()),
-                            }),
-                            queued_at,
-                            started_at: 0,
-                            ended_at: timestamp_millis(),
-                        })),
-                    },
-                    None,
-                ),
+                JobStatus {
+                    job_id,
+                    job_name: job_name.to_string(),
+                    status: Some(Status::Failed(FailedJob {
+                        error: Some(ExecutionError {
+                            error: Some(reason.as_ref().into()),
+                        }),
+                        queued_at,
+                        started_at: 0,
+                        ended_at: timestamp_millis(),
+                    })),
+                },
             );
 
             Ok(())
