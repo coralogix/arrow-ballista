@@ -51,7 +51,7 @@ pub struct ExecutionGraphDot<'a> {
 
 impl<'a> ExecutionGraphDot<'a> {
     /// Create a DOT graph from the provided ExecutionGraph
-    pub fn generate(graph: &'a ExecutionGraph) -> Result<Option<String>, fmt::Error> {
+    pub fn generate(graph: &'a ExecutionGraph) -> Result<String, fmt::Error> {
         let mut dot = Self { graph };
         dot._generate()
     }
@@ -60,78 +60,65 @@ impl<'a> ExecutionGraphDot<'a> {
     pub fn generate_for_query_stage(
         graph: &ExecutionGraph,
         stage_id: usize,
-    ) -> Result<Option<String>, fmt::Error> {
-        if let ExecutionGraph::Running { stages, .. } = graph {
-            if let Some(stage) = stages.get(&stage_id) {
-                let mut dot = String::new();
-                writeln!(&mut dot, "digraph G {{")?;
-                let stage_name = format!("stage_{stage_id}");
-                write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?;
-                writeln!(&mut dot, "}}")?;
-                return Ok(Some(dot));
-            } else {
-                return Err(fmt::Error);
-            }
+    ) -> Result<String, fmt::Error> {
+        if let Some(stage) = graph.stages.get(&stage_id) {
+            let mut dot = String::new();
+            writeln!(&mut dot, "digraph G {{")?;
+            let stage_name = format!("stage_{stage_id}");
+            write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?;
+            writeln!(&mut dot, "}}")?;
+            Ok(dot)
+        } else {
+            Err(fmt::Error)
         }
-
-        Ok(None)
     }
 
-    fn _generate(&mut self) -> Result<Option<String>, fmt::Error> {
-        if let ExecutionGraph::Running { stages, .. } = self.graph {
-            // sort the stages by key for deterministic output for tests
-            let mut stage_ids: Vec<usize> = stages.keys().cloned().collect();
-            stage_ids.sort();
+    fn _generate(&mut self) -> Result<String, fmt::Error> {
+        // sort the stages by key for deterministic output for tests
+        let mut stage_ids: Vec<usize> = self.graph.stages.keys().cloned().collect();
+        stage_ids.sort();
 
-            let mut dot = String::new();
+        let mut dot = String::new();
 
-            writeln!(&mut dot, "digraph G {{")?;
+        writeln!(&mut dot, "digraph G {{")?;
 
-            let mut cluster = 0;
-            let mut stage_meta = vec![];
+        let mut cluster = 0;
+        let mut stage_meta = vec![];
 
-            #[allow(clippy::explicit_counter_loop)]
-            for id in &stage_ids {
-                let stage = stages.get(id).unwrap(); // safe unwrap
-                let stage_name = format!("stage_{id}");
-                writeln!(&mut dot, "\tsubgraph cluster{cluster} {{")?;
-                writeln!(
-                    &mut dot,
-                    "\t\tlabel = \"Stage {} [{}]\";",
-                    id,
-                    stage.variant_name()
-                )?;
-                stage_meta.push(write_stage_plan(
-                    &mut dot,
-                    &stage_name,
-                    stage.plan(),
-                    0,
-                )?);
-                cluster += 1;
-                writeln!(&mut dot, "\t}}")?; // end of subgraph
-            }
-
-            // write links between stages
-            for meta in &stage_meta {
-                let mut links = vec![];
-                for (reader_node, parent_stage_id) in &meta.readers {
-                    // shuffle write node is always node zero
-                    let parent_shuffle_write_node = format!("stage_{parent_stage_id}_0");
-                    links.push(format!("{parent_shuffle_write_node} -> {reader_node}"));
-                }
-                // keep the order deterministic
-                links.sort();
-                for link in links {
-                    writeln!(&mut dot, "\t{link}")?;
-                }
-            }
-
-            writeln!(&mut dot, "}}")?; // end of digraph
-
-            Ok(Some(dot))
-        } else {
-            Ok(None)
+        #[allow(clippy::explicit_counter_loop)]
+        for id in &stage_ids {
+            let stage = self.graph.stages.get(id).unwrap(); // safe unwrap
+            let stage_name = format!("stage_{id}");
+            writeln!(&mut dot, "\tsubgraph cluster{cluster} {{")?;
+            writeln!(
+                &mut dot,
+                "\t\tlabel = \"Stage {} [{}]\";",
+                id,
+                stage.variant_name()
+            )?;
+            stage_meta.push(write_stage_plan(&mut dot, &stage_name, stage.plan(), 0)?);
+            cluster += 1;
+            writeln!(&mut dot, "\t}}")?; // end of subgraph
         }
+
+        // write links between stages
+        for meta in &stage_meta {
+            let mut links = vec![];
+            for (reader_node, parent_stage_id) in &meta.readers {
+                // shuffle write node is always node zero
+                let parent_shuffle_write_node = format!("stage_{parent_stage_id}_0");
+                links.push(format!("{parent_shuffle_write_node} -> {reader_node}"));
+            }
+            // keep the order deterministic
+            links.sort();
+            for link in links {
+                writeln!(&mut dot, "\t{link}")?;
+            }
+        }
+
+        writeln!(&mut dot, "}}")?; // end of digraph
+
+        Ok(dot)
     }
 }
 
@@ -500,7 +487,7 @@ filter_expr="]
 	stage_4_0 -> stage_5_0_0_0_1_0
 }
 "#;
-        assert_eq!(expected, &dot.unwrap());
+        assert_eq!(expected, &dot);
         Ok(())
     }
 
@@ -528,7 +515,7 @@ filter_expr="]
 		stage_3_0_0 -> stage_3_0
 }
 "#;
-        assert_eq!(expected, &dot.unwrap());
+        assert_eq!(expected, &dot);
         Ok(())
     }
 
@@ -590,7 +577,7 @@ filter_expr="]
 	stage_3_0 -> stage_4_0_0_0_1_0
 }
 "#;
-        assert_eq!(expected, &dot.unwrap());
+        assert_eq!(expected, &dot);
         Ok(())
     }
 
@@ -628,7 +615,7 @@ filter_expr="]
 		stage_4_0_0 -> stage_4_0
 }
 "#;
-        assert_eq!(expected, &dot.unwrap());
+        assert_eq!(expected, &dot);
         Ok(())
     }
 
@@ -654,7 +641,7 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::running(
+        ExecutionGraph::new(
             "scheduler_id",
             "job_id",
             "job_name",
@@ -688,7 +675,7 @@ filter_expr="]
             .await?;
         let plan = df.into_optimized_plan()?;
         let plan = ctx.state().create_physical_plan(&plan).await?;
-        ExecutionGraph::running(
+        ExecutionGraph::new(
             "scheduler_id",
             "job_id",
             "job_name",

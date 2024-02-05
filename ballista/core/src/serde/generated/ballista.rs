@@ -90,95 +90,40 @@ pub struct ShuffleReaderPartition {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ExecutionGraph {
-    #[prost(oneof = "execution_graph::Graph", tags = "1, 2")]
-    pub graph: ::core::option::Option<execution_graph::Graph>,
-}
-/// Nested message and enum types in `ExecutionGraph`.
-pub mod execution_graph {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Running {
-        #[prost(string, tag = "1")]
-        pub job_id: ::prost::alloc::string::String,
-        #[prost(string, tag = "2")]
-        pub session_id: ::prost::alloc::string::String,
-        #[prost(message, optional, tag = "3")]
-        pub status: ::core::option::Option<super::JobStatus>,
-        #[prost(message, repeated, tag = "4")]
-        pub stages: ::prost::alloc::vec::Vec<super::ExecutionGraphStage>,
-        #[prost(uint64, tag = "5")]
-        pub output_partitions: u64,
-        #[prost(message, repeated, tag = "6")]
-        pub output_locations: ::prost::alloc::vec::Vec<super::PartitionLocation>,
-        #[prost(string, tag = "7")]
-        pub scheduler_id: ::prost::alloc::string::String,
-        #[prost(uint32, tag = "8")]
-        pub task_id_gen: u32,
-        #[prost(message, repeated, tag = "9")]
-        pub failed_attempts: ::prost::alloc::vec::Vec<super::StageAttempts>,
-        #[prost(string, tag = "10")]
-        pub job_name: ::prost::alloc::string::String,
-        #[prost(uint64, tag = "11")]
-        pub start_time: u64,
-        #[prost(uint64, tag = "12")]
-        pub end_time: u64,
-        #[prost(uint64, tag = "13")]
-        pub queued_at: u64,
-        #[prost(bool, tag = "14")]
-        pub circuit_breaker_tripped: bool,
-        #[prost(string, repeated, tag = "15")]
-        pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
-            ::prost::alloc::string::String,
-        >,
-        #[prost(string, repeated, tag = "16")]
-        pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Message)]
-    pub struct Completed {
-        #[prost(string, tag = "1")]
-        pub job_id: ::prost::alloc::string::String,
-        #[prost(string, tag = "2")]
-        pub session_id: ::prost::alloc::string::String,
-        #[prost(message, optional, tag = "3")]
-        pub status: ::core::option::Option<super::JobStatus>,
-        #[prost(uint64, tag = "4")]
-        pub output_partitions: u64,
-        #[prost(string, tag = "5")]
-        pub scheduler_id: ::prost::alloc::string::String,
-        #[prost(string, tag = "6")]
-        pub job_name: ::prost::alloc::string::String,
-        #[prost(uint64, tag = "7")]
-        pub start_time: u64,
-        #[prost(uint64, tag = "8")]
-        pub end_time: u64,
-        #[prost(uint64, tag = "9")]
-        pub queued_at: u64,
-        #[prost(bool, tag = "10")]
-        pub circuit_breaker_tripped: bool,
-        #[prost(string, repeated, tag = "11")]
-        pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
-            ::prost::alloc::string::String,
-        >,
-        #[prost(string, repeated, tag = "12")]
-        pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        #[prost(uint64, tag = "13")]
-        pub completed_stages: u64,
-        #[prost(uint64, tag = "14")]
-        pub total_task_duration_ms: u64,
-        #[prost(uint32, tag = "15")]
-        pub stage_count: u32,
-        #[prost(message, repeated, tag = "16")]
-        pub stage_metrics: ::prost::alloc::vec::Vec<super::StageMetrics>,
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-    #[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Graph {
-        #[prost(message, tag = "1")]
-        Running(Running),
-        #[prost(message, tag = "2")]
-        Completed(Completed),
-    }
+    #[prost(string, tag = "1")]
+    pub job_id: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag = "3")]
+    pub status: ::core::option::Option<JobStatus>,
+    #[prost(message, repeated, tag = "4")]
+    pub stages: ::prost::alloc::vec::Vec<ExecutionGraphStage>,
+    #[prost(uint64, tag = "5")]
+    pub output_partitions: u64,
+    #[prost(message, repeated, tag = "6")]
+    pub output_locations: ::prost::alloc::vec::Vec<PartitionLocation>,
+    #[prost(string, tag = "7")]
+    pub scheduler_id: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "8")]
+    pub task_id_gen: u32,
+    #[prost(message, repeated, tag = "9")]
+    pub failed_attempts: ::prost::alloc::vec::Vec<StageAttempts>,
+    #[prost(string, tag = "10")]
+    pub job_name: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "11")]
+    pub start_time: u64,
+    #[prost(uint64, tag = "12")]
+    pub end_time: u64,
+    #[prost(uint64, tag = "13")]
+    pub queued_at: u64,
+    #[prost(bool, tag = "14")]
+    pub circuit_breaker_tripped: bool,
+    #[prost(string, repeated, tag = "15")]
+    pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
+        ::prost::alloc::string::String,
+    >,
+    #[prost(string, repeated, tag = "16")]
+    pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

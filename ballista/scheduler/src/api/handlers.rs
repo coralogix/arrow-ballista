@@ -206,60 +206,54 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
         .await
         .map_err(|_| warp::reject())?
     {
-        if let Some(stages) = graph.as_ref().stages() {
-            return Ok(warp::reply::json(&QueryStagesResponse {
-                stages: stages
-                    .iter()
-                    .map(|(id, stage)| {
-                        let mut summary = QueryStageSummary {
-                            stage_id: id.to_string(),
-                            stage_status: stage.variant_name().to_string(),
-                            input_rows: 0,
-                            output_rows: 0,
-                            elapsed_compute: "".to_string(),
-                        };
-                        match stage {
-                            ExecutionStage::Running(running_stage) => {
-                                summary.input_rows = running_stage
-                                    .stage_metrics
-                                    .as_ref()
-                                    .map(|m| {
-                                        get_combined_count(m.as_slice(), "input_rows")
-                                    })
-                                    .unwrap_or(0);
-                                summary.output_rows = running_stage
-                                    .stage_metrics
-                                    .as_ref()
-                                    .map(|m| {
-                                        get_combined_count(m.as_slice(), "output_rows")
-                                    })
-                                    .unwrap_or(0);
-                                summary.elapsed_compute = running_stage
-                                    .stage_metrics
-                                    .as_ref()
-                                    .map(|m| get_elapsed_compute_nanos(m.as_slice()))
-                                    .unwrap_or_default();
-                            }
-                            ExecutionStage::Successful(completed_stage) => {
-                                summary.input_rows = get_combined_count(
-                                    &completed_stage.stage_metrics,
-                                    "input_rows",
-                                );
-                                summary.output_rows = get_combined_count(
-                                    &completed_stage.stage_metrics,
-                                    "output_rows",
-                                );
-                                summary.elapsed_compute = get_elapsed_compute_nanos(
-                                    &completed_stage.stage_metrics,
-                                );
-                            }
-                            _ => {}
+        return Ok(warp::reply::json(&QueryStagesResponse {
+            stages: graph
+                .stages
+                .iter()
+                .map(|(id, stage)| {
+                    let mut summary = QueryStageSummary {
+                        stage_id: id.to_string(),
+                        stage_status: stage.variant_name().to_string(),
+                        input_rows: 0,
+                        output_rows: 0,
+                        elapsed_compute: "".to_string(),
+                    };
+                    match stage {
+                        ExecutionStage::Running(running_stage) => {
+                            summary.input_rows = running_stage
+                                .stage_metrics
+                                .as_ref()
+                                .map(|m| get_combined_count(m.as_slice(), "input_rows"))
+                                .unwrap_or(0);
+                            summary.output_rows = running_stage
+                                .stage_metrics
+                                .as_ref()
+                                .map(|m| get_combined_count(m.as_slice(), "output_rows"))
+                                .unwrap_or(0);
+                            summary.elapsed_compute = running_stage
+                                .stage_metrics
+                                .as_ref()
+                                .map(|m| get_elapsed_compute_nanos(m.as_slice()))
+                                .unwrap_or_default();
                         }
-                        summary
-                    })
-                    .collect(),
-            }));
-        }
+                        ExecutionStage::Successful(completed_stage) => {
+                            summary.input_rows = get_combined_count(
+                                &completed_stage.stage_metrics,
+                                "input_rows",
+                            );
+                            summary.output_rows = get_combined_count(
+                                &completed_stage.stage_metrics,
+                                "output_rows",
+                            );
+                            summary.elapsed_compute =
+                                get_elapsed_compute_nanos(&completed_stage.stage_metrics);
+                        }
+                        _ => {}
+                    }
+                    summary
+                })
+                .collect(),
+        }));
     }
 
     Ok(warp::reply::json(&QueryStagesResponse { stages: vec![] }))
@@ -310,10 +304,7 @@ pub(crate) async fn get_job_dot_graph<T: AsLogicalPlan, U: AsExecutionPlan>(
     {
         ExecutionGraphDot::generate(graph.as_ref())
             .map_err(|_| warp::reject())
-            .map(|v| match v {
-                Some(v) => Cow::Owned(v),
-                _ => Cow::Borrowed("Cannot generate graph for completed"),
-            })
+            .map(Cow::Owned)
     } else {
         Ok(Cow::Borrowed("Not Found"))
     }
@@ -334,10 +325,7 @@ pub(crate) async fn get_query_stage_dot_graph<T: AsLogicalPlan, U: AsExecutionPl
     {
         ExecutionGraphDot::generate_for_query_stage(graph.as_ref(), stage_id)
             .map_err(|_| warp::reject())
-            .map(|v| match v {
-                Some(v) => Cow::Owned(v),
-                _ => Cow::Borrowed("Cannot generate graph for completed"),
-            })
+            .map(Cow::Owned)
     } else {
         Ok(Cow::Borrowed("Not Found"))
     }

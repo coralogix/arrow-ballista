@@ -17,9 +17,7 @@
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
-use crate::state::execution_graph::{
-    ExecutionGraph, ExecutionStage, RunningTaskInfo, TaskDescription,
-};
+use crate::state::execution_graph::{ExecutionGraph, RunningTaskInfo, TaskDescription};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
 use ballista_core::error::BallistaError;
@@ -439,7 +437,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         queued_at: u64,
         warnings: Vec<String>,
     ) -> Result<()> {
-        let mut graph = ExecutionGraph::running(
+        let mut graph = ExecutionGraph::new(
             &self.scheduler_id,
             job_id,
             job_name,
@@ -488,7 +486,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         if let Some(graph) = self.get_active_execution_graph(job_id) {
             let guard = graph.read().await;
 
-            Ok(Some(guard.status()))
+            Ok(Some(guard.status.clone()))
         } else {
             self.state.get_job_status(job_id).await
         }
@@ -730,7 +728,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             graph.revive();
 
-            debug!(job_id, "saving job with status {:?}", graph.status());
+            debug!(job_id, "saving job with status {:?}", graph.status);
 
             self.state.save_job(job_id, &graph).await?;
 
@@ -946,73 +944,19 @@ impl JobOverviewExt for JobOverview {
 
 impl From<&ExecutionGraph> for JobOverview {
     fn from(value: &ExecutionGraph) -> Self {
-        match value {
-            ExecutionGraph::Running {
-                job_id,
-                job_name,
-                status,
-                queued_at,
-                start_time,
-                end_time,
-                stages,
-                ..
-            } => {
-                let mut completed_stages = 0;
-                let mut total_task_duration_ms = 0;
-                for stage in stages.values() {
-                    if let ExecutionStage::Successful(stage) = stage {
-                        completed_stages += 1;
-                        for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
-                            total_task_duration_ms += task.execution_time() as u64
-                        }
-                    }
+        let (completed_stages, total_task_duration_ms) =
+            ExecutionGraph::calculate_completed_stages_and_total_duration(&value.stages);
 
-                    if let ExecutionStage::Running(stage) = stage {
-                        for task in stage
-                            .task_infos
-                            .iter()
-                            .flatten()
-                            .filter(|t| t.is_finished())
-                        {
-                            total_task_duration_ms += task.execution_time() as u64
-                        }
-                    }
-                }
-
-                Self {
-                    job_id: job_id.clone(),
-                    job_name: job_name.clone(),
-                    status: Some(status.clone()),
-                    queued_at: *queued_at,
-                    start_time: *start_time,
-                    end_time: *end_time,
-                    num_stages: stages.len() as u32,
-                    completed_stages,
-                    total_task_duration_ms,
-                }
-            }
-            ExecutionGraph::Completed {
-                job_id,
-                job_name,
-                status,
-                queued_at,
-                start_time,
-                end_time,
-                stage_count,
-                completed_stages,
-                total_task_duration_ms,
-                ..
-            } => Self {
-                job_id: job_id.clone(),
-                job_name: job_name.clone(),
-                status: Some(status.clone()),
-                queued_at: *queued_at,
-                start_time: *start_time,
-                end_time: *end_time,
-                num_stages: *stage_count as u32,
-                completed_stages: *completed_stages as u32,
-                total_task_duration_ms: *total_task_duration_ms,
-            },
+        Self {
+            job_id: value.job_id.clone(),
+            job_name: value.job_name.clone(),
+            status: Some(value.status.clone()),
+            queued_at: value.queued_at,
+            start_time: value.start_time,
+            end_time: value.end_time,
+            num_stages: value.stages.len() as u32,
+            completed_stages: completed_stages as u32,
+            total_task_duration_ms,
         }
     }
 }

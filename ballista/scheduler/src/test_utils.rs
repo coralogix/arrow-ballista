@@ -874,7 +874,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::running(
+    ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",
@@ -919,7 +919,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    ExecutionGraph::running(
+    ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",
@@ -956,7 +956,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         .await
         .unwrap();
 
-    ExecutionGraph::running(
+    ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",
@@ -1014,7 +1014,7 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::running(
+    let graph = ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",
@@ -1055,7 +1055,7 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::running(
+    let graph = ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",
@@ -1096,7 +1096,7 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         DisplayableExecutionPlan::new(plan.as_ref()).indent(false)
     );
 
-    let graph = ExecutionGraph::running(
+    let graph = ExecutionGraph::new(
         "localhost:50050",
         "job",
         "",

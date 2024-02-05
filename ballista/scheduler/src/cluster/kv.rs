@@ -29,8 +29,6 @@ use crate::state::{decode_into, decode_protobuf};
 use async_trait::async_trait;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::serde::protobuf::execution_graph::Graph;
-use ballista_core::serde::protobuf::execution_graph::{Completed, Running};
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
     self, AvailableTaskSlots, ExecutionError, ExecutorHeartbeat, ExecutorTaskSlots,
@@ -530,7 +528,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
     async fn submit_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
         if self.queued_jobs.get(job_id).is_some() {
-            let status = graph.status();
+            let status = graph.status.clone();
             let encoded_graph =
                 ExecutionGraph::encode_execution_graph(graph.clone(), &self.codec)?;
 
@@ -598,17 +596,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         }
 
         let proto: protobuf::ExecutionGraph = decode_protobuf(value.as_slice())?;
-        let graph = proto.graph.as_ref().ok_or_else(|| {
-            BallistaError::Internal(format!(
-                "ExecutionGraph for job {} is missing session_id",
-                job_id
-            ))
-        })?;
-        let session_id = match &graph {
-            Graph::Running(Running { session_id, .. }) => session_id,
-            Graph::Completed(Completed { session_id, .. }) => session_id,
-        };
-        let session = self.get_session(session_id).await?;
+        let session = self.get_session(proto.session_id.as_str()).await?;
 
         Ok(Some(
             ExecutionGraph::decode_execution_graph(
@@ -622,7 +610,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     }
 
     async fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
-        let status = graph.status();
+        let status = graph.status.clone();
         let encoded_graph =
             ExecutionGraph::encode_execution_graph(graph.clone(), &self.codec)?;
 
