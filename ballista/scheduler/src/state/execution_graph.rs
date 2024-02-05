@@ -519,7 +519,7 @@ impl ExecutionGraph {
                 job_id,
                 stages,
                 output_locations,
-                failed_stage_attempts: failed_stage_attempts_old,
+                failed_stage_attempts,
                 ..
             } => {
                 // First of all, classify the statuses by stages
@@ -536,13 +536,6 @@ impl ExecutionGraph {
                 // It will be refined later
                 revive!(stages);
 
-                // for running_stage in running_stages {
-                //     stages.insert(
-                //         running_stage.stage_id,
-                //         ExecutionStage::Running(running_stage),
-                //     );
-                // }
-
                 let current_running_stages: HashSet<usize> =
                     HashSet::from_iter(stages.iter().filter_map(|(stage_id, stage)| {
                         if let ExecutionStage::Running(_running) = stage {
@@ -553,10 +546,10 @@ impl ExecutionGraph {
                     }));
 
                 // Copy the failed stage attempts from self
-                let mut failed_stage_attempts: HashMap<usize, HashSet<usize>> =
+                let mut failed_stage_attempts_tmp: HashMap<usize, HashSet<usize>> =
                     HashMap::new();
-                for (stage_id, attempts) in failed_stage_attempts_old.iter() {
-                    failed_stage_attempts
+                for (stage_id, attempts) in failed_stage_attempts.iter() {
+                    failed_stage_attempts_tmp
                         .insert(*stage_id, HashSet::from_iter(attempts.iter().copied()));
                 }
 
@@ -946,7 +939,7 @@ impl ExecutionGraph {
                 }
 
                 // Update failed stage attempts back to self
-                for (stage_id, attempts) in failed_stage_attempts_old.iter() {
+                for (stage_id, attempts) in failed_stage_attempts_tmp.iter() {
                     failed_stage_attempts
                         .insert(*stage_id, HashSet::from_iter(attempts.iter().copied()));
                 }
@@ -3236,6 +3229,7 @@ mod test {
         assert_eq!(running_stage[0], 1);
         assert_eq!(agg_graph.available_tasks(), 1);
 
+        println!("GRAPH: {:#?}", agg_graph);
         // There are two failed stage attempts: Stage 2 and Stage 3
         assert_eq!(agg_graph.failed_stage_attempts().len(), 2);
         assert_eq!(
