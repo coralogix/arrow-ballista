@@ -21,7 +21,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
-use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
+use ballista_core::serde::protobuf::{JobStatus, StopExecutorParams, TaskStatus};
 use ballista_core::serde::BallistaCodec;
 
 use datafusion::execution::context::SessionState;
@@ -219,6 +219,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             .task_manager
             .get_job_execution_graph(job_id)
             .await
+    }
+
+    pub async fn get_job_status(&self, job_id: &str) -> Result<Option<JobStatus>> {
+        self.state.task_manager.get_job_status(job_id).await
     }
 
     /// It just send task status update event to the channel,
