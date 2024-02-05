@@ -583,9 +583,9 @@ mod test {
 
         let final_graph = final_graph.read().await;
         assert!(final_graph.is_successful());
-        assert_eq!(final_graph.output_locations().len(), 4);
+        assert_eq!(final_graph.output_locations()?.unwrap().len(), 4);
 
-        for output_location in final_graph.output_locations() {
+        for output_location in final_graph.output_locations()?.unwrap() {
             assert_eq!(output_location.path, "some/path".to_owned());
             assert_eq!(output_location.executor_meta.host, "localhost1".to_owned())
         }

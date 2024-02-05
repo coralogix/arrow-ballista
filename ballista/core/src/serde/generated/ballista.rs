@@ -144,35 +144,31 @@ pub mod execution_graph {
         pub status: ::core::option::Option<super::JobStatus>,
         #[prost(uint64, tag = "4")]
         pub output_partitions: u64,
-        #[prost(message, repeated, tag = "5")]
-        pub output_locations: ::prost::alloc::vec::Vec<super::PartitionLocation>,
-        #[prost(string, tag = "6")]
+        #[prost(string, tag = "5")]
         pub scheduler_id: ::prost::alloc::string::String,
-        #[prost(message, repeated, tag = "7")]
-        pub failed_attempts: ::prost::alloc::vec::Vec<super::StageAttempts>,
-        #[prost(string, tag = "8")]
+        #[prost(string, tag = "6")]
         pub job_name: ::prost::alloc::string::String,
-        #[prost(uint64, tag = "9")]
+        #[prost(uint64, tag = "7")]
         pub start_time: u64,
-        #[prost(uint64, tag = "10")]
+        #[prost(uint64, tag = "8")]
         pub end_time: u64,
-        #[prost(uint64, tag = "11")]
+        #[prost(uint64, tag = "9")]
         pub queued_at: u64,
-        #[prost(bool, tag = "12")]
+        #[prost(bool, tag = "10")]
         pub circuit_breaker_tripped: bool,
-        #[prost(string, repeated, tag = "13")]
+        #[prost(string, repeated, tag = "11")]
         pub circuit_breaker_tripped_labels: ::prost::alloc::vec::Vec<
             ::prost::alloc::string::String,
         >,
-        #[prost(string, repeated, tag = "14")]
+        #[prost(string, repeated, tag = "12")]
         pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-        #[prost(uint64, tag = "15")]
+        #[prost(uint64, tag = "13")]
         pub completed_stages: u64,
-        #[prost(uint64, tag = "16")]
+        #[prost(uint64, tag = "14")]
         pub total_task_duration_ms: u64,
-        #[prost(uint32, tag = "17")]
+        #[prost(uint32, tag = "15")]
         pub stage_count: u32,
-        #[prost(message, repeated, tag = "18")]
+        #[prost(message, repeated, tag = "16")]
         pub stage_metrics: ::prost::alloc::vec::Vec<super::StageMetrics>,
     }
     #[allow(clippy::derive_partial_eq_without_eq)]

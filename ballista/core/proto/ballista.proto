@@ -102,20 +102,18 @@ message ExecutionGraph {
     string session_id = 2;
     JobStatus status = 3;
     uint64 output_partitions = 4;
-    repeated PartitionLocation output_locations = 5;
-    string scheduler_id = 6;
-    repeated StageAttempts failed_attempts = 7;
-    string job_name = 8;
-    uint64 start_time = 9;
-    uint64 end_time = 10;
-    uint64 queued_at = 11;
-    bool circuit_breaker_tripped = 12;
-    repeated string circuit_breaker_tripped_labels = 13;
-    repeated string warnings = 14;
-    uint64 completed_stages = 15;
-    uint64 total_task_duration_ms = 16;
-    uint32 stage_count = 17;
-    repeated StageMetrics stage_metrics = 18;
+    string scheduler_id = 5;
+    string job_name = 6;
+    uint64 start_time = 7;
+    uint64 end_time = 8;
+    uint64 queued_at = 9;
+    bool circuit_breaker_tripped = 10;
+    repeated string circuit_breaker_tripped_labels = 11;
+    repeated string warnings = 12;
+    uint64 completed_stages = 13;
+    uint64 total_task_duration_ms = 14;
+    uint32 stage_count = 15;
+    repeated StageMetrics stage_metrics = 16;
   }
 }
 

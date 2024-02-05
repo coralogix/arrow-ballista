@@ -184,11 +184,6 @@ pub enum ExecutionGraph {
         end_time: u64,
         /// Total number fo output partitions
         output_partitions: usize,
-        /// Locations of this `ExecutionGraph` final output locations
-        output_locations: Vec<PartitionLocation>,
-        /// Failed stage attempts, record the failed stage attempts to limit the retry times.
-        /// Map from Stage ID -> Set<Stage_ATTPMPT_NUM>
-        failed_stage_attempts: HashMap<usize, HashSet<usize>>,
         circuit_breaker_tripped: bool,
         circuit_breaker_tripped_labels: HashSet<String>,
         warnings: Vec<String>,
@@ -273,8 +268,6 @@ impl ExecutionGraph {
             start_time,
             stages,
             output_partitions,
-            output_locations,
-            failed_stage_attempts,
             circuit_breaker_tripped,
             circuit_breaker_tripped_labels,
             warnings,
@@ -314,8 +307,6 @@ impl ExecutionGraph {
                 start_time: *start_time,
                 end_time: timestamp_millis(),
                 output_partitions: *output_partitions,
-                output_locations: output_locations.clone(),
-                failed_stage_attempts: failed_stage_attempts.clone(),
                 circuit_breaker_tripped: *circuit_breaker_tripped,
                 circuit_breaker_tripped_labels: circuit_breaker_tripped_labels.clone(),
                 warnings: warnings.clone(),
@@ -371,17 +362,16 @@ impl ExecutionGraph {
     }
 
     #[cfg(test)]
-    pub fn failed_stage_attempts(&self) -> &HashMap<usize, HashSet<usize>> {
-        match self {
-            ExecutionGraph::Running {
-                failed_stage_attempts,
-                ..
-            } => failed_stage_attempts,
-            ExecutionGraph::Completed {
-                failed_stage_attempts,
-                ..
-            } => failed_stage_attempts,
+    pub fn failed_stage_attempts(&self) -> Option<&HashMap<usize, HashSet<usize>>> {
+        if let ExecutionGraph::Running {
+            failed_stage_attempts,
+            ..
+        } = self
+        {
+            return Some(failed_stage_attempts);
         }
+
+        None
     }
 
     pub fn calculate_stage_metrics(
@@ -1337,14 +1327,25 @@ for (partition, status) in stage.task_infos
     }
 
     #[cfg(test)]
-    pub fn output_locations(&self) -> Vec<PartitionLocation> {
+    pub fn output_locations(&self) -> Result<Option<Vec<PartitionLocation>>> {
         match self {
             ExecutionGraph::Running {
                 output_locations, ..
-            } => output_locations.clone(),
-            ExecutionGraph::Completed {
-                output_locations, ..
-            } => output_locations.clone(),
+            } => Ok(Some(output_locations.clone())),
+            ExecutionGraph::Completed { status, .. } => {
+                if let Some(job_status::Status::Successful(status)) = &status.status {
+                    let output_locations = status
+                        .partition_location
+                        .iter()
+                        .cloned()
+                        .map(|p| p.try_into())
+                        .collect::<Result<Vec<_>>>()?;
+
+                    Ok(Some(output_locations))
+                } else {
+                    Ok(None)
+                }
+            }
         }
     }
 
@@ -1708,9 +1709,7 @@ for (partition, status) in stage.task_infos
                 session_id,
                 status,
                 output_partitions,
-                output_locations,
                 scheduler_id,
-                failed_attempts,
                 job_name,
                 start_time,
                 end_time,
@@ -1726,25 +1725,6 @@ for (partition, status) in stage.task_infos
                 let status = status.ok_or_else(|| {
                     BallistaError::Internal("Invalid Execution Graph".to_owned())
                 })?;
-                let output_locations: Vec<PartitionLocation> = output_locations
-                    .into_iter()
-                    .map(|loc| loc.try_into())
-                    .collect::<Result<Vec<_>>>()?;
-
-                let failed_stage_attempts = failed_attempts
-                    .into_iter()
-                    .map(|attempt| {
-                        (
-                            attempt.stage_id as usize,
-                            HashSet::from_iter(
-                                attempt
-                                    .stage_attempt_num
-                                    .into_iter()
-                                    .map(|num| num as usize),
-                            ),
-                        )
-                    })
-                    .collect();
 
                 Ok(ExecutionGraph::Completed {
                     scheduler_id: (!scheduler_id.is_empty()).then_some(scheduler_id),
@@ -1756,8 +1736,6 @@ for (partition, status) in stage.task_infos
                     start_time,
                     end_time,
                     output_partitions: output_partitions as usize,
-                    output_locations,
-                    failed_stage_attempts,
                     circuit_breaker_tripped,
                     circuit_breaker_tripped_labels: HashSet::from_iter(
                         circuit_breaker_tripped_labels,
@@ -1885,8 +1863,6 @@ for (partition, status) in stage.task_infos
                 start_time,
                 end_time,
                 output_partitions,
-                output_locations,
-                failed_stage_attempts,
                 circuit_breaker_tripped,
                 circuit_breaker_tripped_labels,
                 warnings,
@@ -1894,52 +1870,29 @@ for (partition, status) in stage.task_infos
                 completed_stages,
                 total_task_duration_ms,
                 stage_metrics,
-            } => {
-                let output_locations: Vec<protobuf::PartitionLocation> = output_locations
-                    .into_iter()
-                    .map(|loc| loc.try_into())
-                    .collect::<Result<Vec<_>>>()?;
-
-                let failed_attempts: Vec<protobuf::StageAttempts> = failed_stage_attempts
-                    .into_iter()
-                    .map(|(stage_id, attempts)| {
-                        let stage_attempt_num = attempts
-                            .into_iter()
-                            .map(|num| num as u32)
-                            .collect::<Vec<_>>();
-                        protobuf::StageAttempts {
-                            stage_id: stage_id as u32,
-                            stage_attempt_num,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-
-                Ok(protobuf::ExecutionGraph {
-                    graph: Some(Graph::Completed(execution_graph::Completed {
-                        job_id,
-                        job_name,
-                        session_id,
-                        status: Some(status),
-                        queued_at,
-                        start_time,
-                        end_time,
-                        output_partitions: output_partitions as u64,
-                        output_locations,
-                        scheduler_id: scheduler_id.unwrap_or_default(),
-                        failed_attempts,
-                        circuit_breaker_tripped,
-                        circuit_breaker_tripped_labels: circuit_breaker_tripped_labels
-                            .iter()
-                            .cloned()
-                            .collect(),
-                        warnings,
-                        stage_count: stage_count as u32,
-                        completed_stages: completed_stages as u64,
-                        total_task_duration_ms,
-                        stage_metrics,
-                    })),
-                })
-            }
+            } => Ok(protobuf::ExecutionGraph {
+                graph: Some(Graph::Completed(execution_graph::Completed {
+                    job_id,
+                    job_name,
+                    session_id,
+                    status: Some(status),
+                    queued_at,
+                    start_time,
+                    end_time,
+                    output_partitions: output_partitions as u64,
+                    scheduler_id: scheduler_id.unwrap_or_default(),
+                    circuit_breaker_tripped,
+                    circuit_breaker_tripped_labels: circuit_breaker_tripped_labels
+                        .iter()
+                        .cloned()
+                        .collect(),
+                    warnings,
+                    stage_count: stage_count as u32,
+                    completed_stages: completed_stages as u64,
+                    total_task_duration_ms,
+                    stage_metrics,
+                })),
+            }),
         }
     }
 
@@ -2464,7 +2417,7 @@ mod test {
             }
         ));
 
-        let outputs = agg_graph.output_locations();
+        let outputs = agg_graph.output_locations()?.unwrap();
 
         assert_eq!(outputs.len(), agg_graph.output_partitions());
 
@@ -3010,15 +2963,15 @@ mod test {
         assert_eq!(agg_graph.available_tasks(), 8);
 
         // There is one failed stage attempts: Stage 3. Stage 2 does not count to failed attempts
-        assert_eq!(agg_graph.failed_stage_attempts().len(), 1);
+        assert_eq!(agg_graph.failed_stage_attempts().unwrap().len(), 1);
         assert_eq!(
-            agg_graph.failed_stage_attempts().get(&3).cloned(),
+            agg_graph.failed_stage_attempts().unwrap().get(&3).cloned(),
             Some(HashSet::from([0]))
         );
         drain_tasks(&mut agg_graph)?;
         assert!(agg_graph.is_successful(), "Failed to complete agg plan");
         // Failed stage attempts are cleaned
-        assert_eq!(agg_graph.failed_stage_attempts().len(), 0);
+        assert_eq!(agg_graph.failed_stage_attempts().unwrap().len(), 0);
 
         Ok(())
     }
@@ -3231,19 +3184,19 @@ mod test {
 
         println!("GRAPH: {:#?}", agg_graph);
         // There are two failed stage attempts: Stage 2 and Stage 3
-        assert_eq!(agg_graph.failed_stage_attempts().len(), 2);
+        assert_eq!(agg_graph.failed_stage_attempts().unwrap().len(), 2);
         assert_eq!(
-            agg_graph.failed_stage_attempts().get(&2).cloned(),
+            agg_graph.failed_stage_attempts().unwrap().get(&2).cloned(),
             Some(HashSet::from([1]))
         );
         assert_eq!(
-            agg_graph.failed_stage_attempts().get(&3).cloned(),
+            agg_graph.failed_stage_attempts().unwrap().get(&3).cloned(),
             Some(HashSet::from([0]))
         );
 
         drain_tasks(&mut agg_graph)?;
         assert!(agg_graph.is_successful(), "Failed to complete agg plan");
-        assert_eq!(agg_graph.failed_stage_attempts().len(), 0);
+        assert_eq!(agg_graph.failed_stage_attempts().unwrap().len(), 0);
         Ok(())
     }
 
