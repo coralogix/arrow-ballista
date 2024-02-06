@@ -121,23 +121,23 @@ pub struct ExecutionGraph {
     /// Timestamp of when this job was submitted
     pub queued_at: u64,
     /// Job start time
-    pub start_time: u64,
+    start_time: u64,
     /// Job end time
-    pub end_time: u64,
+    end_time: u64,
     /// Map from Stage ID -> ExecutionStage
-    pub stages: HashMap<usize, ExecutionStage>,
+    stages: HashMap<usize, ExecutionStage>,
     /// Total number fo output partitions
     output_partitions: usize,
     /// Locations of this `ExecutionGraph` final output locations
-    pub output_locations: Vec<PartitionLocation>,
+    output_locations: Vec<PartitionLocation>,
     /// Task ID generator, generate unique TID in the execution graph
     task_id_gen: usize,
     /// Failed stage attempts, record the failed stage attempts to limit the retry times.
     /// Map from Stage ID -> Set<Stage_ATTPMPT_NUM>
     failed_stage_attempts: HashMap<usize, HashSet<usize>>,
-    circuit_breaker_tripped: bool,
-    circuit_breaker_tripped_labels: HashSet<String>,
-    warnings: Vec<String>,
+    pub(crate) circuit_breaker_tripped: bool,
+    pub(crate) circuit_breaker_tripped_labels: HashSet<String>,
+    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -203,7 +203,33 @@ impl ExecutionGraph {
         })
     }
 
-    pub fn calculate_stage_metrics(
+    pub fn next_task_id(&mut self) -> usize {
+        let new_tid = self.task_id_gen;
+        self.task_id_gen += 1;
+        new_tid
+    }
+
+    pub fn output_locations(&self) -> &[PartitionLocation] {
+        &self.output_locations
+    }
+
+    pub fn start_time(&self) -> u64 {
+        self.start_time
+    }
+
+    pub fn end_time(&self) -> u64 {
+        self.end_time
+    }
+
+    pub fn job_id(&self) -> &str {
+        self.job_id.as_str()
+    }
+
+    pub fn job_name(&self) -> &str {
+        self.job_name.as_str()
+    }
+
+    pub(crate) fn calculate_stage_metrics(
         stages: &HashMap<usize, ExecutionStage>,
     ) -> Result<Vec<StageMetrics>> {
         let stage_count = stages.len();
@@ -237,7 +263,7 @@ impl ExecutionGraph {
         Ok(metrics)
     }
 
-    pub fn calculate_completed_stages_and_total_duration(
+    pub(crate) fn calculate_completed_stages_and_total_duration(
         stages: &HashMap<usize, ExecutionStage>,
     ) -> (usize, u64) {
         let mut completed_stages = 0;
@@ -275,6 +301,14 @@ impl ExecutionGraph {
             }
             _ => Ok(Vec::default()),
         }
+    }
+
+    pub(crate) fn stages(&self) -> &HashMap<usize, ExecutionStage> {
+        &self.stages
+    }
+
+    pub(crate) fn stage_count(&self) -> usize {
+        self.stages.len()
     }
 
     /// An ExecutionGraph is successful if all its stages are successful
@@ -1019,8 +1053,7 @@ impl ExecutionGraph {
         });
 
         if find_candidate {
-            let task_id = self.task_id_gen;
-            self.task_id_gen += 1;
+            let task_id = self.next_task_id();
             let next_task = self.stages.iter_mut().find(|(_stage_id, stage)| {
                     if let ExecutionStage::Running(stage) = stage {
                         stage.available_tasks() > 0
@@ -1485,8 +1518,7 @@ for (partition, status) in stage.task_infos
             return Ok(vec![]);
         }
 
-        let task_id = self.task_id_gen;
-        self.task_id_gen += 1;
+        let task_id = self.next_task_id();
         let stage = if let Some(stage) = self.stages.get_mut(&stage_id) {
             stage
         } else {

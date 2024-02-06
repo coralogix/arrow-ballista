@@ -61,7 +61,7 @@ impl<'a> ExecutionGraphDot<'a> {
         graph: &ExecutionGraph,
         stage_id: usize,
     ) -> Result<String, fmt::Error> {
-        if let Some(stage) = graph.stages.get(&stage_id) {
+        if let Some(stage) = graph.stages().get(&stage_id) {
             let mut dot = String::new();
             writeln!(&mut dot, "digraph G {{")?;
             let stage_name = format!("stage_{stage_id}");
@@ -75,7 +75,7 @@ impl<'a> ExecutionGraphDot<'a> {
 
     fn _generate(&mut self) -> Result<String, fmt::Error> {
         // sort the stages by key for deterministic output for tests
-        let mut stage_ids: Vec<usize> = self.graph.stages.keys().cloned().collect();
+        let mut stage_ids: Vec<usize> = self.graph.stages().keys().cloned().collect();
         stage_ids.sort();
 
         let mut dot = String::new();
@@ -87,7 +87,7 @@ impl<'a> ExecutionGraphDot<'a> {
 
         #[allow(clippy::explicit_counter_loop)]
         for id in &stage_ids {
-            let stage = self.graph.stages.get(id).unwrap(); // safe unwrap
+            let stage = self.graph.stages().get(id).unwrap(); // safe unwrap
             let stage_name = format!("stage_{id}");
             writeln!(&mut dot, "\tsubgraph cluster{cluster} {{")?;
             writeln!(

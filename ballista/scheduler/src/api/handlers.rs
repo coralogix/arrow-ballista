@@ -208,7 +208,7 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
     {
         return Ok(warp::reply::json(&QueryStagesResponse {
             stages: graph
-                .stages
+                .stages()
                 .iter()
                 .map(|(id, stage)| {
                     let mut summary = QueryStageSummary {

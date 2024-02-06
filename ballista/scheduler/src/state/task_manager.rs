@@ -945,16 +945,16 @@ impl JobOverviewExt for JobOverview {
 impl From<&ExecutionGraph> for JobOverview {
     fn from(value: &ExecutionGraph) -> Self {
         let (completed_stages, total_task_duration_ms) =
-            ExecutionGraph::calculate_completed_stages_and_total_duration(&value.stages);
+            ExecutionGraph::calculate_completed_stages_and_total_duration(value.stages());
 
         Self {
             job_id: value.job_id.clone(),
             job_name: value.job_name.clone(),
             status: Some(value.status.clone()),
             queued_at: value.queued_at,
-            start_time: value.start_time,
-            end_time: value.end_time,
-            num_stages: value.stages.len() as u32,
+            start_time: value.start_time(),
+            end_time: value.end_time(),
+            num_stages: value.stage_count() as u32,
             completed_stages: completed_stages as u32,
             total_task_duration_ms,
         }
