@@ -119,7 +119,7 @@ pub struct ExecutionGraph {
     /// Status of this job
     status: JobStatus,
     /// Timestamp of when this job was submitted
-    pub queued_at: u64,
+    queued_at: u64,
     /// Job start time
     start_time: u64,
     /// Job end time
@@ -217,6 +217,10 @@ impl ExecutionGraph {
         self.start_time
     }
 
+    pub fn queued_at(&self) -> u64 {
+        self.queued_at
+    }
+
     pub fn end_time(&self) -> u64 {
         self.end_time
     }
@@ -231,6 +235,10 @@ impl ExecutionGraph {
 
     pub fn job_name(&self) -> &str {
         self.job_name.as_str()
+    }
+
+    pub fn session_id(&self) -> &str {
+        self.session_id.as_str()
     }
 
     pub(crate) fn calculate_stage_metrics(

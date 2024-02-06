@@ -596,7 +596,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         }
 
         let proto: protobuf::ExecutionGraph = decode_protobuf(value.as_slice())?;
-        let session = self.get_session(proto.session_id.as_str()).await?;
+        let session = self.get_session(&proto.session_id).await?;
 
         Ok(Some(
             ExecutionGraph::decode_execution_graph(

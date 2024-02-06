@@ -206,7 +206,7 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
         .await
         .map_err(|_| warp::reject())?
     {
-        return Ok(warp::reply::json(&QueryStagesResponse {
+        Ok(warp::reply::json(&QueryStagesResponse {
             stages: graph
                 .stages()
                 .iter()
@@ -253,10 +253,10 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
                     summary
                 })
                 .collect(),
-        }));
+        }))
+    } else {
+        Ok(warp::reply::json(&QueryStagesResponse { stages: vec![] }))
     }
-
-    Ok(warp::reply::json(&QueryStagesResponse { stages: vec![] }))
 }
 
 fn get_elapsed_compute_nanos(metrics: &[MetricsSet]) -> String {

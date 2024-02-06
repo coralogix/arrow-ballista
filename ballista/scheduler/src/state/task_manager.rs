@@ -951,7 +951,7 @@ impl From<&ExecutionGraph> for JobOverview {
             job_id: value.job_id.clone(),
             job_name: value.job_name.clone(),
             status: Some(value.status()),
-            queued_at: value.queued_at,
+            queued_at: value.queued_at(),
             start_time: value.start_time(),
             end_time: value.end_time(),
             num_stages: value.stage_count() as u32,
