@@ -1278,9 +1278,8 @@ for (partition, status) in stage.task_infos
         }
 
         let partition_location = self
-            .output_locations
-            .clone()
-            .into_iter()
+            .output_locations()
+            .iter()
             .map(|l| l.try_into())
             .collect::<Result<Vec<_>>>()?;
         let (completed_stages, total_task_duration_ms) =
@@ -1425,8 +1424,8 @@ for (partition, status) in stage.task_infos
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::ExecutionGraph> {
         let stages = graph
-            .stages
-            .into_values()
+            .stages()
+            .values()
             .map(|stage| {
                 let stage_type = match stage {
                     ExecutionStage::UnResolved(stage) => {
@@ -1436,14 +1435,14 @@ for (partition, status) in stage.task_infos
                         StageType::ResolvedStage(ResolvedStage::encode(stage, codec)?)
                     }
                     ExecutionStage::Running(stage) => StageType::ResolvedStage(
-                        ResolvedStage::encode(stage.to_resolved(), codec)?,
+                        ResolvedStage::encode(&stage.to_resolved(), codec)?,
                     ),
-                    ExecutionStage::Successful(stage) => StageType::SuccessfulStage(
-                        SuccessfulStage::encode(graph.job_id.clone(), stage, codec)?,
-                    ),
-                    ExecutionStage::Failed(stage) => StageType::FailedStage(
-                        FailedStage::encode(graph.job_id.clone(), stage, codec)?,
-                    ),
+                    ExecutionStage::Successful(stage) => {
+                        StageType::SuccessfulStage(SuccessfulStage::encode(stage, codec)?)
+                    }
+                    ExecutionStage::Failed(stage) => {
+                        StageType::FailedStage(FailedStage::encode(stage, codec)?)
+                    }
                 };
                 Ok(protobuf::ExecutionGraphStage {
                     stage_type: Some(stage_type),
@@ -1452,8 +1451,8 @@ for (partition, status) in stage.task_infos
             .collect::<Result<Vec<_>>>()?;
 
         let output_locations: Vec<protobuf::PartitionLocation> = graph
-            .output_locations
-            .into_iter()
+            .output_locations()
+            .iter()
             .map(|loc| loc.try_into())
             .collect::<Result<Vec<_>>>()?;
 

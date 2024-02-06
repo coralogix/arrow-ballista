@@ -432,7 +432,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     async fn save_executor_metadata(&self, metadata: ExecutorMetadata) -> Result<()> {
         let executor_id = metadata.id.clone();
 
-        let proto: protobuf::ExecutorMetadata = metadata.clone().into();
+        let proto: protobuf::ExecutorMetadata = (&metadata).into();
         self.store
             .put(
                 Keyspace::Executors,
