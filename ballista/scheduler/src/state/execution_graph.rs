@@ -111,9 +111,9 @@ pub struct ExecutionGraph {
     /// Curator scheduler name. Can be `None` is `ExecutionGraph` is not currently curated by any scheduler
     scheduler_id: Option<String>,
     /// ID for this job
-    pub job_id: String,
+    job_id: String,
     /// Job name, can be empty string
-    pub job_name: String,
+    job_name: String,
     /// Session ID for this job
     session_id: String,
     /// Status of this job
@@ -301,18 +301,6 @@ impl ExecutionGraph {
         }
 
         (completed_stages, total_task_duration_ms)
-    }
-
-    pub fn stage_metrics(&self) -> Result<Vec<StageMetrics>> {
-        match self.status.status.as_ref() {
-            Some(Status::Successful(SuccessfulJob { stage_metrics, .. })) => {
-                Ok(stage_metrics.clone())
-            }
-            Some(Status::Running(RunningJob { .. })) => {
-                Self::calculate_stage_metrics(&self.stages)
-            }
-            _ => Ok(Vec::default()),
-        }
     }
 
     pub(crate) fn stages(&self) -> &HashMap<usize, ExecutionStage> {

@@ -473,7 +473,7 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn submit_job(self, graph: &ExecutionGraph) -> Result<Self> {
-        self.state.submit_job(graph.job_id.as_str(), graph).await?;
+        self.state.submit_job(graph.job_id(), graph).await?;
         Ok(self)
     }
 
@@ -495,7 +495,7 @@ impl<S: JobState> JobStateTest<S> {
     }
 
     pub async fn update_job(self, graph: &ExecutionGraph) -> Result<Self> {
-        self.state.save_job(graph.job_id.as_str(), graph).await?;
+        self.state.save_job(graph.job_id(), graph).await?;
         Ok(self)
     }
 
@@ -553,7 +553,7 @@ pub async fn test_job_lifecycle<S: JobState>(
 ) -> Result<()> {
     let test = JobStateTest::new(state).await?;
 
-    let job_id = graph.job_id.clone();
+    let job_id = graph.job_id().to_owned();
 
     let test = test
         .queue_job(&job_id)
@@ -582,13 +582,13 @@ pub async fn test_job_planning_failure<S: JobState>(
 ) -> Result<()> {
     let test = JobStateTest::new(state).await?;
 
-    let job_id = graph.job_id.to_string();
+    let job_id = graph.job_id();
 
-    test.queue_job(&job_id)
+    test.queue_job(job_id)
         .await?
-        .fail_planning(&job_id)
+        .fail_planning(job_id)
         .await?
-        .assert_job_failed(&job_id)
+        .assert_job_failed(job_id)
         .await?;
 
     Ok(())

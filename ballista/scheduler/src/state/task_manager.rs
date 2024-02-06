@@ -948,8 +948,8 @@ impl From<&ExecutionGraph> for JobOverview {
             ExecutionGraph::calculate_completed_stages_and_total_duration(value.stages());
 
         Self {
-            job_id: value.job_id.clone(),
-            job_name: value.job_name.clone(),
+            job_id: value.job_id().to_string(),
+            job_name: value.job_name().to_string(),
             status: Some(value.status()),
             queued_at: value.queued_at(),
             start_time: value.start_time(),
