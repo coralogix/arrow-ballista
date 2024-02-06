@@ -332,7 +332,7 @@ impl JobState for InMemoryJobState {
         }
 
         if let Some(graph) = self.running_jobs.get(job_id).as_deref() {
-            return Ok(Some(graph.status.clone()));
+            return Ok(Some(graph.status()));
         }
 
         if let Some(status) = self.completed_jobs.get(job_id).as_deref() {
@@ -357,7 +357,7 @@ impl JobState for InMemoryJobState {
     }
 
     async fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
-        let status = graph.status.clone();
+        let status = graph.status();
 
         debug!("saving state for job {job_id} with status {:?}", status);
 
@@ -374,7 +374,7 @@ impl JobState for InMemoryJobState {
         {
             self.job_event_sender.send(&JobStateEvent::JobUpdated {
                 job_id: job_id.to_string(),
-                status: old_status.status,
+                status: old_status.status(),
             })
         }
 

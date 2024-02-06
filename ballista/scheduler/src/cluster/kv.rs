@@ -528,7 +528,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
 
     async fn submit_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
         if self.queued_jobs.get(job_id).is_some() {
-            let status = graph.status.clone();
+            let status = graph.status();
             let encoded_graph =
                 ExecutionGraph::encode_execution_graph(graph.clone(), &self.codec)?;
 
@@ -610,7 +610,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     }
 
     async fn save_job(&self, job_id: &str, graph: &ExecutionGraph) -> Result<()> {
-        let status = graph.status.clone();
+        let status = graph.status();
         let encoded_graph =
             ExecutionGraph::encode_execution_graph(graph.clone(), &self.codec)?;
 

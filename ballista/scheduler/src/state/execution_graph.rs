@@ -117,7 +117,7 @@ pub struct ExecutionGraph {
     /// Session ID for this job
     session_id: String,
     /// Status of this job
-    pub status: JobStatus,
+    status: JobStatus,
     /// Timestamp of when this job was submitted
     pub queued_at: u64,
     /// Job start time
@@ -219,6 +219,10 @@ impl ExecutionGraph {
 
     pub fn end_time(&self) -> u64 {
         self.end_time
+    }
+
+    pub fn status(&self) -> JobStatus {
+        self.status.clone()
     }
 
     pub fn job_id(&self) -> &str {

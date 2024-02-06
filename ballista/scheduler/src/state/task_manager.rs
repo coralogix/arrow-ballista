@@ -486,7 +486,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         if let Some(graph) = self.get_active_execution_graph(job_id) {
             let guard = graph.read().await;
 
-            Ok(Some(guard.status.clone()))
+            Ok(Some(guard.status()))
         } else {
             self.state.get_job_status(job_id).await
         }
@@ -728,7 +728,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             graph.revive();
 
-            debug!(job_id, "saving job with status {:?}", graph.status);
+            debug!(job_id, "saving job with status {:?}", graph.status());
 
             self.state.save_job(job_id, &graph).await?;
 
@@ -950,7 +950,7 @@ impl From<&ExecutionGraph> for JobOverview {
         Self {
             job_id: value.job_id.clone(),
             job_name: value.job_name.clone(),
-            status: Some(value.status.clone()),
+            status: Some(value.status()),
             queued_at: value.queued_at,
             start_time: value.start_time(),
             end_time: value.end_time(),
