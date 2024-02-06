@@ -78,7 +78,7 @@ impl Debug for ExecutionStage {
 
 impl ExecutionStage {
     /// Get the name of the variant
-    pub fn variant_name(&self) -> &str {
+    pub(crate) fn variant_name(&self) -> &str {
         match self {
             ExecutionStage::UnResolved(_) => "Unresolved",
             ExecutionStage::Resolved(_) => "Resolved",
@@ -89,7 +89,7 @@ impl ExecutionStage {
     }
 
     /// Get the query plan for this query stage
-    pub fn plan(&self) -> &dyn ExecutionPlan {
+    pub(crate) fn plan(&self) -> &dyn ExecutionPlan {
         match self {
             ExecutionStage::UnResolved(stage) => stage.plan.as_ref(),
             ExecutionStage::Resolved(stage) => stage.plan.as_ref(),
@@ -99,7 +99,7 @@ impl ExecutionStage {
         }
     }
 
-    pub fn stage_metrics(&self) -> Option<&Vec<MetricsSet>> {
+    pub(crate) fn stage_metrics(&self) -> Option<&Vec<MetricsSet>> {
         match self {
             ExecutionStage::UnResolved(_) | ExecutionStage::Resolved(_) => None,
             ExecutionStage::Running(RunningStage { stage_metrics, .. }) => {
@@ -255,7 +255,7 @@ pub(crate) struct FailedStage {
 }
 
 #[derive(Clone)]
-pub struct TaskInfo {
+pub(crate) struct TaskInfo {
     /// Task ID
     pub(super) task_id: usize,
     /// Task scheduled time
@@ -1247,7 +1247,7 @@ impl Debug for FailedStage {
 /// When all tasks for the child stage are complete, it will mark the `StageOutput`
 /// as complete.
 #[derive(Clone, Debug, Default)]
-pub struct StageOutput {
+pub(crate) struct StageOutput {
     /// Map from partition -> partition locations
     pub partition_locations: HashMap<usize, Vec<PartitionLocation>>,
     /// Flag indicating whether all tasks are complete

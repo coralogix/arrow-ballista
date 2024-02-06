@@ -553,7 +553,7 @@ pub async fn test_job_lifecycle<S: JobState>(
 ) -> Result<()> {
     let test = JobStateTest::new(state).await?;
 
-    let job_id = graph.job_id().to_owned();
+    let job_id = graph.job_id().to_string();
 
     let test = test
         .queue_job(&job_id)
