@@ -994,6 +994,7 @@ impl ExecutionGraph {
         }
 
         if !tasks.is_empty() {
+            tasks.shrink_to_fit();
             return Some(tasks);
         }
 
