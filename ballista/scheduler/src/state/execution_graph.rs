@@ -379,6 +379,7 @@ impl ExecutionGraph {
         max_task_failures: usize,
         max_stage_failures: usize,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
+        let job_id = self.job_id().to_owned();
         // First of all, classify the statuses by stages
         let mut job_task_statuses: HashMap<usize, Vec<TaskStatus>> = HashMap::new();
         for task_status in task_statuses {
@@ -392,13 +393,7 @@ impl ExecutionGraph {
         self.revive();
 
         let current_running_stages: HashSet<usize> =
-            HashSet::from_iter(self.stages.iter().filter_map(|(stage_id, stage)| {
-                if let ExecutionStage::Running(_running) = stage {
-                    Some(*stage_id)
-                } else {
-                    None
-                }
-            }));
+            HashSet::from_iter(self.running_stages());
 
         // Copy the failed stage attempts from self
         let mut failed_stage_attempts_tmp: HashMap<usize, HashSet<usize>> =
@@ -427,7 +422,7 @@ impl ExecutionGraph {
                                 task_status.stage_attempt_num as usize;
                             if task_stage_attempt_num < running_stage.stage_attempt_num {
                                 warn!(
-                                            self.job_id, task_status.task_id, stage_id, task_stage_attempt_num, stage_id, stage_attempt = running_stage.stage_attempt_num,
+                                            job_id, task_id = task_status.task_id, task_stage_attempt_num, stage_id, stage_attempt = running_stage.stage_attempt_num,
                                             "ignoring task status update, more recent stage attempt running",
                                         );
                                 continue;
@@ -436,7 +431,7 @@ impl ExecutionGraph {
                             let task_identity = format!(
                                 "TID {} {}/{}.{}/{:?}",
                                 task_status.task_id,
-                                self.job_id,
+                                job_id,
                                 stage_id,
                                 task_stage_attempt_num,
                                 partitions
@@ -467,7 +462,7 @@ impl ExecutionGraph {
                                                 fetch_partiton_error.executor_id.clone();
 
                                             if !failed_stages.is_empty() {
-                                                warn!(job_id = self.job_id, task_identity, "ignoring fetch partition error, stage was failed");
+                                                warn!(job_id, task_identity, "ignoring fetch partition error, stage was failed");
                                             } else {
                                                 // There are different removal strategies here.
                                                 // We can choose just remove the map_partition_id in the FetchPartitionError, when resubmit the input stage, there are less tasks
@@ -558,7 +553,7 @@ impl ExecutionGraph {
                                                             "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
                                                             stage_id, max_task_failures, failed_task.failed_reason
                                                         );
-                                                error!(job_id = self.job_id, stage_id, max_task_failures, reason = ?failed_task.failed_reason, "stage failed, max task failures exceeded");
+                                                error!(job_id, stage_id, max_task_failures, reason = ?failed_task.failed_reason, "stage failed, max task failures exceeded");
                                                 failed_stages.insert(
                                                     stage_id,
                                                     Arc::new(
@@ -581,7 +576,7 @@ impl ExecutionGraph {
                                     None => {
                                         let error_msg = format!(
                                                     "Task {partitions:?} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
-                                        error!(?partitions, stage_id, job_id = self.job_id, "task failed for unknown reason, failing stage");
+                                        error!(?partitions, stage_id, job_id, "task failed for unknown reason, failing stage");
                                         failed_stages.insert(
                                             stage_id,
                                             Arc::new(execution_error::Error::Internal(
@@ -600,12 +595,12 @@ impl ExecutionGraph {
                                 if let Err(err) =
                                     running_stage.update_task_metrics(operator_metrics)
                                 {
-                                    warn!(job_id = self.job_id, stage_id = running_stage.stage_id, error = %err, "error updating task metrics");
+                                    warn!(job_id, stage_id = running_stage.stage_id, error = %err, "error updating task metrics");
                                 }
 
                                 if let Some(executor) = executor {
                                     locations.append(&mut partition_to_location(
-                                        self.job_id.as_str(),
+                                        &job_id,
                                         partitions.iter().map(|p| *p as usize).collect(),
                                         stage_id,
                                         executor,
@@ -615,8 +610,7 @@ impl ExecutionGraph {
                             } else {
                                 warn!(
                                     task_identity,
-                                    job_id = self.job_id,
-                                    "task status is invalid for updating",
+                                    job_id, "task status is invalid for updating",
                                 );
                             }
                         }
@@ -658,7 +652,7 @@ impl ExecutionGraph {
                         let task_identity = format!(
                             "TID {} {}/{}.{}/{:?}",
                             task_status.task_id,
-                            self.job_id,
+                            job_id,
                             stage_id,
                             task_stage_attempt_num,
                             partitions
@@ -742,12 +736,12 @@ impl ExecutionGraph {
                             }
                         }
                         if should_ignore {
-                            warn!(task_identity, job_id = self.job_id, stage_id, "ignoring task status updates on stage, stage is unresolved");
+                            warn!(task_identity, job_id, stage_id, "ignoring task status updates on stage, stage is unresolved");
                         }
                     }
                 } else {
                     warn!(
-                        job_id = self.job_id,
+                        job_id,
                         stage_id,
                         partitions = ?stage_task_statuses.into_iter().map(|task_status| task_status.partitions).collect::<Vec<_>>(),
                         "cannot update tasks statuses on stage, stage is not running",
@@ -756,7 +750,7 @@ impl ExecutionGraph {
             } else {
                 return Err(BallistaError::Internal(format!(
                     "Invalid stage ID {stage_id} for job {}",
-                    self.job_id
+                    job_id
                 )));
             }
         }
@@ -789,14 +783,13 @@ impl ExecutionGraph {
                     }
                 } else {
                     warn!(
-                        job_id = self.job_id,
+                        job_id,
                         stage_id, "cannot resubmit stage, stage is not successful"
                     );
                 }
             } else {
                 return Err(BallistaError::Internal(format!(
-                    "Invalid stage ID {stage_id} for job {}",
-                    self.job_id
+                    "Invalid stage ID {stage_id} for job {job_id}",
                 )));
             }
         }
@@ -816,15 +809,14 @@ impl ExecutionGraph {
                     running_stage.reset_task_info(missing_parts.iter().copied());
                 } else {
                     warn!(
-                        job_id = self.job_id,
+                        job_id,
                         stage_id,
                         "cannot reset running tasks on stage, stage is not running"
                     );
                 }
             } else {
                 return Err(BallistaError::Internal(format!(
-                    "Invalid stage ID {stage_id} for job {}",
-                    self.job_id
+                    "Invalid stage ID {stage_id} for job {job_id}",
                 )));
             }
         }
