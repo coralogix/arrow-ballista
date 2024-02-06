@@ -343,11 +343,7 @@ impl JobState for InMemoryJobState {
     }
 
     async fn get_execution_graph(&self, job_id: &str) -> Result<Option<ExecutionGraph>> {
-        if let Some(graph) = self.running_jobs.get(job_id) {
-            return Ok(Some(graph.clone()));
-        }
-
-        Ok(None)
+        Ok(self.running_jobs.get(job_id).map(|graph| graph.clone()))
     }
 
     async fn try_acquire_job(&self, _job_id: &str) -> Result<Option<ExecutionGraph>> {
