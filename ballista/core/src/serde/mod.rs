@@ -319,7 +319,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     location: location
                         .iter()
                         .map(|l| {
-                            l.clone().try_into().map_err(|e| {
+                            l.try_into().map_err(|e| {
                                 DataFusionError::Internal(format!(
                                     "Fail to get partition location due to {e:?}"
                                 ))

@@ -582,13 +582,13 @@ pub async fn test_job_planning_failure<S: JobState>(
 ) -> Result<()> {
     let test = JobStateTest::new(state).await?;
 
-    let job_id = graph.job_id().to_string();
+    let job_id = graph.job_id();
 
-    test.queue_job(&job_id)
+    test.queue_job(job_id)
         .await?
-        .fail_planning(&job_id)
+        .fail_planning(job_id)
         .await?
-        .assert_job_failed(&job_id)
+        .assert_job_failed(job_id)
         .await?;
 
     Ok(())

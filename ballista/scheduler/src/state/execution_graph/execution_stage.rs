@@ -458,14 +458,14 @@ impl UnresolvedStage {
     }
 
     pub(super) fn encode<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
-        stage: UnresolvedStage,
+        stage: &UnresolvedStage,
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::UnResolvedStage> {
         let mut plan: Vec<u8> = vec![];
-        U::try_from_physical_plan(stage.plan, codec.physical_extension_codec())
+        U::try_from_physical_plan(stage.plan.clone(), codec.physical_extension_codec())
             .and_then(|proto| proto.try_encode(&mut plan))?;
 
-        let inputs = encode_inputs(stage.inputs)?;
+        let inputs = encode_inputs(&stage.inputs)?;
 
         let output_partitioning =
             hash_partitioning_to_proto(stage.output_partitioning.as_ref())?;
@@ -474,11 +474,11 @@ impl UnresolvedStage {
             stage_id: stage.stage_id as u32,
             stage_attempt_num: stage.stage_attempt_num as u32,
             output_partitioning,
-            output_links: stage.output_links.into_iter().map(|l| l as u32).collect(),
+            output_links: stage.output_links.iter().map(|l| *l as u32).collect(),
             inputs,
             plan,
             last_attempt_failure_reasons: Vec::from_iter(
-                stage.last_attempt_failure_reasons,
+                stage.last_attempt_failure_reasons.clone(),
             ),
         })
     }
@@ -598,28 +598,28 @@ impl ResolvedStage {
     }
 
     pub(super) fn encode<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
-        stage: ResolvedStage,
+        stage: &ResolvedStage,
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::ResolvedStage> {
         let mut plan: Vec<u8> = vec![];
-        U::try_from_physical_plan(stage.plan, codec.physical_extension_codec())
+        U::try_from_physical_plan(stage.plan.clone(), codec.physical_extension_codec())
             .and_then(|proto| proto.try_encode(&mut plan))?;
 
         let output_partitioning =
             hash_partitioning_to_proto(stage.output_partitioning.as_ref())?;
 
-        let inputs = encode_inputs(stage.inputs)?;
+        let inputs = encode_inputs(&stage.inputs)?;
 
         Ok(protobuf::ResolvedStage {
             stage_id: stage.stage_id as u32,
             stage_attempt_num: stage.stage_attempt_num as u32,
             partitions: stage.partitions as u32,
             output_partitioning,
-            output_links: stage.output_links.into_iter().map(|l| l as u32).collect(),
+            output_links: stage.output_links.iter().map(|l| *l as u32).collect(),
             inputs,
             plan,
             last_attempt_failure_reasons: Vec::from_iter(
-                stage.last_attempt_failure_reasons,
+                stage.last_attempt_failure_reasons.clone(),
             ),
             resolved_at: stage.resolved_at,
         })
@@ -1047,30 +1047,29 @@ impl SuccessfulStage {
     }
 
     pub(super) fn encode<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
-        _job_id: String,
-        stage: SuccessfulStage,
+        stage: &SuccessfulStage,
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::SuccessfulStage> {
         let stage_id = stage.stage_id;
 
         let mut plan: Vec<u8> = vec![];
-        U::try_from_physical_plan(stage.plan, codec.physical_extension_codec())
+        U::try_from_physical_plan(stage.plan.clone(), codec.physical_extension_codec())
             .and_then(|proto| proto.try_encode(&mut plan))?;
 
         let output_partitioning =
             hash_partitioning_to_proto(stage.output_partitioning.as_ref())?;
 
-        let inputs = encode_inputs(stage.inputs)?;
+        let inputs = encode_inputs(&stage.inputs)?;
         let task_infos = stage
             .task_infos
-            .into_iter()
+            .iter()
             .enumerate()
             .map(|(partition, task_info)| encode_taskinfo(task_info, partition))
             .collect();
 
         let stage_metrics = stage
             .stage_metrics
-            .into_iter()
+            .iter()
             .map(|m| m.try_into())
             .collect::<Result<Vec<_>>>()?;
 
@@ -1079,7 +1078,7 @@ impl SuccessfulStage {
             stage_attempt_num: stage.stage_attempt_num as u32,
             partitions: stage.partitions as u32,
             output_partitioning,
-            output_links: stage.output_links.into_iter().map(|l| l as u32).collect(),
+            output_links: stage.output_links.iter().map(|l| *l as u32).collect(),
             inputs,
             plan,
             task_infos,
@@ -1180,14 +1179,13 @@ impl FailedStage {
     }
 
     pub(super) fn encode<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>(
-        _job_id: String,
-        stage: FailedStage,
+        stage: &FailedStage,
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::FailedStage> {
         let stage_id = stage.stage_id;
 
         let mut plan: Vec<u8> = vec![];
-        U::try_from_physical_plan(stage.plan, codec.physical_extension_codec())
+        U::try_from_physical_plan(stage.plan.clone(), codec.physical_extension_codec())
             .and_then(|proto| proto.try_encode(&mut plan))?;
 
         let output_partitioning =
@@ -1195,30 +1193,33 @@ impl FailedStage {
 
         let task_infos: Vec<protobuf::TaskInfo> = stage
             .task_infos
-            .into_iter()
+            .iter()
             .enumerate()
             .filter_map(|(partition, task_info)| {
-                task_info.map(|info| encode_taskinfo(info, partition))
+                task_info
+                    .as_ref()
+                    .map(|info| encode_taskinfo(info, partition))
             })
             .collect();
 
-        let stage_metrics = stage
-            .stage_metrics
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| m.try_into())
-            .collect::<Result<Vec<_>>>()?;
+        let stage_metrics = match stage.stage_metrics.as_ref() {
+            Some(metrics) => metrics
+                .iter()
+                .map(|m| m.try_into())
+                .collect::<Result<Vec<_>>>()?,
+            _ => Vec::default(),
+        };
 
         Ok(protobuf::FailedStage {
             stage_id: stage_id as u32,
             stage_attempt_num: stage.stage_attempt_num as u32,
             partitions: stage.partitions as u32,
             output_partitioning,
-            output_links: stage.output_links.into_iter().map(|l| l as u32).collect(),
+            output_links: stage.output_links.iter().map(|l| *l as u32).collect(),
             plan,
             task_infos,
             stage_metrics,
-            error_message: stage.error_message,
+            error_message: stage.error_message.clone(),
         })
     }
 }
@@ -1315,20 +1316,20 @@ fn decode_inputs(
 }
 
 fn encode_inputs(
-    stage_inputs: HashMap<usize, StageOutput>,
+    stage_inputs: &HashMap<usize, StageOutput>,
 ) -> Result<Vec<GraphStageInput>> {
     let mut inputs: Vec<protobuf::GraphStageInput> = vec![];
-    for (stage_id, output) in stage_inputs.into_iter() {
+    for (stage_id, output) in stage_inputs.iter() {
         inputs.push(protobuf::GraphStageInput {
-            stage_id: stage_id as u32,
+            stage_id: *stage_id as u32,
             partition_locations: output
                 .partition_locations
-                .into_iter()
+                .iter()
                 .map(|(partition, locations)| {
                     Ok(protobuf::TaskInputPartitions {
-                        partition: partition as u32,
+                        partition: *partition as u32,
                         partition_location: locations
-                            .into_iter()
+                            .iter()
                             .map(|l| l.try_into())
                             .collect::<Result<Vec<_>>>()?,
                     })
@@ -1365,12 +1366,14 @@ fn decode_taskinfo(task_info: protobuf::TaskInfo) -> TaskInfo {
     }
 }
 
-fn encode_taskinfo(task_info: TaskInfo, partition_id: usize) -> protobuf::TaskInfo {
-    let task_info_status = match task_info.task_status {
-        task_status::Status::Running(running) => task_info::Status::Running(running),
-        task_status::Status::Failed(failed) => task_info::Status::Failed(failed),
+fn encode_taskinfo(task_info: &TaskInfo, partition_id: usize) -> protobuf::TaskInfo {
+    let task_info_status = match &task_info.task_status {
+        task_status::Status::Running(running) => {
+            task_info::Status::Running(running.clone())
+        }
+        task_status::Status::Failed(failed) => task_info::Status::Failed(failed.clone()),
         task_status::Status::Successful(success) => {
-            task_info::Status::Successful(success)
+            task_info::Status::Successful(success.clone())
         }
     };
     protobuf::TaskInfo {

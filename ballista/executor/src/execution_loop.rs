@@ -313,7 +313,7 @@ async fn run_received_task<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 
         let plan_metrics = query_stage_exec.collect_plan_metrics();
         let operator_metrics = plan_metrics
-            .into_iter()
+            .iter()
             .map(|m| m.try_into())
             .collect::<Result<Vec<_>, BallistaError>>()
             .ok();

@@ -60,18 +60,18 @@ impl TryInto<protobuf::Action> for Action {
     }
 }
 
-impl TryInto<protobuf::PartitionLocation> for PartitionLocation {
+impl TryInto<protobuf::PartitionLocation> for &PartitionLocation {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<protobuf::PartitionLocation, Self::Error> {
         Ok(protobuf::PartitionLocation {
-            job_id: self.job_id,
+            job_id: self.job_id.clone(),
             stage_id: self.stage_id as u32,
-            map_partitions: self.map_partitions.into_iter().map(|p| p as u32).collect(),
+            map_partitions: self.map_partitions.iter().map(|p| *p as u32).collect(),
             output_partition: self.output_partition as u32,
-            executor_meta: Some(self.executor_meta.into()),
+            executor_meta: Some((&self.executor_meta).into()),
             partition_stats: Some(self.partition_stats.into()),
-            path: self.path,
+            path: self.path.clone(),
         })
     }
 }
@@ -175,7 +175,7 @@ impl TryInto<protobuf::OperatorMetric> for &MetricValue {
     }
 }
 
-impl TryInto<protobuf::OperatorMetricsSet> for MetricsSet {
+impl TryInto<protobuf::OperatorMetricsSet> for &MetricsSet {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<protobuf::OperatorMetricsSet, Self::Error> {
@@ -188,29 +188,34 @@ impl TryInto<protobuf::OperatorMetricsSet> for MetricsSet {
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<protobuf::ExecutorMetadata> for ExecutorMetadata {
+impl Into<protobuf::ExecutorMetadata> for &ExecutorMetadata {
     fn into(self) -> protobuf::ExecutorMetadata {
         protobuf::ExecutorMetadata {
-            id: self.id,
-            host: self.host,
+            id: self.id.clone(),
+            host: self.host.clone(),
             port: self.port as u32,
             grpc_port: self.grpc_port as u32,
-            specification: Some(self.specification.into()),
+            specification: Some((&self.specification).into()),
         }
     }
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<protobuf::ExecutorSpecification> for ExecutorSpecification {
+impl Into<protobuf::ExecutorSpecification> for &ExecutorSpecification {
     fn into(self) -> protobuf::ExecutorSpecification {
         protobuf::ExecutorSpecification {
             resources: vec![
-                protobuf::executor_resource::Resource::TaskSlots(self.task_slots),
-                protobuf::executor_resource::Resource::Version(self.version),
-            ]
-            .into_iter()
-            .map(|r| protobuf::ExecutorResource { resource: Some(r) })
-            .collect(),
+                protobuf::ExecutorResource {
+                    resource: Some(protobuf::executor_resource::Resource::TaskSlots(
+                        self.task_slots,
+                    )),
+                },
+                protobuf::ExecutorResource {
+                    resource: Some(protobuf::executor_resource::Resource::Version(
+                        self.version.clone(),
+                    )),
+                },
+            ],
         }
     }
 }

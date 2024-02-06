@@ -575,7 +575,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> ExecutorServer<T,
 
         let plan_metrics = query_stage_exec.collect_plan_metrics();
         let operator_metrics = plan_metrics
-            .into_iter()
+            .iter()
             .map(|m| m.try_into())
             .collect::<Result<Vec<_>, BallistaError>>().unwrap_or_else(|e| {
             error!(executor_id = self.executor.metadata.id, error = %e, "error serializing task metrics");

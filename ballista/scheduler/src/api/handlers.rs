@@ -24,6 +24,7 @@ use graphviz_rust::exec;
 use graphviz_rust::printer::PrinterContext;
 use http::header::CONTENT_TYPE;
 
+use std::borrow::Cow;
 use std::time::Duration;
 use warp::Rejection;
 
@@ -207,7 +208,6 @@ pub(crate) async fn get_query_stages<T: AsLogicalPlan, U: AsExecutionPlan>(
     {
         Ok(warp::reply::json(&QueryStagesResponse {
             stages: graph
-                .as_ref()
                 .stages()
                 .iter()
                 .map(|(id, stage)| {
@@ -294,7 +294,7 @@ fn get_combined_count(metrics: &[MetricsSet], name: &str) -> usize {
 pub(crate) async fn get_job_dot_graph<T: AsLogicalPlan, U: AsExecutionPlan>(
     data_server: SchedulerServer<T, U>,
     job_id: String,
-) -> Result<String, Rejection> {
+) -> Result<Cow<'static, str>, Rejection> {
     if let Some(graph) = data_server
         .state
         .task_manager
@@ -302,9 +302,11 @@ pub(crate) async fn get_job_dot_graph<T: AsLogicalPlan, U: AsExecutionPlan>(
         .await
         .map_err(|_| warp::reject())?
     {
-        ExecutionGraphDot::generate(graph.as_ref()).map_err(|_| warp::reject())
+        ExecutionGraphDot::generate(graph.as_ref())
+            .map_err(|_| warp::reject())
+            .map(Cow::Owned)
     } else {
-        Ok("Not Found".to_string())
+        Ok(Cow::Borrowed("Not Found"))
     }
 }
 
@@ -313,7 +315,7 @@ pub(crate) async fn get_query_stage_dot_graph<T: AsLogicalPlan, U: AsExecutionPl
     data_server: SchedulerServer<T, U>,
     job_id: String,
     stage_id: usize,
-) -> Result<String, Rejection> {
+) -> Result<Cow<'static, str>, Rejection> {
     if let Some(graph) = data_server
         .state
         .task_manager
@@ -323,8 +325,9 @@ pub(crate) async fn get_query_stage_dot_graph<T: AsLogicalPlan, U: AsExecutionPl
     {
         ExecutionGraphDot::generate_for_query_stage(graph.as_ref(), stage_id)
             .map_err(|_| warp::reject())
+            .map(Cow::Owned)
     } else {
-        Ok("Not Found".to_string())
+        Ok(Cow::Borrowed("Not Found"))
     }
 }
 
