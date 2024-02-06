@@ -28,6 +28,7 @@ use datafusion::physical_plan::{
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use itertools::Itertools;
 use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
@@ -244,35 +245,26 @@ impl ExecutionGraph {
     pub(crate) fn calculate_stage_metrics(
         stages: &HashMap<usize, ExecutionStage>,
     ) -> Result<Vec<StageMetrics>> {
-        let stage_count = stages.len();
-        let mut metrics = Vec::with_capacity(stage_count);
-        let mut stage_metrics = HashMap::with_capacity(stage_count);
-        for (stage_id, stage) in stages.iter() {
-            stage_metrics.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
-        }
-
-        for stage_id in 1..=stage_count {
-            let (plan, metric_set) = stage_metrics.get(&stage_id).ok_or_else(|| {
-                BallistaError::Internal(format!(
-                    "Invalid ExecutionGraph, stage {stage_id} missing"
-                ))
-            })?;
-
-            if let Some(metric_set) = metric_set.as_ref() {
-                let builder =
-                    StageMetricsBuilder::new(stage_id, *plan, metric_set.as_slice());
-
-                metrics.push(builder.build()?);
-            } else {
-                metrics.push(StageMetrics {
-                    stage_id: stage_id as i64,
-                    partition_id: 0,
-                    plan_metrics: vec![],
-                })
-            }
-        }
-
-        Ok(metrics)
+        stages
+            .iter()
+            .sorted_by_key(|(stage_id, _)| **stage_id)
+            .map(|(stage_id, stage)| {
+                if let Some(metric_set) = stage.stage_metrics().as_ref() {
+                    StageMetricsBuilder::new(
+                        *stage_id,
+                        stage.plan(),
+                        metric_set.as_slice(),
+                    )
+                    .build()
+                } else {
+                    Ok(StageMetrics {
+                        stage_id: *stage_id as i64,
+                        partition_id: 0,
+                        plan_metrics: vec![],
+                    })
+                }
+            })
+            .collect::<Result<Vec<_>>>()
     }
 
     pub(crate) fn calculate_completed_stages_and_total_duration(
@@ -721,7 +713,7 @@ impl ExecutionGraph {
                                             .entry(map_stage_id)
                                             .or_default();
                                         missing_inputs.extend(removed_map_partitions);
-                                        warn!(map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
+                                        warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
 
                                         // If the previous other task updates had already mark the map stage success, need to remove it.
                                         if successful_stages.contains(&map_stage_id) {
@@ -979,7 +971,7 @@ impl ExecutionGraph {
     pub fn running_tasks(&self) -> Option<Vec<RunningTaskInfo>> {
         let mut tasks = Vec::default();
 
-        for (_, stage) in self.stages.iter() {
+        for (_, stage) in self.stages().iter() {
             if let ExecutionStage::Running(stage) = stage {
                 tasks.extend(stage.running_tasks().into_iter().map(
                     |(task_id, stage_id, partition_id, executor_id)| RunningTaskInfo {
@@ -994,6 +986,7 @@ impl ExecutionGraph {
         }
 
         if !tasks.is_empty() {
+            tasks.shrink_to_fit();
             return Some(tasks);
         }
 
@@ -1032,7 +1025,10 @@ impl ExecutionGraph {
                 ..
             }
         ) {
-            warn!("Call pop_next_task on failed Job");
+            warn!(
+                job_id = self.job_id,
+                executor_id, "Call pop_next_task on failed Job"
+            );
             return Ok(None);
         }
 
@@ -1123,7 +1119,10 @@ for (partition, status) in stage.task_infos
     ///
     /// Returns the reset stage ids and running tasks should be killed
     pub fn reset_stages_on_lost_executor(&mut self, executor_id: &str) {
-        warn!(executor_id, "resetting stages for lost executor");
+        warn!(
+            job_id = self.job_id,
+            executor_id, "resetting stages for lost executor"
+        );
 
         self.stages.iter_mut().for_each(|(stage_id, stage)| {
             if let ExecutionStage::Running(stage) = stage {
@@ -1241,7 +1240,7 @@ for (partition, status) in stage.task_infos
                 .insert(stage_id, ExecutionStage::Running(stage.to_running()));
         } else {
             info!(
-                self.job_id,
+                job_id = self.job_id,
                 stage_id, "failed to re-run successful stage, stage is not successful",
             )
         }
@@ -1505,7 +1504,10 @@ for (partition, status) in stage.task_infos
         self.circuit_breaker_tripped_labels.extend(labels);
 
         if !preempt {
-            info!("Will not preempt running tasks");
+            info!(
+                job_id = self.job_id,
+                stage_id, "Will not preempt running tasks"
+            );
             return Ok(vec![]);
         }
 
@@ -1549,12 +1551,12 @@ for (partition, status) in stage.task_infos
         }
 
         info!(
-                "Preempted {} tasks due to tripped circuit breaker for stage {} in job {} (labels: {:?})",
-                num_stopped,
-                stage_id,
-                self.job_id,
-                self.circuit_breaker_tripped_labels
-            );
+            job_id = self.job_id,
+            stage_id,
+            "Preempted {} tasks due to tripped circuit breaker (labels: {:?})",
+            num_stopped,
+            self.circuit_breaker_tripped_labels,
+        );
 
         let task_status = TaskStatus {
             task_id: task_id as u32,
