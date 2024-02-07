@@ -952,19 +952,6 @@ impl ExecutionGraph {
             .sum()
     }
 
-    pub fn pending_tasks(&self) -> usize {
-        self.stages
-            .values()
-            .map(|stage| {
-                if let ExecutionStage::Running(stage) = stage {
-                    stage.available_tasks() + stage.scheduled_tasks()
-                } else {
-                    0
-                }
-            })
-            .sum()
-    }
-
     /// Get next task that can be assigned to the given executor.
     /// This method should only be called when the resulting task is immediately
     /// being launched as the status will be set to Running and it will not be
@@ -979,7 +966,7 @@ impl ExecutionGraph {
         if matches!(
             self.status,
             JobStatus {
-                status: Some(job_status::Status::Failed(_)),
+                status: Some(Status::Failed(_)),
                 ..
             }
         ) {

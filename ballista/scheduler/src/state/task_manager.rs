@@ -146,7 +146,6 @@ impl ActiveJob {
             .copied()
             .unwrap_or_default();
         let pending_tasks = graph.available_tasks();
-        // let sched = graph.stages().values().filter(|s| s.is_scheduled()).count();
         Self {
             job_id,
             running_stage,
@@ -165,7 +164,7 @@ impl Ord for ActiveJob {
     /// Jobs are priority ordered first by running_stage (higher stage = higher priority)
     /// and then by Reverse(pending_tasks) (fewer pending tasks = higher priority)
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Notice that we flip ordering on pending_tasks. This is because we want to
+        // Notice that, we flip ordering on pending_tasks. This is because we want to
         // prioritize jobs with fewer tasks.
         // However, we also want to de-prioritize jobs with 0 pending tasks,
         // so we overflow subtract 1.

@@ -954,11 +954,10 @@ impl Debug for RunningStage {
 
         write!(
             f,
-            "=========RunningStage[stage_id={}.{}, partitions={}, all_tasks={}, successful_tasks={}, scheduled_tasks={}, available_tasks={}]=========\n{}",
+            "=========RunningStage[stage_id={}.{}, partitions={}, successful_tasks={}, scheduled_tasks={}, available_tasks={}]=========\n{}",
             self.stage_id,
             self.stage_attempt_num,
             self.partitions,
-            self.task_infos.len(),
             self.successful_tasks(),
             self.scheduled_tasks(),
             self.available_tasks(),
