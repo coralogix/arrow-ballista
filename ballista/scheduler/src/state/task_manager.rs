@@ -107,9 +107,7 @@ impl ActiveJobQueue {
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
-        self.queue
-            .lock()
-            .push(ActiveJob::new(job_id.clone(), &graph));
+        self.push_active_job(ActiveJob::new(job_id.clone(), &graph));
         self.jobs.insert(job_id, JobInfoCache::new(graph));
     }
 
@@ -647,6 +645,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     }
                 }
 
+                // push job back into queue with updated pending tasks
                 active_job.pending_tasks = graph.available_tasks();
                 self.active_job_queue.push_active_job(active_job.clone());
 
