@@ -17,9 +17,7 @@
 
 use crate::scheduler_server::event::QueryStageSchedulerEvent;
 
-use crate::state::execution_graph::{
-    ExecutionGraph, ExecutionStage, RunningTaskInfo, TaskDescription,
-};
+use crate::state::execution_graph::{ExecutionGraph, RunningTaskInfo, TaskDescription};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
 use ballista_core::error::BallistaError;
@@ -535,8 +533,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
             Ok(Some(Arc::new(guard.deref().clone())))
         } else {
-            // We drop the `ExecutionGraph` after job is completed so always return `None` here
-            Ok(None)
+            let graph = self.state.get_execution_graph(job_id).await?;
+            Ok(graph.map(Arc::new))
         }
     }
 
@@ -714,22 +712,26 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 let mut guard = job.graph_mut().await;
 
                 let pending_tasks = guard.available_tasks();
-                let running_tasks = guard.running_tasks();
+                if let Some(running_tasks) = guard.running_tasks() {
+                    info!(
+                        job_id,
+                        tasks = running_tasks.len(),
+                        "cancelling running tasks"
+                    );
 
-                info!(
-                    job_id,
-                    tasks = running_tasks.len(),
-                    "cancelling running tasks"
-                );
+                    guard.fail_job(reason);
 
-                guard.fail_job(reason);
+                    self.state.save_job(job_id, &guard).await?;
 
-                self.state.save_job(job_id, &guard).await?;
+                    // After state is saved, remove job from active cache
+                    let _ = self.remove_active_execution_graph(job_id);
 
-                // After state is saved, remove job from active cache
-                let _ = self.remove_active_execution_graph(job_id);
-
-                (running_tasks, pending_tasks)
+                    (running_tasks, pending_tasks)
+                } else {
+                    // TODO listen the job state update event and fix task cancelling
+                    warn!(job_id, "no running tasks found for job");
+                    (vec![], pending_tasks)
+                }
             } else {
                 // TODO listen the job state update event and fix task cancelling
                 warn!(
@@ -981,27 +983,8 @@ impl JobOverviewExt for JobOverview {
 
 impl From<&ExecutionGraph> for JobOverview {
     fn from(value: &ExecutionGraph) -> Self {
-        let mut completed_stages = 0;
-        let mut total_task_duration_ms = 0;
-        for stage in value.stages().values() {
-            if let ExecutionStage::Successful(stage) = stage {
-                completed_stages += 1;
-                for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
-                    total_task_duration_ms += task.execution_time() as u64
-                }
-            }
-
-            if let ExecutionStage::Running(stage) = stage {
-                for task in stage
-                    .task_infos
-                    .iter()
-                    .flatten()
-                    .filter(|t| t.is_finished())
-                {
-                    total_task_duration_ms += task.execution_time() as u64
-                }
-            }
-        }
+        let (completed_stages, total_task_duration_ms) =
+            ExecutionGraph::calculate_completed_stages_and_total_duration(value.stages());
 
         Self {
             job_id: value.job_id().to_string(),
@@ -1011,7 +994,7 @@ impl From<&ExecutionGraph> for JobOverview {
             start_time: value.start_time(),
             end_time: value.end_time(),
             num_stages: value.stage_count() as u32,
-            completed_stages,
+            completed_stages: completed_stages as u32,
             total_task_duration_ms,
         }
     }

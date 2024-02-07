@@ -766,11 +766,11 @@ mod test {
             port: 0,
             grpc_port: 0,
             specification: Some(
-                ExecutorSpecification {
+                (&ExecutorSpecification {
                     task_slots: 2,
                     version: "".to_string(),
-                }
-                .into(),
+                })
+                    .into(),
             ),
         };
         let request: Request<PollWorkParams> = Request::new(PollWorkParams {
@@ -863,11 +863,11 @@ mod test {
             port: 0,
             grpc_port: 0,
             specification: Some(
-                ExecutorSpecification {
+                (&ExecutorSpecification {
                     task_slots: 2,
                     version: "".to_string(),
-                }
-                .into(),
+                })
+                    .into(),
             ),
         };
 
@@ -959,11 +959,11 @@ mod test {
             port: 0,
             grpc_port: 0,
             specification: Some(
-                ExecutorSpecification {
+                (&ExecutorSpecification {
                     task_slots: 2,
                     version: "".to_string(),
-                }
-                .into(),
+                })
+                    .into(),
             ),
         };
 
@@ -1019,11 +1019,11 @@ mod test {
             port: 0,
             grpc_port: 0,
             specification: Some(
-                ExecutorSpecification {
+                (&ExecutorSpecification {
                     task_slots: 2,
                     version: "".to_string(),
-                }
-                .into(),
+                })
+                    .into(),
             ),
         };
 

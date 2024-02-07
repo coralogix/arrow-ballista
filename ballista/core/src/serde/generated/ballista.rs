@@ -127,6 +127,44 @@ pub struct ExecutionGraph {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StageMetrics {
+    #[prost(int64, tag = "1")]
+    pub stage_id: i64,
+    #[prost(int64, tag = "2")]
+    pub partition_id: i64,
+    #[prost(message, repeated, tag = "3")]
+    pub plan_metrics: ::prost::alloc::vec::Vec<PlanMetrics>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PlanMetrics {
+    #[prost(string, tag = "1")]
+    pub plan_name: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub metrics: ::prost::alloc::vec::Vec<Metric>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetricLabel {
+    #[prost(string, tag = "1")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub value: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Metric {
+    #[prost(int64, tag = "1")]
+    pub value: i64,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration = "MetricType", tag = "3")]
+    pub metric_type: i32,
+    #[prost(string, repeated, tag = "4")]
+    pub labels: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct StageAttempts {
     #[prost(uint32, tag = "1")]
     pub stage_id: u32,
@@ -961,6 +999,14 @@ pub struct SuccessfulJob {
     >,
     #[prost(string, repeated, tag = "7")]
     pub warnings: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(uint64, tag = "8")]
+    pub completed_stages: u64,
+    #[prost(uint64, tag = "9")]
+    pub total_task_duration_ms: u64,
+    #[prost(uint32, tag = "10")]
+    pub stage_count: u32,
+    #[prost(message, repeated, tag = "11")]
+    pub stage_metrics: ::prost::alloc::vec::Vec<StageMetrics>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -1950,6 +1996,41 @@ pub struct JobOverview {
 pub struct ListJobsResponse {
     #[prost(message, repeated, tag = "1")]
     pub running_jobs: ::prost::alloc::vec::Vec<Job>,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum MetricType {
+    Unspecified = 0,
+    Timestamp = 1,
+    Count = 2,
+    Gauge = 3,
+    Time = 4,
+}
+impl MetricType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            MetricType::Unspecified => "METRIC_TYPE_UNSPECIFIED",
+            MetricType::Timestamp => "METRIC_TYPE_TIMESTAMP",
+            MetricType::Count => "METRIC_TYPE_COUNT",
+            MetricType::Gauge => "METRIC_TYPE_GAUGE",
+            MetricType::Time => "METRIC_TYPE_TIME",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "METRIC_TYPE_UNSPECIFIED" => Some(Self::Unspecified),
+            "METRIC_TYPE_TIMESTAMP" => Some(Self::Timestamp),
+            "METRIC_TYPE_COUNT" => Some(Self::Count),
+            "METRIC_TYPE_GAUGE" => Some(Self::Gauge),
+            "METRIC_TYPE_TIME" => Some(Self::Time),
+            _ => None,
+        }
+    }
 }
 /// Generated client implementations.
 pub mod scheduler_grpc_client {

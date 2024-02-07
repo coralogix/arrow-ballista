@@ -15,19 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::convert::TryInto;
 use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
-use datafusion::physical_plan::metrics::MetricsSet;
+use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{
-    accept, ExecutionPlan, ExecutionPlanVisitor, Partitioning,
+    accept, visit_execution_plan, ExecutionPlan, ExecutionPlanVisitor, Partitioning,
 };
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use itertools::Itertools;
 use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
@@ -40,8 +41,8 @@ use ballista_core::serde::protobuf::{
     RunningJob, SuccessfulJob, TaskStatus,
 };
 use ballista_core::serde::protobuf::{
-    execution_error, job_status, ExecutionError, FailedJob, ShuffleWritePartition,
-    SuccessfulTask,
+    execution_error, job_status, ExecutionError, FailedJob, Metric, MetricType,
+    PlanMetrics, ShuffleWritePartition, StageMetrics, SuccessfulTask,
 };
 use ballista_core::serde::protobuf::{task_status, RunningTask};
 use ballista_core::serde::scheduler::{
@@ -105,6 +106,7 @@ mod execution_stage;
 ///
 /// If a stage has `output_links` is empty then it is the final stage in this query, and it should
 /// publish its outputs to the `ExecutionGraph`s `output_locations` representing the final query results.
+
 #[derive(Clone)]
 pub struct ExecutionGraph {
     /// Curator scheduler name. Can be `None` is `ExecutionGraph` is not currently curated by any scheduler
@@ -202,6 +204,32 @@ impl ExecutionGraph {
         })
     }
 
+    pub fn next_task_id(&mut self) -> usize {
+        let new_tid = self.task_id_gen;
+        self.task_id_gen += 1;
+        new_tid
+    }
+
+    pub fn output_locations(&self) -> &[PartitionLocation] {
+        &self.output_locations
+    }
+
+    pub fn start_time(&self) -> u64 {
+        self.start_time
+    }
+
+    pub fn queued_at(&self) -> u64 {
+        self.queued_at
+    }
+
+    pub fn end_time(&self) -> u64 {
+        self.end_time
+    }
+
+    pub fn status(&self) -> JobStatus {
+        self.status.clone()
+    }
+
     pub fn job_id(&self) -> &str {
         self.job_id.as_str()
     }
@@ -214,44 +242,65 @@ impl ExecutionGraph {
         self.session_id.as_str()
     }
 
-    pub fn status(&self) -> JobStatus {
-        self.status.clone()
+    pub(crate) fn calculate_stage_metrics(
+        stages: &HashMap<usize, ExecutionStage>,
+    ) -> Result<Vec<StageMetrics>> {
+        stages
+            .iter()
+            .sorted_by_key(|(stage_id, _)| **stage_id)
+            .map(|(stage_id, stage)| {
+                if let Some(metric_set) = stage.stage_metrics().as_ref() {
+                    StageMetricsBuilder::new(
+                        *stage_id,
+                        stage.plan(),
+                        metric_set.as_slice(),
+                    )
+                    .build()
+                } else {
+                    Ok(StageMetrics {
+                        stage_id: *stage_id as i64,
+                        partition_id: 0,
+                        plan_metrics: vec![],
+                    })
+                }
+            })
+            .collect::<Result<Vec<_>>>()
     }
 
-    pub fn queued_at(&self) -> u64 {
-        self.queued_at
-    }
+    pub(crate) fn calculate_completed_stages_and_total_duration(
+        stages: &HashMap<usize, ExecutionStage>,
+    ) -> (usize, u64) {
+        let mut completed_stages = 0;
+        let mut total_task_duration_ms = 0;
+        for stage in stages.values() {
+            if let ExecutionStage::Successful(stage) = stage {
+                completed_stages += 1;
+                for task in stage.task_infos.iter().filter(|t| t.is_finished()) {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
+            }
 
-    pub fn start_time(&self) -> u64 {
-        self.start_time
-    }
-
-    pub fn end_time(&self) -> u64 {
-        self.end_time
-    }
-
-    pub fn stage_count(&self) -> usize {
-        self.stages.len()
-    }
-
-    pub fn next_task_id(&mut self) -> usize {
-        let new_tid = self.task_id_gen;
-        self.task_id_gen += 1;
-        new_tid
-    }
-
-    pub fn stage_metrics(
-        &self,
-    ) -> HashMap<usize, (&dyn ExecutionPlan, Option<&Vec<MetricsSet>>)> {
-        let mut result = HashMap::with_capacity(self.stages.len());
-        for (stage_id, stage) in self.stages.iter() {
-            result.insert(*stage_id, (stage.plan(), stage.stage_metrics()));
+            if let ExecutionStage::Running(stage) = stage {
+                for task in stage
+                    .task_infos
+                    .iter()
+                    .flatten()
+                    .filter(|t| t.is_finished())
+                {
+                    total_task_duration_ms += task.execution_time() as u64
+                }
+            }
         }
-        result
+
+        (completed_stages, total_task_duration_ms)
     }
 
     pub(crate) fn stages(&self) -> &HashMap<usize, ExecutionStage> {
         &self.stages
+    }
+
+    pub(crate) fn stage_count(&self) -> usize {
+        self.stages.len()
     }
 
     /// An ExecutionGraph is successful if all its stages are successful
@@ -282,17 +331,17 @@ impl ExecutionGraph {
             })
             .collect::<Vec<_>>();
 
-        if running_stages.is_empty() {
-            false
-        } else {
+        if !running_stages.is_empty() {
             for running_stage in running_stages {
                 self.stages.insert(
                     running_stage.stage_id,
                     ExecutionStage::Running(running_stage),
                 );
             }
-            true
+            return true;
         }
+
+        false
     }
 
     /// Update task statuses and task metrics in the graph.
@@ -339,9 +388,10 @@ impl ExecutionGraph {
             HashSet::from_iter(self.running_stages());
 
         // Copy the failed stage attempts from self
-        let mut failed_stage_attempts: HashMap<usize, HashSet<usize>> = HashMap::new();
+        let mut failed_stage_attempts_tmp: HashMap<usize, HashSet<usize>> =
+            HashMap::new();
         for (stage_id, attempts) in self.failed_stage_attempts.iter() {
-            failed_stage_attempts
+            failed_stage_attempts_tmp
                 .insert(*stage_id, HashSet::from_iter(attempts.iter().copied()));
         }
 
@@ -364,9 +414,9 @@ impl ExecutionGraph {
                                 task_status.stage_attempt_num as usize;
                             if task_stage_attempt_num < running_stage.stage_attempt_num {
                                 warn!(
-                                    job_id = self.job_id, task_status.task_id, stage_id, task_stage_attempt_num, stage_id, stage_attempt = running_stage.stage_attempt_num,
-                                    "ignoring task status update, more recent stage attempt running",
-                                );
+                                            job_id, task_id = task_status.task_id, task_stage_attempt_num, stage_id, stage_attempt = running_stage.stage_attempt_num,
+                                            "ignoring task status update, more recent stage attempt running",
+                                        );
                                 continue;
                             }
                             let partitions = &task_status.partitions;
@@ -391,7 +441,7 @@ impl ExecutionGraph {
                                     Some(FailedReason::FetchPartitionError(
                                         fetch_partiton_error,
                                     )) => {
-                                        let failed_attempts = failed_stage_attempts
+                                        let failed_attempts = failed_stage_attempts_tmp
                                             .entry(stage_id)
                                             .or_default();
                                         failed_attempts.insert(task_stage_attempt_num);
@@ -404,7 +454,7 @@ impl ExecutionGraph {
                                                 fetch_partiton_error.executor_id.clone();
 
                                             if !failed_stages.is_empty() {
-                                                warn!(job_id = self.job_id, task_identity, "ignoring fetch partition error, stage was failed");
+                                                warn!(job_id, task_identity, "ignoring fetch partition error, stage was failed");
                                             } else {
                                                 // There are different removal strategies here.
                                                 // We can choose just remove the map_partition_id in the FetchPartitionError, when resubmit the input stage, there are less tasks
@@ -437,7 +487,7 @@ impl ExecutionGraph {
                                         } else {
                                             let error_msg = format!(
                                                 "Stage {} has failed {} times, \
-                                            most recent failure reason: {:?}",
+                                                    most recent failure reason: {:?}",
                                                 stage_id,
                                                 max_stage_failures,
                                                 failed_task.failed_reason
@@ -492,10 +542,10 @@ impl ExecutionGraph {
                                                 running_stage.task_failures += 1;
                                             } else {
                                                 let error_msg = format!(
-                                                    "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
-                                                    stage_id, max_task_failures, failed_task.failed_reason
-                                                );
-                                                error!(job_id = self.job_id, stage_id, max_task_failures, reason = ?failed_task.failed_reason, "stage failed, max task failures exceeded");
+                                                            "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
+                                                            stage_id, max_task_failures, failed_task.failed_reason
+                                                        );
+                                                error!(job_id, stage_id, max_task_failures, reason = ?failed_task.failed_reason, "stage failed, max task failures exceeded");
                                                 failed_stages.insert(
                                                     stage_id,
                                                     Arc::new(
@@ -517,8 +567,8 @@ impl ExecutionGraph {
                                     }
                                     None => {
                                         let error_msg = format!(
-                                            "Task {partitions:?} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
-                                        error!(?partitions, stage_id, job_id = self.job_id, "task failed for unknown reason, failing stage");
+                                                    "Task {partitions:?} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
+                                        error!(?partitions, stage_id, job_id, "task failed for unknown reason, failing stage");
                                         failed_stages.insert(
                                             stage_id,
                                             Arc::new(execution_error::Error::Internal(
@@ -537,7 +587,7 @@ impl ExecutionGraph {
                                 if let Err(err) =
                                     running_stage.update_task_metrics(operator_metrics)
                                 {
-                                    warn!(job_id = self.job_id, stage_id = running_stage.stage_id, error = %err, "error updating task metrics");
+                                    warn!(job_id, stage_id = running_stage.stage_id, error = %err, "error updating task metrics");
                                 }
 
                                 if let Some(executor) = executor {
@@ -552,8 +602,7 @@ impl ExecutionGraph {
                             } else {
                                 warn!(
                                     task_identity,
-                                    job_id = self.job_id,
-                                    "task status is invalid for updating",
+                                    job_id, "task status is invalid for updating",
                                 );
                             }
                         }
@@ -566,7 +615,7 @@ impl ExecutionGraph {
                         if let Some(stage_metrics) = running_stage.stage_metrics.as_ref()
                         {
                             print_stage_metrics(
-                                &job_id,
+                                self.job_id.as_str(),
                                 stage_id,
                                 running_stage.plan.as_ref(),
                                 stage_metrics,
@@ -576,14 +625,16 @@ impl ExecutionGraph {
 
                     let output_links = running_stage.output_links.clone();
                     resolved_stages.extend(
-                        &mut self
-                            .update_stage_output_links(
-                                stage_id,
-                                is_final_successful,
-                                locations,
-                                output_links,
-                            )?
-                            .into_iter(),
+                        ExecutionGraph::update_stage_output_links(
+                            self.job_id.as_str(),
+                            stage_id,
+                            is_final_successful,
+                            locations,
+                            output_links,
+                            &mut self.stages,
+                            &mut self.output_locations,
+                        )?
+                        .into_iter(),
                     );
                 } else if let ExecutionStage::UnResolved(unsolved_stage) = stage {
                     for task_status in stage_task_statuses.into_iter() {
@@ -662,7 +713,7 @@ impl ExecutionGraph {
                                             .entry(map_stage_id)
                                             .or_default();
                                         missing_inputs.extend(removed_map_partitions);
-                                        warn!(map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
+                                        warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
 
                                         // If the previous other task updates had already mark the map stage success, need to remove it.
                                         if successful_stages.contains(&map_stage_id) {
@@ -690,13 +741,14 @@ impl ExecutionGraph {
                 }
             } else {
                 return Err(BallistaError::Internal(format!(
-                    "Invalid stage ID {stage_id} for job {job_id}"
+                    "Invalid stage ID {stage_id} for job {}",
+                    job_id
                 )));
             }
         }
 
         // Update failed stage attempts back to self
-        for (stage_id, attempts) in failed_stage_attempts.iter() {
+        for (stage_id, attempts) in failed_stage_attempts_tmp.iter() {
             self.failed_stage_attempts
                 .insert(*stage_id, HashSet::from_iter(attempts.iter().copied()));
         }
@@ -729,7 +781,7 @@ impl ExecutionGraph {
                 }
             } else {
                 return Err(BallistaError::Internal(format!(
-                    "Invalid stage ID {stage_id} for job {job_id}"
+                    "Invalid stage ID {stage_id} for job {job_id}",
                 )));
             }
         }
@@ -756,7 +808,7 @@ impl ExecutionGraph {
                 }
             } else {
                 return Err(BallistaError::Internal(format!(
-                    "Invalid stage ID {stage_id} for job {job_id}"
+                    "Invalid stage ID {stage_id} for job {job_id}",
                 )));
             }
         }
@@ -778,7 +830,7 @@ impl ExecutionGraph {
         &mut self,
         updated_stages: UpdatedStages,
     ) -> Result<Vec<QueryStageSchedulerEvent>> {
-        let job_id = self.job_id().to_owned();
+        let job_id = self.job_id.to_owned();
         let mut has_resolved = false;
 
         for stage_id in updated_stages.resolved_stages {
@@ -853,21 +905,23 @@ impl ExecutionGraph {
 
     /// Return a Vec of resolvable stage ids
     fn update_stage_output_links(
-        &mut self,
+        job_id: &str,
         stage_id: usize,
         is_completed: bool,
         locations: Vec<PartitionLocation>,
         output_links: Vec<usize>,
+        stages: &mut HashMap<usize, ExecutionStage>,
+        output_locations: &mut Vec<PartitionLocation>,
     ) -> Result<Vec<usize>> {
         let mut resolved_stages = vec![];
-        let job_id = &self.job_id;
+
         if output_links.is_empty() {
             // If `output_links` is empty, then this is a final stage
-            self.output_locations.extend(locations);
+            output_locations.extend(locations);
         } else {
             for link in output_links.iter() {
                 // If this is an intermediate stage, we need to push its `PartitionLocation`s to the parent stage
-                if let Some(linked_stage) = self.stages.get_mut(link) {
+                if let Some(linked_stage) = stages.get_mut(link) {
                     if let ExecutionStage::UnResolved(linked_unresolved_stage) =
                         linked_stage
                     {
@@ -885,16 +939,17 @@ impl ExecutionGraph {
                         }
                     } else {
                         return Err(BallistaError::Internal(format!(
-                            "Error updating job {job_id}: The stage {link} as the output link of stage {stage_id}  should be unresolved"
-                        )));
+                        "Error updating job {job_id}: The stage {link} as the output link of stage {stage_id}  should be unresolved"
+                    )));
                     }
                 } else {
                     return Err(BallistaError::Internal(format!(
-                        "Error updating job {job_id}: Invalid output link {stage_id} for stage {link}"
-                    )));
+                    "Error updating job {job_id}: Invalid output link {stage_id} for stage {link}"
+                )));
                 }
             }
         }
+
         Ok(resolved_stages)
     }
 
@@ -912,33 +967,33 @@ impl ExecutionGraph {
             .collect::<Vec<_>>()
     }
 
-    /// Return all currently running tasks along with the executor ID on which they are assigned
-    pub fn running_tasks(&self) -> Vec<RunningTaskInfo> {
-        self.stages
-            .iter()
-            .flat_map(|(_, stage)| {
-                if let ExecutionStage::Running(stage) = stage {
-                    stage
-                        .running_tasks()
-                        .into_iter()
-                        .map(|(task_id, stage_id, partition_id, executor_id)| {
-                            RunningTaskInfo {
-                                task_id,
-                                job_id: self.job_id.clone(),
-                                stage_id,
-                                partition_id,
-                                executor_id,
-                            }
-                        })
-                        .collect::<Vec<RunningTaskInfo>>()
-                } else {
-                    vec![]
-                }
-            })
-            .collect::<Vec<RunningTaskInfo>>()
+    // Return all currently running tasks along with the executor ID on which they are assigned
+    pub fn running_tasks(&self) -> Option<Vec<RunningTaskInfo>> {
+        let mut tasks = Vec::default();
+
+        for (_, stage) in self.stages().iter() {
+            if let ExecutionStage::Running(stage) = stage {
+                tasks.extend(stage.running_tasks().into_iter().map(
+                    |(task_id, stage_id, partition_id, executor_id)| RunningTaskInfo {
+                        task_id,
+                        job_id: self.job_id.clone(),
+                        stage_id,
+                        partition_id,
+                        executor_id,
+                    },
+                ))
+            }
+        }
+
+        if !tasks.is_empty() {
+            tasks.shrink_to_fit();
+            return Some(tasks);
+        }
+
+        None
     }
 
-    /// Total number of tasks in this plan that are ready for scheduling
+    // Total number of tasks in this plan that are ready for scheduling
     pub fn available_tasks(&self) -> usize {
         self.stages
             .values()
@@ -970,12 +1025,12 @@ impl ExecutionGraph {
                 ..
             }
         ) {
-            warn!("Call pop_next_task on failed Job");
+            warn!(
+                job_id = self.job_id,
+                executor_id, "Call pop_next_task on failed Job"
+            );
             return Ok(None);
         }
-
-        let job_id = self.job_id.clone();
-        let session_id = self.session_id.clone();
 
         let find_candidate = self.stages.iter().any(|(_stage_id, stage)| {
             if let ExecutionStage::Running(stage) = stage {
@@ -987,85 +1042,74 @@ impl ExecutionGraph {
 
         if find_candidate {
             let task_id = self.next_task_id();
-
             let next_task = self.stages.iter_mut().find(|(_stage_id, stage)| {
-                if let ExecutionStage::Running(stage) = stage {
-                    stage.available_tasks() > 0
-                } else {
-                    false
-                }
-            }).map(|(stage_id, stage)| {
-                if let ExecutionStage::Running(stage) = stage {
-
-                    let mut partitions = vec![];
-                    let task_info = TaskInfo {
-                        task_id,
-                        scheduled_time: timestamp_millis() as u128,
-                        // Those times will be updated when the task finish
-                        launch_time: 0,
-                        start_exec_time: 0,
-                        end_exec_time: 0,
-                        finish_time: 0,
-                        task_status: task_status::Status::Running(RunningTask {
-                            executor_id: executor_id.to_owned()
-                        }),
-                    };
-
-                    for (partition, status) in stage.task_infos
-                        .iter_mut()
-                        .enumerate()
-                        .filter(|(_,status)| status.is_none())
-                        .take(num_tasks) {
-                        *status = Some(task_info.clone());
-                        partitions.push(partition);
+                    if let ExecutionStage::Running(stage) = stage {
+                        stage.available_tasks() > 0
+                    } else {
+                        false
                     }
-
-                    if partitions.is_empty() {
-                        return Err(BallistaError::Internal(format!("Error getting next task for job {job_id}: Stage {stage_id} is ready but has no pending tasks")));
+                }).map(|(stage_id, stage)| {
+                    if let ExecutionStage::Running(stage) = stage {
+let mut partitions = vec![];
+                        let task_info = TaskInfo {
+                            task_id,
+                            scheduled_time: timestamp_millis() as u128,
+                            // Those times will be updated when the task finish
+                            launch_time: 0,
+                            start_exec_time: 0,
+                            end_exec_time: 0,
+                            finish_time: 0,
+                            task_status: task_status::Status::Running(RunningTask {
+                                executor_id: executor_id.to_owned()
+                            }),
+                        };
+for (partition, status) in stage.task_infos
+                            .iter_mut()
+                            .enumerate()
+                            .filter(|(_,status)| status.is_none())
+                            .take(num_tasks) {
+                            *status = Some(task_info.clone());
+                            partitions.push(partition);
+                        }
+                        if partitions.is_empty() {
+                            return Err(BallistaError::Internal(format!("Error getting next task for job {}: Stage {stage_id} is ready but has no pending tasks", self.job_id)));
+                        }
+                        Ok(TaskDescription {
+                            session_id: self.session_id.clone(),
+                            partitions: TaskPartitions {
+                                job_id: self.job_id.clone(),
+                                stage_id: *stage_id,
+                                partitions
+                            },
+                            stage_attempt_num: stage.stage_attempt_num,
+                            task_id,
+                            plan: stage.plan.clone(),
+                            output_partitioning: stage.output_partitioning.clone(),
+                            resolved_at: stage.resolved_at,
+                        })
+                    } else {
+                        Err(BallistaError::General(format!("Stage {stage_id} is not a running stage")))
                     }
-
-                    Ok(TaskDescription {
-                        session_id,
-                        partitions: TaskPartitions {
-                            job_id,
-                            stage_id: *stage_id,
-                            partitions
-                        },
-                        stage_attempt_num: stage.stage_attempt_num,
-                        task_id,
-                        plan: stage.plan.clone(),
-                        output_partitioning: stage.output_partitioning.clone(),
-                        resolved_at: stage.resolved_at,
-                    })
-                } else {
-                    Err(BallistaError::General(format!("Stage {stage_id} is not a running stage")))
-                }
-            }).transpose()?;
+                }).transpose()?;
 
             // If no available tasks found in the running stage,
             // try to find a resolved stage and convert it to the running stage
             if next_task.is_none() {
                 if self.revive() {
-                    self.pop_next_task(executor_id, num_tasks)
-                } else {
-                    Ok(None)
+                    return self.pop_next_task(executor_id, num_tasks);
                 }
             } else {
-                Ok(next_task)
+                return Ok(next_task);
             }
         } else if self.revive() {
-            self.pop_next_task(executor_id, num_tasks)
-        } else {
-            Ok(None)
+            return self.pop_next_task(executor_id, num_tasks);
         }
+
+        Ok(None)
     }
 
-    pub fn update_status(&mut self, status: JobStatus) {
-        self.status = status;
-    }
-
-    pub fn output_locations(&self) -> Vec<PartitionLocation> {
-        self.output_locations.clone()
+    pub fn update_status(&mut self, new_status: JobStatus) {
+        self.status = new_status
     }
 
     /// Reset running and successful stages on a given executor
@@ -1075,14 +1119,18 @@ impl ExecutionGraph {
     ///
     /// Returns the reset stage ids and running tasks should be killed
     pub fn reset_stages_on_lost_executor(&mut self, executor_id: &str) {
-        warn!(executor_id, "resetting stages for lost executor");
+        warn!(
+            job_id = self.job_id,
+            executor_id, "resetting stages for lost executor"
+        );
+
         self.stages.iter_mut().for_each(|(stage_id, stage)| {
             if let ExecutionStage::Running(stage) = stage {
                 let reset = stage.reset_tasks(executor_id);
                 if reset > 0 {
                     warn!(
                         num_tasks = reset,
-                        self.job_id,
+                        job_id = self.job_id,
                         stage_id,
                         executor_id,
                         "resetting running tasks for lost executor"
@@ -1093,48 +1141,44 @@ impl ExecutionGraph {
     }
 
     /// Convert unresolved stage to be resolved
-    pub fn resolve_stage(&mut self, stage_id: usize) -> Result<bool> {
+    pub fn resolve_stage(&mut self, stage_id: usize) -> Result<()> {
         if let Some(ExecutionStage::UnResolved(stage)) = self.stages.remove(&stage_id) {
             self.stages
                 .insert(stage_id, ExecutionStage::Resolved(stage.to_resolved()?));
-            Ok(true)
         } else {
             warn!(
                 job_id = self.job_id,
                 stage_id, "failed to find unresolved stage to resolve",
             );
-            Ok(false)
         }
+
+        Ok(())
     }
 
     /// Convert running stage to be successful
-    pub fn succeed_stage(&mut self, stage_id: usize) -> bool {
+    pub fn succeed_stage(&mut self, stage_id: usize) {
         if let Some(ExecutionStage::Running(stage)) = self.stages.remove(&stage_id) {
             self.stages
                 .insert(stage_id, ExecutionStage::Successful(stage.to_successful()));
             self.clear_stage_failure(stage_id);
-            true
         } else {
             warn!(
                 job_id = self.job_id,
                 stage_id, "failed to succeed stage, stage is not running",
-            );
-            false
+            )
         }
     }
 
     /// Convert running stage to be failed
-    pub fn fail_stage(&mut self, stage_id: usize, err_msg: String) -> bool {
+    pub fn fail_stage(&mut self, stage_id: usize, err_msg: String) {
         if let Some(ExecutionStage::Running(stage)) = self.stages.remove(&stage_id) {
             self.stages
                 .insert(stage_id, ExecutionStage::Failed(stage.to_failed(err_msg)));
-            true
         } else {
             info!(
                 job_id = self.job_id,
-                stage_id, "failed to fail stage, stage is not running",
-            );
-            false
+                stage_id, "failed to fail stage, stage is not running"
+            )
         }
     }
 
@@ -1163,43 +1207,42 @@ impl ExecutionGraph {
                 stage_id,
                 ExecutionStage::UnResolved(stage.to_unresolved(failure_reasons)?),
             );
-            Ok(running_tasks)
+            return Ok(running_tasks);
         } else {
             info!(
                 job_id = self.job_id,
                 stage_id, "failed to rollback running stage, stage is not running",
             );
-            Ok(vec![])
         }
+
+        Ok(Vec::default())
     }
 
     /// Convert resolved stage to be unresolved
-    pub fn rollback_resolved_stage(&mut self, stage_id: usize) -> Result<bool> {
+    pub fn rollback_resolved_stage(&mut self, stage_id: usize) -> Result<()> {
         if let Some(ExecutionStage::Resolved(stage)) = self.stages.remove(&stage_id) {
             self.stages
                 .insert(stage_id, ExecutionStage::UnResolved(stage.to_unresolved()?));
-            Ok(true)
         } else {
             info!(
                 job_id = self.job_id,
                 stage_id, "failed to rollback resolved stage, stage is not resolved",
             );
-            Ok(false)
         }
+
+        Ok(())
     }
 
     /// Convert successful stage to be running
-    pub fn rerun_successful_stage(&mut self, stage_id: usize) -> bool {
+    pub fn rerun_successful_stage(&mut self, stage_id: usize) {
         if let Some(ExecutionStage::Successful(stage)) = self.stages.remove(&stage_id) {
             self.stages
                 .insert(stage_id, ExecutionStage::Running(stage.to_running()));
-            true
         } else {
             info!(
                 job_id = self.job_id,
                 stage_id, "failed to re-run successful stage, stage is not successful",
-            );
-            false
+            )
         }
     }
 
@@ -1222,21 +1265,26 @@ impl ExecutionGraph {
 
     /// Mark the job success
     pub fn succeed_job(&mut self) -> Result<()> {
-        if !self.is_successful() {
+        if !self
+            .stages
+            .values()
+            .all(|s| matches!(s, ExecutionStage::Successful(_)))
+        {
             return Err(BallistaError::Internal(format!(
                 "Attempt to finalize an incomplete job {}",
-                self.job_id()
+                self.job_id
             )));
         }
 
         let partition_location = self
             .output_locations()
-            .into_iter()
+            .iter()
             .map(|l| l.try_into())
             .collect::<Result<Vec<_>>>()?;
-
+        let (completed_stages, total_task_duration_ms) =
+            ExecutionGraph::calculate_completed_stages_and_total_duration(&self.stages);
+        let stage_metrics = ExecutionGraph::calculate_stage_metrics(&self.stages)?;
         self.end_time = timestamp_millis();
-
         self.status = JobStatus {
             job_id: self.job_id.clone(),
             job_name: self.job_name.clone(),
@@ -1252,6 +1300,10 @@ impl ExecutionGraph {
                     .cloned()
                     .collect(),
                 warnings: self.warnings.clone(),
+                stage_count: self.stages.len() as u32,
+                total_task_duration_ms,
+                completed_stages: completed_stages as u64,
+                stage_metrics,
             })),
         };
 
@@ -1272,6 +1324,9 @@ impl ExecutionGraph {
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Result<ExecutionGraph> {
+        let status = proto.status.ok_or_else(|| {
+            BallistaError::Internal("Invalid Execution Graph".to_owned())
+        })?;
         let mut stages: HashMap<usize, ExecutionStage> = HashMap::new();
         for graph_stage in proto.stages {
             let stage_type = graph_stage.stage_type.expect("Unexpected empty stage");
@@ -1341,11 +1396,7 @@ impl ExecutionGraph {
             job_id: proto.job_id,
             job_name: proto.job_name,
             session_id: proto.session_id,
-            status: proto.status.ok_or_else(|| {
-                BallistaError::Internal(
-                    "Invalid Execution Graph: missing job status".to_owned(),
-                )
-            })?,
+            status,
             queued_at: proto.queued_at,
             start_time: proto.start_time,
             end_time: proto.end_time,
@@ -1371,11 +1422,9 @@ impl ExecutionGraph {
         graph: ExecutionGraph,
         codec: &BallistaCodec<T, U>,
     ) -> Result<protobuf::ExecutionGraph> {
-        let job_id = graph.job_id().to_owned();
-
         let stages = graph
-            .stages
-            .into_values()
+            .stages()
+            .values()
             .map(|stage| {
                 let stage_type = match stage {
                     ExecutionStage::UnResolved(stage) => {
@@ -1385,14 +1434,14 @@ impl ExecutionGraph {
                         StageType::ResolvedStage(ResolvedStage::encode(stage, codec)?)
                     }
                     ExecutionStage::Running(stage) => StageType::ResolvedStage(
-                        ResolvedStage::encode(stage.to_resolved(), codec)?,
+                        ResolvedStage::encode(&stage.to_resolved(), codec)?,
                     ),
-                    ExecutionStage::Successful(stage) => StageType::SuccessfulStage(
-                        SuccessfulStage::encode(job_id.clone(), stage, codec)?,
-                    ),
-                    ExecutionStage::Failed(stage) => StageType::FailedStage(
-                        FailedStage::encode(job_id.clone(), stage, codec)?,
-                    ),
+                    ExecutionStage::Successful(stage) => {
+                        StageType::SuccessfulStage(SuccessfulStage::encode(stage, codec)?)
+                    }
+                    ExecutionStage::Failed(stage) => {
+                        StageType::FailedStage(FailedStage::encode(stage, codec)?)
+                    }
                 };
                 Ok(protobuf::ExecutionGraphStage {
                     stage_type: Some(stage_type),
@@ -1401,8 +1450,8 @@ impl ExecutionGraph {
             .collect::<Result<Vec<_>>>()?;
 
         let output_locations: Vec<protobuf::PartitionLocation> = graph
-            .output_locations
-            .into_iter()
+            .output_locations()
+            .iter()
             .map(|loc| loc.try_into())
             .collect::<Result<Vec<_>>>()?;
 
@@ -1429,7 +1478,6 @@ impl ExecutionGraph {
             queued_at: graph.queued_at,
             start_time: graph.start_time,
             end_time: graph.end_time,
-            stages,
             output_partitions: graph.output_partitions as u64,
             output_locations,
             scheduler_id: graph.scheduler_id.unwrap_or_default(),
@@ -1442,6 +1490,7 @@ impl ExecutionGraph {
                 .cloned()
                 .collect(),
             warnings: graph.warnings,
+            stages,
         })
     }
 
@@ -1455,12 +1504,14 @@ impl ExecutionGraph {
         self.circuit_breaker_tripped_labels.extend(labels);
 
         if !preempt {
-            info!("Will not preempt running tasks");
+            info!(
+                job_id = self.job_id,
+                stage_id, "Will not preempt running tasks"
+            );
             return Ok(vec![]);
         }
 
-        let task_id = self.next_task_id() as u32;
-
+        let task_id = self.next_task_id();
         let stage = if let Some(stage) = self.stages.get_mut(&stage_id) {
             stage
         } else {
@@ -1486,7 +1537,7 @@ impl ExecutionGraph {
                 // by the update_task_status_internal method below.
                 // If we don't do it this way update_task_status_internal will panic.
                 running_stage.task_infos[i] = Some(TaskInfo {
-                    task_id: task_id as usize,
+                    task_id,
                     scheduled_time: current_time as u128,
                     launch_time: current_time as u128,
                     start_exec_time: current_time as u128,
@@ -1500,15 +1551,15 @@ impl ExecutionGraph {
         }
 
         info!(
-            "Preempted {} tasks due to tripped circuit breaker for stage {} in job {} (labels: {:?})",
-            num_stopped,
+            job_id = self.job_id,
             stage_id,
-            self.job_id,
-            self.circuit_breaker_tripped_labels
+            "Preempted {} tasks due to tripped circuit breaker (labels: {:?})",
+            num_stopped,
+            self.circuit_breaker_tripped_labels,
         );
 
         let task_status = TaskStatus {
-            task_id,
+            task_id: task_id as u32,
             job_id: self.job_id.clone(),
             stage_id: running_stage.stage_id as u32,
             stage_attempt_num: running_stage.stage_attempt_num as u32,
@@ -1536,7 +1587,7 @@ impl Debug for ExecutionGraph {
             .collect::<Vec<String>>()
             .join("");
         write!(f, "ExecutionGraph[job_id={}, session_id={}, available_tasks={}, is_successful={}, circuit_breaker_tripped={}]\n{}",
-               self.job_id, self.session_id, self.available_tasks(), self.is_successful(), self.circuit_breaker_tripped, stages)
+        self.job_id, self.session_id, self.available_tasks(), self.is_successful(), self.circuit_breaker_tripped, stages)
     }
 }
 
@@ -1721,6 +1772,135 @@ fn partition_to_location(
         .collect()
 }
 
+struct StageMetricsBuilder<'a> {
+    stage_id: usize,
+    plan: &'a dyn ExecutionPlan,
+    metrics: VecDeque<&'a MetricsSet>,
+    plan_metrics: Vec<PlanMetrics>,
+}
+
+impl<'a> StageMetricsBuilder<'a> {
+    pub fn new(
+        stage_id: usize,
+        plan: &'a dyn ExecutionPlan,
+        metrics: &'a [MetricsSet],
+    ) -> Self {
+        Self {
+            stage_id,
+            plan,
+            metrics: VecDeque::from_iter(metrics),
+            plan_metrics: vec![],
+        }
+    }
+
+    pub fn build(mut self) -> Result<StageMetrics> {
+        visit_execution_plan(self.plan, &mut self)?;
+
+        Ok(StageMetrics {
+            stage_id: self.stage_id as i64,
+            partition_id: 0,
+            plan_metrics: self.plan_metrics,
+        })
+    }
+}
+
+impl<'a> ExecutionPlanVisitor for StageMetricsBuilder<'a> {
+    type Error = BallistaError;
+
+    fn pre_visit(
+        &mut self,
+        plan: &dyn ExecutionPlan,
+    ) -> std::result::Result<bool, Self::Error> {
+        let plan_name = stringify!(plan.as_any());
+        let metrics = to_metric(self.metrics.pop_front());
+
+        self.plan_metrics.push(PlanMetrics {
+            plan_name: plan_name.to_owned(),
+            metrics,
+        });
+
+        Ok(!plan.children().is_empty())
+    }
+}
+
+fn to_metric(metrics: Option<&MetricsSet>) -> Vec<Metric> {
+    if let Some(metrics) = metrics {
+        metrics
+            .iter()
+            .map(|m| match m.value() {
+                MetricValue::OutputRows(count) => Metric {
+                    value: count.value() as i64,
+                    name: "output_rows".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::ElapsedCompute(time) => Metric {
+                    value: time.value() as i64,
+                    name: "elapsed_compute".to_string(),
+                    metric_type: MetricType::Time as i32,
+                    labels: vec![],
+                },
+                MetricValue::SpillCount(count) => Metric {
+                    value: count.value() as i64,
+                    name: "spill_count".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::SpilledBytes(count) => Metric {
+                    value: count.value() as i64,
+                    name: "spill_bytes".to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::CurrentMemoryUsage(gauge) => Metric {
+                    value: gauge.value() as i64,
+                    name: "current_memory_usage".to_string(),
+                    metric_type: MetricType::Gauge as i32,
+                    labels: vec![],
+                },
+                MetricValue::Count { name, count } => Metric {
+                    value: count.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Count as i32,
+                    labels: vec![],
+                },
+                MetricValue::Gauge { name, gauge } => Metric {
+                    value: gauge.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Gauge as i32,
+                    labels: vec![],
+                },
+                MetricValue::Time { name, time } => Metric {
+                    value: time.value() as i64,
+                    name: name.to_string(),
+                    metric_type: MetricType::Time as i32,
+                    labels: vec![],
+                },
+                MetricValue::StartTimestamp(timestamp) => Metric {
+                    value: timestamp
+                        .value()
+                        .map(|dt| dt.timestamp_millis())
+                        .unwrap_or_default(),
+                    name: "start_timestamp".to_string(),
+                    metric_type: MetricType::Timestamp as i32,
+                    labels: vec![],
+                },
+                MetricValue::EndTimestamp(timestamp) => Metric {
+                    value: timestamp
+                        .value()
+                        .map(|dt| dt.timestamp_millis())
+                        .unwrap_or_default(),
+                    name: "end_timestamp".to_string(),
+                    metric_type: MetricType::Timestamp as i32,
+                    labels: vec![],
+                },
+            })
+            .collect()
+    } else {
+        vec![]
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::collections::HashSet;
@@ -1797,7 +1977,7 @@ mod test {
 
         drain_tasks(&mut agg_graph)?;
 
-        let status = agg_graph.status();
+        let status = agg_graph.status;
 
         assert!(matches!(
             status,
@@ -1807,7 +1987,7 @@ mod test {
             }
         ));
 
-        let outputs = agg_graph.output_locations();
+        let outputs = agg_graph.output_locations;
 
         assert_eq!(outputs.len(), agg_graph.output_partitions);
 
@@ -2032,7 +2212,7 @@ mod test {
         let mut agg_graph = test_two_aggregations_plan(8).await;
 
         agg_graph.revive();
-        assert_eq!(agg_graph.stage_count(), 3);
+        assert_eq!(agg_graph.stages.len(), 3);
 
         // Complete the Stage 1
         if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
@@ -2172,7 +2352,7 @@ mod test {
         let mut agg_graph = test_two_aggregations_plan(8).await;
 
         agg_graph.revive();
-        assert_eq!(agg_graph.stage_count(), 3);
+        assert_eq!(agg_graph.stages.len(), 3);
 
         // Complete the Stage 1
         if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
@@ -2376,7 +2556,7 @@ mod test {
         let mut agg_graph = test_two_aggregations_plan(8).await;
 
         agg_graph.revive();
-        assert_eq!(agg_graph.stage_count(), 3);
+        assert_eq!(agg_graph.stages.len(), 3);
 
         // Complete the Stage 1
         if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
@@ -2484,7 +2664,7 @@ mod test {
         let mut agg_graph = test_two_aggregations_plan(8).await;
 
         agg_graph.revive();
-        assert_eq!(agg_graph.stage_count(), 3);
+        assert_eq!(agg_graph.stages.len(), 3);
 
         // Complete the Stage 1
         if let Some(task) = agg_graph.pop_next_task(&executor1.id, 1)? {
@@ -2572,6 +2752,7 @@ mod test {
         assert_eq!(running_stage[0], 1);
         assert_eq!(agg_graph.available_tasks(), 1);
 
+        println!("GRAPH: {:#?}", agg_graph);
         // There are two failed stage attempts: Stage 2 and Stage 3
         assert_eq!(agg_graph.failed_stage_attempts.len(), 2);
         assert_eq!(

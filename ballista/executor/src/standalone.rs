@@ -61,11 +61,11 @@ pub async fn new_standalone_executor<
         // TODO Make it configurable
         grpc_port: 50020,
         specification: Some(
-            ExecutorSpecification {
+            (&ExecutorSpecification {
                 task_slots: concurrent_tasks as u32,
                 version: "0".to_string(),
-            }
-            .into(),
+            })
+                .into(),
         ),
     };
     let work_dir = TempDir::new()?
