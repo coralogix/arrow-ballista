@@ -472,8 +472,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 jobs.push(graph.deref().into());
             } else if let Some(graph) = self.state.get_execution_graph(job_id).await? {
                 jobs.push((&graph).into());
-            } else {
-                warn!("Error getting job overview, no execution graph found for job {job_id} in either the active job cache or completed jobs");
             }
         }
 
