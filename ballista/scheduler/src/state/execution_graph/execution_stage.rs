@@ -128,7 +128,7 @@ pub(crate) struct UnresolvedStage {
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
     pub(crate) output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
-    /// This stage can only be resolved an executed once all child stages are completed.
+    /// This stage can only be resolved and executed once all child stages are completed.
     pub(crate) inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
     pub(crate) plan: Arc<dyn ExecutionPlan>,
@@ -954,10 +954,11 @@ impl Debug for RunningStage {
 
         write!(
             f,
-            "=========RunningStage[stage_id={}.{}, partitions={}, successful_tasks={}, scheduled_tasks={}, available_tasks={}]=========\n{}",
+            "=========RunningStage[stage_id={}.{}, partitions={}, all_tasks={}, successful_tasks={}, scheduled_tasks={}, available_tasks={}]=========\n{}",
             self.stage_id,
             self.stage_attempt_num,
             self.partitions,
+            self.task_infos.len(),
             self.successful_tasks(),
             self.scheduled_tasks(),
             self.available_tasks(),

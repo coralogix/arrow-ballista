@@ -83,21 +83,14 @@ struct ActiveJobQueue {
 
 impl ActiveJobQueue {
     pub fn pop(&self) -> Option<ActiveJobRef> {
-        loop {
-            if let Some(active_job) = self.queue.lock().pop() {
-                if let Some(job_info) = self.jobs.get(&active_job.job_id) {
-                    return Some(ActiveJobRef {
-                        queue: &self.queue,
-                        job: job_info.clone(),
-                        active_job,
-                    });
-                } else {
-                    continue;
-                }
-            } else {
-                return None;
-            }
-        }
+        self.queue.lock().pop().and_then(|active_job| {
+            self.jobs
+                .get(&active_job.job_id)
+                .map(|job_info| ActiveJobRef {
+                    job: job_info.clone(),
+                    active_job,
+                })
+        })
     }
 
     pub fn pending_tasks(&self) -> usize {
@@ -107,6 +100,10 @@ impl ActiveJobQueue {
         }
 
         count
+    }
+
+    pub fn push_active_job(&self, job: ActiveJob) {
+        self.queue.lock().push(job);
     }
 
     pub fn push(&self, job_id: String, graph: ExecutionGraph) {
@@ -133,7 +130,7 @@ impl ActiveJobQueue {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, Eq, PartialEq, Default)]
 struct ActiveJob {
     job_id: String,
     running_stage: usize,
@@ -149,6 +146,7 @@ impl ActiveJob {
             .copied()
             .unwrap_or_default();
         let pending_tasks = graph.available_tasks();
+        // let sched = graph.stages().values().filter(|s| s.is_scheduled()).count();
         Self {
             job_id,
             running_stage,
@@ -169,30 +167,21 @@ impl Ord for ActiveJob {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         // Notice that we flip ordering on pending_tasks. This is because we want to
         // prioritize jobs with fewer tasks.
-        self.running_stage
-            .cmp(&other.running_stage)
-            .then(other.pending_tasks.cmp(&self.pending_tasks))
+        // However, we also want to de-prioritize jobs with 0 pending tasks,
+        // so we overflow subtract 1.
+        self.running_stage.cmp(&other.running_stage).then({
+            other
+                .pending_tasks
+                .overflowing_sub(1)
+                .0
+                .cmp(&self.pending_tasks.overflowing_sub(1).0)
+        })
     }
 }
 
-struct ActiveJobRef<'a> {
-    queue: &'a Mutex<BinaryHeap<ActiveJob>>,
+struct ActiveJobRef {
     job: JobInfoCache,
     active_job: ActiveJob,
-}
-
-impl<'a> Deref for ActiveJobRef<'a> {
-    type Target = JobInfoCache;
-
-    fn deref(&self) -> &Self::Target {
-        &self.job
-    }
-}
-
-impl<'a> Drop for ActiveJobRef<'a> {
-    fn drop(&mut self) {
-        self.queue.lock().push(std::mem::take(&mut self.active_job));
-    }
 }
 
 // TODO move to configuration file
@@ -633,8 +622,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assign_tasks = 0usize;
 
         for _ in 0..self.get_active_job_count() {
-            if let Some(job_ref) = self.active_job_queue.pop() {
-                let mut graph = job_ref.graph_mut().await;
+            if let Some(ActiveJobRef {
+                ref mut active_job,
+                job,
+            }) = self.active_job_queue.pop()
+            {
+                let mut graph = job.graph_mut().await;
+
                 for (exec_id, slots) in free_reservations.iter_mut() {
                     if slots.is_empty() {
                         continue;
@@ -653,6 +647,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         break;
                     }
                 }
+
+                active_job.pending_tasks = graph.available_tasks();
+                self.active_job_queue.push_active_job(active_job.clone());
 
                 if assign_tasks >= num_reservations {
                     pending_tasks += graph.available_tasks();
@@ -1050,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn max_heap_binary_tree() {
+    fn test_max_heap_binary_tree() {
         let a = ActiveJob {
             job_id: "a".to_string(),
             running_stage: 10,

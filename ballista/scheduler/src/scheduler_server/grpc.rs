@@ -121,6 +121,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                 })?;
 
             self.update_task_status(&metadata.id, task_status, false)
+                .await
                 .map_err(|e| {
                     let msg = format!(
                         "Failed to update tasks status from executor {:?} due to {:?}",
@@ -277,6 +278,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
         debug!(executor_id, "received task status update",);
 
         self.update_task_status(&executor_id, task_status, !executor_terminating)
+            .await
             .map_err(|e| {
                 let msg = format!(
                     "failed to update tasks status from executor {executor_id}: {e:?}",
