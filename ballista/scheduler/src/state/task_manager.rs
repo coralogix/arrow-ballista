@@ -80,21 +80,14 @@ struct ActiveJobQueue {
 }
 
 impl ActiveJobQueue {
-    pub fn pop(&self) -> Option<ActiveJobRef> {
-        self.queue.lock().pop().and_then(|active_job| {
-            self.jobs
-                .get(&active_job.job_id)
-                .map(|job_info| ActiveJobRef {
-                    job: job_info.clone(),
-                    active_job,
-                })
-        })
+    pub fn pop(&self) -> Option<ActiveJob> {
+        self.queue.lock().pop()
     }
 
     pub fn pending_tasks(&self) -> usize {
         let mut count = 0;
         for job in self.jobs.iter() {
-            count += job.pending_tasks.load(Ordering::Acquire);
+            count += job.available_tasks.load(Ordering::Acquire);
         }
 
         count
@@ -130,7 +123,7 @@ impl ActiveJobQueue {
 struct ActiveJob {
     job_id: String,
     running_stage: usize,
-    pending_tasks: usize,
+    available_tasks: usize,
 }
 
 impl ActiveJob {
@@ -141,11 +134,10 @@ impl ActiveJob {
             .max()
             .copied()
             .unwrap_or_default();
-        let pending_tasks = graph.available_tasks();
         Self {
             job_id,
             running_stage,
-            pending_tasks,
+            available_tasks: graph.available_tasks(),
         }
     }
 }
@@ -160,23 +152,18 @@ impl Ord for ActiveJob {
     /// Jobs are priority ordered first by running_stage (higher stage = higher priority)
     /// and then by Reverse(pending_tasks) (fewer pending tasks = higher priority)
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Notice that, we flip ordering on pending_tasks. This is because we want to
-        // prioritize jobs with fewer tasks.
-        // However, we also want to de-prioritize jobs with 0 pending tasks,
+        // Notice that, we flip ordering on available tasks. This is because
+        // we want to prioritize jobs with fewer tasks.
+        // However, we also want to de-prioritize jobs with no available tasks,
         // so we overflow subtract 1.
         self.running_stage.cmp(&other.running_stage).then({
             other
-                .pending_tasks
+                .available_tasks
                 .overflowing_sub(1)
                 .0
-                .cmp(&self.pending_tasks.overflowing_sub(1).0)
+                .cmp(&self.available_tasks.overflowing_sub(1).0)
         })
     }
-}
-
-struct ActiveJobRef {
-    job: JobInfoCache,
-    active_job: ActiveJob,
 }
 
 // TODO move to configuration file
@@ -367,18 +354,18 @@ struct JobInfoCache {
     // Cache for encoded execution stage plan to avoid duplicated encoding for multiple tasks
     #[allow(dead_code)]
     encoded_stage_plans: HashMap<usize, Vec<u8>>,
-    // Number of current pending tasks for this job
-    pending_tasks: Arc<AtomicUsize>,
+    // Number of current available tasks for this job ready to be scheduled
+    available_tasks: Arc<AtomicUsize>,
 }
 
 impl JobInfoCache {
     fn new(graph: ExecutionGraph) -> Self {
-        let pending_tasks = Arc::new(AtomicUsize::new(graph.available_tasks()));
+        let available_tasks = Arc::new(AtomicUsize::new(graph.available_tasks()));
 
         Self {
             execution_graph: Arc::new(RwLock::new(graph)),
             encoded_stage_plans: HashMap::new(),
-            pending_tasks,
+            available_tasks,
         }
     }
 
@@ -387,7 +374,7 @@ impl JobInfoCache {
 
         ExecutionGraphWriteGuard {
             inner: guard,
-            pending_tasks: self.pending_tasks.clone(),
+            pending_tasks: self.available_tasks.clone(),
         }
     }
 }
@@ -617,39 +604,56 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         let mut assign_tasks = 0usize;
 
         for _ in 0..self.get_active_job_count() {
-            if let Some(ActiveJobRef {
-                ref mut active_job,
-                job,
-            }) = self.active_job_queue.pop()
-            {
-                let mut graph = job.graph_mut().await;
+            if let Some(active_job) = self.active_job_queue.pop() {
+                if let Some(job_info) = self.active_job_queue.get_job(&active_job.job_id)
+                {
+                    let mut graph = job_info.graph_mut().await;
 
-                for (exec_id, slots) in free_reservations.iter_mut() {
-                    if slots.is_empty() {
-                        continue;
+                    for (exec_id, slots) in free_reservations.iter_mut() {
+                        if slots.is_empty() {
+                            continue;
+                        }
+
+                        let res = graph.pop_next_task(exec_id, slots.len());
+                        match res {
+                            Ok(Some(task)) => {
+                                TASK_IDELE_TIME.observe(
+                                    timestamp_millis().saturating_sub(task.resolved_at)
+                                        as f64
+                                        / 1_000.,
+                                );
+
+                                assign_tasks += task.concurrency();
+                                slots.truncate(slots.len() - task.concurrency());
+                                assignments.push(((*exec_id).clone(), task));
+                            }
+                            Ok(None) => {
+                                // no more tasks to assign
+                                break;
+                            }
+                            Err(_) => {
+                                // push job back into queue with updated remaining tasks
+                                self.active_job_queue.push_active_job(ActiveJob::new(
+                                    active_job.job_id.clone(),
+                                    &graph,
+                                ));
+                                res?;
+                            }
+                        }
                     }
 
-                    if let Some(task) = graph.pop_next_task(exec_id, slots.len())? {
-                        TASK_IDELE_TIME.observe(
-                            timestamp_millis().saturating_sub(task.resolved_at) as f64
-                                / 1_000.,
-                        );
+                    // push job back into queue with updated remaining tasks
+                    self.active_job_queue.push_active_job(ActiveJob::new(
+                        active_job.job_id.clone(),
+                        &graph,
+                    ));
 
-                        assign_tasks += task.concurrency();
-                        slots.truncate(slots.len() - task.concurrency());
-                        assignments.push(((*exec_id).clone(), task));
-                    } else {
+                    if assign_tasks >= num_reservations {
+                        pending_tasks += graph.available_tasks();
                         break;
                     }
-                }
-
-                // push job back into queue with updated pending tasks
-                active_job.pending_tasks = graph.available_tasks();
-                self.active_job_queue.push_active_job(active_job.clone());
-
-                if assign_tasks >= num_reservations {
-                    pending_tasks += graph.available_tasks();
-                    break;
+                } else {
+                    warn!("no job_info found for active job: {}", active_job.job_id);
                 }
             } else {
                 break;
@@ -711,7 +715,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             if let Some(job) = self.active_job_queue.get_job(job_id) {
                 let mut guard = job.graph_mut().await;
 
-                let pending_tasks = guard.available_tasks();
+                let available_tasks = guard.available_tasks();
                 if let Some(running_tasks) = guard.running_tasks() {
                     info!(
                         job_id,
@@ -726,11 +730,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     // After state is saved, remove job from active cache
                     let _ = self.remove_active_execution_graph(job_id);
 
-                    (running_tasks, pending_tasks)
+                    (running_tasks, available_tasks)
                 } else {
                     // TODO listen the job state update event and fix task cancelling
                     warn!(job_id, "no running tasks found for job");
-                    (vec![], pending_tasks)
+                    (vec![], available_tasks)
                 }
             } else {
                 // TODO listen the job state update event and fix task cancelling
@@ -1010,17 +1014,17 @@ mod tests {
         let a = ActiveJob {
             job_id: "a".to_string(),
             running_stage: 10,
-            pending_tasks: 100,
+            available_tasks: 100,
         };
         let b = ActiveJob {
             job_id: "b".to_string(),
             running_stage: 10,
-            pending_tasks: 10,
+            available_tasks: 10,
         };
         let c = ActiveJob {
             job_id: "c".to_string(),
             running_stage: 5,
-            pending_tasks: 10,
+            available_tasks: 10,
         };
         assert!(b > a);
         assert!(b > c);
@@ -1032,17 +1036,17 @@ mod tests {
         let a = ActiveJob {
             job_id: "a".to_string(),
             running_stage: 10,
-            pending_tasks: 100,
+            available_tasks: 100,
         };
         let b = ActiveJob {
             job_id: "b".to_string(),
             running_stage: 10,
-            pending_tasks: 10,
+            available_tasks: 10,
         };
         let c = ActiveJob {
             job_id: "c".to_string(),
             running_stage: 5,
-            pending_tasks: 10,
+            available_tasks: 10,
         };
         let mut tree = BinaryHeap::from(vec![&a, &b, &c]);
         assert_eq!(tree.pop(), Some(&b));
