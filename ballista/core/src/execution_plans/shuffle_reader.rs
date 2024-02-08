@@ -607,7 +607,7 @@ impl PartitionReader for PartitionReaderEnum {
         match self {
             PartitionReaderEnum::Local => fetch_partition_local(location).await,
             PartitionReaderEnum::FlightRemote { clients } => {
-                fetch_partition_remote(location, clients.clone()).await
+                fetch_partition_remote(location, clients.as_ref()).await
             }
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
                 fetch_partition_object_store(location, object_store.clone()).await
@@ -617,12 +617,12 @@ impl PartitionReader for PartitionReaderEnum {
 }
 
 async fn get_execution_client(
-    clients: Arc<Cache<String, BallistaClient>>,
-    host: String,
+    clients: &Cache<String, BallistaClient>,
+    host: &str,
     port: u16,
 ) -> Result<BallistaClient> {
     clients
-        .try_get_with(host.clone(), BallistaClient::try_new(&host, port))
+        .try_get_with_by_ref(host, BallistaClient::try_new(host, port))
         .await
         .map_err(|e| {
             DataFusionError::Execution(format!(
@@ -636,14 +636,14 @@ async fn get_execution_client(
 
 async fn fetch_partition_remote(
     location: &PartitionLocation,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: &Cache<String, BallistaClient>,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
-    let host = metadata.host.clone();
-    let port = metadata.port;
-    let mut ballista_client = get_execution_client(clients, host.clone(), port).await?;
+
+    let mut ballista_client =
+        get_execution_client(clients, &metadata.host, metadata.port).await?;
 
     ballista_client
         .fetch_partition(
@@ -653,8 +653,8 @@ async fn fetch_partition_remote(
             location.output_partition,
             &location.map_partitions,
             &location.path,
-            &host,
-            port,
+            &metadata.host,
+            metadata.port,
         )
         .await
 }
