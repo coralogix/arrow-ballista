@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use arrow_flight::sql::metadata;
 use async_trait::async_trait;
 use datafusion::common::stats::Precision;
 use moka::future::Cache;
@@ -38,7 +39,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::async_reader::AsyncStreamReader;
 use crate::client::BallistaClient;
-use crate::serde::scheduler::{PartitionLocation, PartitionStats};
+use crate::serde::scheduler::{ExecutorMetadata, PartitionLocation, PartitionStats};
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
@@ -618,19 +619,23 @@ impl PartitionReader for PartitionReaderEnum {
 
 async fn get_execution_client(
     clients: &Cache<String, BallistaClient>,
-    host: &str,
-    port: u16,
-) -> Result<BallistaClient> {
+    location: &PartitionLocation,
+    metadata: &ExecutorMetadata,
+) -> Result<BallistaClient, BallistaError> {
     clients
-        .try_get_with_by_ref(host, BallistaClient::try_new(host, port))
+        .try_get_with_by_ref(
+            &metadata.host,
+            BallistaClient::try_new(&metadata.host, metadata.port),
+        )
         .await
-        .map_err(|e| {
-            DataFusionError::Execution(format!(
-                "Failed to connect to executor {}:{} - {:?}",
-                host,
-                port,
-                e.as_ref()
-            ))
+        .map_err(|error| match error.as_ref() {
+            BallistaError::GrpcConnectionError(msg) => BallistaError::FetchFailed(
+                metadata.id.clone(),
+                location.stage_id,
+                location.map_partitions.clone(),
+                msg.clone(),
+            ),
+            other => BallistaError::Internal(other.to_string()),
         })
 }
 
@@ -642,8 +647,7 @@ async fn fetch_partition_remote(
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
 
-    let mut ballista_client =
-        get_execution_client(clients, &metadata.host, metadata.port).await?;
+    let mut ballista_client = get_execution_client(clients, location, metadata).await?;
 
     ballista_client
         .fetch_partition(
@@ -931,7 +935,7 @@ mod tests {
             ShuffleReaderExec::new(vec![partitions], Arc::new(schema), None);
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
-
+        println!("{:?}", batches);
         assert!(batches.is_err());
 
         // BallistaError::FetchFailed -> ArrowError::ExternalError -> ballistaError::FetchFailed
