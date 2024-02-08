@@ -17,6 +17,7 @@
 
 use async_trait::async_trait;
 use datafusion::common::stats::Precision;
+use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
 use prometheus::{
@@ -96,21 +97,23 @@ pub struct ShuffleReaderExec {
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 }
 
 impl ShuffleReaderExec {
     /// Create a new ShuffleReaderExec
-    pub fn try_new(
+    pub fn new(
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
-    ) -> Result<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             partition,
             schema,
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
-        })
+            clients: Arc::new(Cache::new(100)),
+        }
     }
 }
 
@@ -217,6 +220,7 @@ impl ExecutionPlan for ShuffleReaderExec {
                 partition_locations,
                 max_request_num,
                 object_store.clone(),
+                self.clients.clone(),
             )
         } else {
             send_fetch_partitions(
@@ -224,6 +228,7 @@ impl ExecutionPlan for ShuffleReaderExec {
                 partition,
                 partition_locations,
                 max_request_num,
+                self.clients.clone(),
             )
         };
 
@@ -361,6 +366,7 @@ fn send_fetch_partitions_with_fallback(
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
     object_store: Arc<dyn ObjectStore>,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) = mpsc::channel(max_request_num);
     let semaphore = Arc::new(Semaphore::new(max_request_num));
@@ -413,7 +419,11 @@ fn send_fetch_partitions_with_fallback(
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
             let now = Instant::now();
-            let result = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let result = PartitionReaderEnum::FlightRemote {
+                clients: clients.clone(),
+            }
+            .fetch_partition(&p)
+            .await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["remote"])
                 .observe(now.elapsed().as_secs_f64());
@@ -499,6 +509,7 @@ fn send_fetch_partitions(
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
     max_request_num: usize,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) = channel(max_request_num);
 
@@ -537,7 +548,11 @@ fn send_fetch_partitions(
         for p in remote_locations.into_iter() {
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
-            let r = PartitionReaderEnum::FlightRemote.fetch_partition(&p).await;
+            let r = PartitionReaderEnum::FlightRemote {
+                clients: clients.clone(),
+            }
+            .fetch_partition(&p)
+            .await;
 
             if let Err(e) = response_sender.send(r).await {
                 warn!(
@@ -574,8 +589,12 @@ trait PartitionReader: Send + Sync + Clone {
 #[derive(Clone)]
 enum PartitionReaderEnum {
     Local,
-    FlightRemote,
-    ObjectStoreRemote { object_store: Arc<dyn ObjectStore> },
+    FlightRemote {
+        clients: Arc<Cache<String, BallistaClient>>,
+    },
+    ObjectStoreRemote {
+        object_store: Arc<dyn ObjectStore>,
+    },
 }
 
 #[async_trait]
@@ -587,7 +606,9 @@ impl PartitionReader for PartitionReaderEnum {
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
             PartitionReaderEnum::Local => fetch_partition_local(location).await,
-            PartitionReaderEnum::FlightRemote => fetch_partition_remote(location).await,
+            PartitionReaderEnum::FlightRemote { clients } => {
+                fetch_partition_remote(location, clients.clone()).await
+            }
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
                 fetch_partition_object_store(location, object_store.clone()).await
             }
@@ -595,27 +616,34 @@ impl PartitionReader for PartitionReaderEnum {
     }
 }
 
+async fn get_execution_client(
+    clients: Arc<Cache<String, BallistaClient>>,
+    host: String,
+    port: u16,
+) -> Result<BallistaClient> {
+    clients
+        .try_get_with(host.clone(), BallistaClient::try_new(&host, port))
+        .await
+        .map_err(|e| {
+            DataFusionError::Execution(format!(
+                "Failed to connect to executor {}:{} - {:?}",
+                host,
+                port,
+                e.as_ref()
+            ))
+        })
+}
+
 async fn fetch_partition_remote(
     location: &PartitionLocation,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
-    let host = metadata.host.as_str();
+    let host = metadata.host.clone();
     let port = metadata.port;
-    let mut ballista_client =
-        BallistaClient::try_new(host, port)
-            .await
-            .map_err(|error| match error {
-                // map grpc connection error to partition fetch error.
-                BallistaError::GrpcConnectionError(msg) => BallistaError::FetchFailed(
-                    metadata.id.clone(),
-                    location.stage_id,
-                    location.map_partitions.clone(),
-                    msg,
-                ),
-                other => other,
-            })?;
+    let mut ballista_client = get_execution_client(clients, host.clone(), port).await?;
 
     ballista_client
         .fetch_partition(
@@ -625,7 +653,7 @@ async fn fetch_partition_remote(
             location.output_partition,
             &location.map_partitions,
             &location.path,
-            host,
+            &host,
             port,
         )
         .await
@@ -900,7 +928,7 @@ mod tests {
         }
 
         let shuffle_reader_exec =
-            ShuffleReaderExec::try_new(vec![partitions], Arc::new(schema), None)?;
+            ShuffleReaderExec::new(vec![partitions], Arc::new(schema), None);
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
 
@@ -995,6 +1023,7 @@ mod tests {
             0,
             partition_locations,
             max_request_num,
+            Arc::new(Cache::new(10)),
         );
 
         let stream = RecordBatchStreamAdapter::new(

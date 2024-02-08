@@ -79,6 +79,7 @@ tracing = "0.1.36"
 url = "2.2"
 uuid = { version = "1.0", features = ["v4"] }
 walkdir = "2.3.2"
+moka.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
