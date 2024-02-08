@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use arrow_flight::sql::metadata;
 use async_trait::async_trait;
 use datafusion::common::stats::Precision;
 use moka::future::Cache;
