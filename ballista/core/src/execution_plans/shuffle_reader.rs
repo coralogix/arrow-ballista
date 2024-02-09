@@ -939,7 +939,6 @@ mod tests {
         );
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
-        println!("{:?}", batches);
         assert!(batches.is_err());
 
         // BallistaError::FetchFailed -> ArrowError::ExternalError -> ballistaError::FetchFailed
