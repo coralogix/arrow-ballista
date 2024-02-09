@@ -722,6 +722,7 @@ mod test {
 
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
     use tonic::Request;
 
@@ -758,6 +759,7 @@ mod test {
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -854,6 +856,7 @@ mod test {
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 
@@ -950,6 +953,7 @@ mod test {
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 
@@ -1010,6 +1014,7 @@ mod test {
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 

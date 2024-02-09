@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use ballista_core::client::BallistaClient;
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
 use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
@@ -29,6 +30,7 @@ use datafusion::logical_expr::LogicalPlan;
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use datafusion_proto::physical_plan::AsExecutionPlan;
+use moka::future::Cache;
 use object_store::ObjectStore;
 
 use crate::cluster::BallistaCluster;
@@ -73,6 +75,7 @@ pub struct SchedulerServer<T: 'static + AsLogicalPlan, U: 'static + AsExecutionP
 }
 
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T, U> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         scheduler_name: String,
         scheduler_version: String,
@@ -81,6 +84,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             cluster,
@@ -89,6 +93,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             scheduler_version,
             config.clone(),
             object_store,
+            clients,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -122,6 +127,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -131,6 +137,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config.clone(),
             task_launcher,
             object_store,
+            clients,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -431,6 +438,7 @@ mod test {
         BallistaConfig, TaskSchedulingPolicy, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS,
     };
     use ballista_core::error::Result;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
 
     use crate::config::SchedulerConfig;
@@ -782,6 +790,7 @@ mod test {
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
                 Arc::new(TestMetricsCollector::default()),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 

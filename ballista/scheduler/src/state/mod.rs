@@ -15,11 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use ballista_core::client::BallistaClient;
 use ballista_core::warning_collector::WarningCollector;
 use datafusion::common::tree_node::{TreeNode, VisitRecursion};
 use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{ListingTable, ListingTableUrl};
 use datafusion::datasource::source_as_provider;
+use moka::future::Cache;
 use object_store::ObjectStore;
 use std::any::type_name;
 use std::collections::{HashMap, HashSet};
@@ -116,6 +118,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             String::default(),
             SchedulerConfig::default(),
             object_store,
+            Arc::new(Cache::new(100)),
         )
     }
 
@@ -126,6 +129,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         scheduler_version: String,
         config: SchedulerConfig,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
             scheduler_version,
@@ -138,6 +142,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 codec.clone(),
                 scheduler_name,
                 object_store,
+                clients,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -146,7 +151,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         }
     }
 
-    #[allow(dead_code)]
+    #[allow(dead_code, clippy::too_many_arguments)]
     pub(crate) fn new_with_task_launcher(
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
@@ -155,6 +160,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         config: SchedulerConfig,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
             scheduler_version,
@@ -167,6 +173,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 scheduler_name,
                 dispatcher,
                 object_store,
+                clients,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -481,6 +488,7 @@ mod test {
     };
     use ballista_core::serde::BallistaCodec;
     use datafusion::config::Extensions;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
 
     use crate::config::SchedulerConfig;
@@ -551,6 +559,7 @@ mod test {
                 SchedulerConfig::default(),
                 Arc::new(BlackholeTaskLauncher::default()),
                 None,
+                Arc::new(Cache::new(100)),
             ));
 
         let session_ctx = state

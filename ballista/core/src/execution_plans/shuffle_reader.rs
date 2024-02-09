@@ -106,14 +106,14 @@ impl ShuffleReaderExec {
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
-        let max_capacity = partition.iter().flatten().count() as u64;
         Self {
             partition,
             schema,
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
-            clients: Arc::new(Cache::new(max_capacity)),
+            clients,
         }
     }
 }
@@ -931,8 +931,12 @@ mod tests {
             })
         }
 
-        let shuffle_reader_exec =
-            ShuffleReaderExec::new(vec![partitions], Arc::new(schema), None);
+        let shuffle_reader_exec = ShuffleReaderExec::new(
+            vec![partitions],
+            Arc::new(schema),
+            None,
+            Arc::new(Cache::new(10)),
+        );
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
         println!("{:?}", batches);

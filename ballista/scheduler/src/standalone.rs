@@ -32,6 +32,7 @@ use datafusion_proto::physical_plan::PhysicalExtensionCodec;
 use datafusion_proto::protobuf::LogicalPlanNode;
 use datafusion_proto::protobuf::PhysicalPlanNode;
 use log::info;
+use moka::future::Cache;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -53,6 +54,7 @@ pub async fn new_standalone_scheduler_with_codec(
             SchedulerConfig::default(),
             metrics_collector,
             None,
+            Arc::new(Cache::new(100)),
         );
 
     scheduler_server.init().await?;

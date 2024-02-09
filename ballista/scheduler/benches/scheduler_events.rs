@@ -32,6 +32,7 @@ use datafusion::physical_plan::{
 };
 use datafusion::prelude::{col, count, SessionContext};
 use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
+use moka::future::Cache;
 use pprof::criterion::{Output, PProfProfiler};
 use std::any::Any;
 use std::collections::{HashMap, HashSet};
@@ -332,6 +333,7 @@ async fn setup_env(
         metrics,
         launcher,
         None,
+        Arc::new(Cache::new(200)),
     );
 
     server.init().await.unwrap();

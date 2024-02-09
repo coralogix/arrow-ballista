@@ -27,6 +27,7 @@ use crate::state::executor_manager::ExecutorReservation;
 use crate::state::session_manager::create_datafusion_context;
 use crate::state::{decode_into, decode_protobuf};
 use async_trait::async_trait;
+use ballista_core::client::BallistaClient;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf::job_status::Status;
@@ -45,6 +46,7 @@ use datafusion_proto::protobuf::{LogicalPlanNode, PhysicalPlanNode};
 use futures::StreamExt;
 use itertools::Itertools;
 use log::{info, warn};
+use moka::future::Cache;
 use object_store::ObjectStore;
 use prost::Message;
 use std::collections::{HashMap, HashSet};
@@ -77,6 +79,7 @@ pub struct KeyValueState<
     /// Default datafusion config extensions
     default_extensions: Extensions,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 }
 
 impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
@@ -89,6 +92,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         session_builder: SessionBuilder,
         default_extensions: Extensions,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
             store,
@@ -100,6 +104,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             session_builder,
             default_extensions,
             object_store,
+            clients,
         }
     }
 
@@ -605,6 +610,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
                 &self.codec,
                 session.as_ref(),
                 self.object_store.clone(),
+                self.clients.clone(),
             )
             .await?,
         ))
@@ -871,6 +877,7 @@ mod test {
         use std::sync::Arc;
 
         use datafusion::config::Extensions;
+        use moka::future::Cache;
         use object_store::local::LocalFileSystem;
 
         Ok(KeyValueState::new(
@@ -880,6 +887,7 @@ mod test {
             default_session_builder,
             Extensions::default(),
             None,
+            Arc::new(Cache::new(100)),
         ))
     }
 

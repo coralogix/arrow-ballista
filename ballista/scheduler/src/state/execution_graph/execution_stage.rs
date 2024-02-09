@@ -21,6 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
+use ballista_core::client::BallistaClient;
 use datafusion::physical_optimizer::aggregate_statistics::AggregateStatistics;
 use datafusion::physical_optimizer::join_selection::JoinSelection;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -29,6 +30,7 @@ use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{ExecutionPlan, Metric, Partitioning};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion_proto::logical_plan::AsLogicalPlan;
+use moka::future::Cache;
 use object_store::ObjectStore;
 use tracing::{debug, warn};
 
@@ -136,6 +138,8 @@ pub(crate) struct UnresolvedStage {
     pub(crate) last_attempt_failure_reasons: HashSet<String>,
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+
+    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
@@ -164,6 +168,7 @@ pub(crate) struct ResolvedStage {
     pub(crate) resolved_at: u64,
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -199,6 +204,7 @@ pub(crate) struct RunningStage {
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
@@ -226,6 +232,7 @@ pub(crate) struct SuccessfulStage {
     /// Combined metrics of the already finished tasks in the stage.
     pub(crate) stage_metrics: Vec<MetricsSet>,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
+    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
 }
 
 /// If a stage fails, it will be with an error message
@@ -290,6 +297,7 @@ impl UnresolvedStage {
         output_links: Vec<usize>,
         child_stage_ids: Vec<usize>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
         for input_stage_id in child_stage_ids {
@@ -305,6 +313,7 @@ impl UnresolvedStage {
             plan,
             last_attempt_failure_reasons: Default::default(),
             object_store,
+            clients,
         }
     }
 
@@ -318,6 +327,7 @@ impl UnresolvedStage {
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
             stage_id,
@@ -328,6 +338,7 @@ impl UnresolvedStage {
             plan,
             last_attempt_failure_reasons,
             object_store,
+            clients,
         }
     }
 
@@ -400,6 +411,7 @@ impl UnresolvedStage {
             self.plan.clone(),
             &input_locations,
             self.object_store.clone(),
+            self.clients.clone(),
         )?;
 
         // Optimize join order and aggregate based on new resolved statistics
@@ -419,6 +431,7 @@ impl UnresolvedStage {
             self.inputs.clone(),
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
+            self.clients.clone(),
         ))
     }
 
@@ -427,6 +440,7 @@ impl UnresolvedStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Result<UnresolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -454,6 +468,7 @@ impl UnresolvedStage {
                 stage.last_attempt_failure_reasons,
             ),
             object_store,
+            clients,
         })
     }
 
@@ -511,6 +526,7 @@ impl ResolvedStage {
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
 
@@ -525,6 +541,7 @@ impl ResolvedStage {
             last_attempt_failure_reasons,
             resolved_at: timestamp_millis(),
             object_store,
+            clients,
         }
     }
 
@@ -540,6 +557,7 @@ impl ResolvedStage {
             self.inputs.clone(),
             self.resolved_at,
             self.object_store.clone(),
+            self.clients.clone(),
         )
     }
 
@@ -556,6 +574,7 @@ impl ResolvedStage {
             self.inputs.clone(),
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
+            self.clients.clone(),
         );
         Ok(unresolved)
     }
@@ -565,6 +584,7 @@ impl ResolvedStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Result<ResolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -594,6 +614,7 @@ impl ResolvedStage {
             ),
             resolved_at: stage.resolved_at,
             object_store,
+            clients,
         })
     }
 
@@ -650,6 +671,7 @@ impl RunningStage {
         inputs: HashMap<usize, StageOutput>,
         resolved_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
             stage_id,
@@ -664,6 +686,7 @@ impl RunningStage {
             stage_metrics: None,
             resolved_at,
             object_store,
+            clients,
         }
     }
 
@@ -696,6 +719,7 @@ impl RunningStage {
             task_infos,
             stage_metrics,
             object_store: self.object_store.clone(),
+            clients: self.clients.clone(),
         }
     }
 
@@ -724,6 +748,7 @@ impl RunningStage {
             self.inputs.clone(),
             HashSet::new(),
             self.object_store.clone(),
+            self.clients.clone(),
         )
     }
 
@@ -743,6 +768,7 @@ impl RunningStage {
             self.inputs.clone(),
             failure_reasons,
             self.object_store.clone(),
+            self.clients.clone(),
         );
         Ok(unresolved)
     }
@@ -997,6 +1023,7 @@ impl SuccessfulStage {
             stage_metrics,
             resolved_at: timestamp_millis(),
             object_store: self.object_store.clone(),
+            clients: self.clients.clone(),
         }
     }
 
@@ -1005,6 +1032,7 @@ impl SuccessfulStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Result<SuccessfulStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -1043,6 +1071,7 @@ impl SuccessfulStage {
             task_infos,
             stage_metrics,
             object_store,
+            clients,
         })
     }
 

@@ -18,9 +18,11 @@
 use anyhow::{Context, Result};
 #[cfg(feature = "flight-sql")]
 use arrow_flight::flight_service_server::FlightServiceServer;
+use ballista_core::client::BallistaClient;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
+use moka::future::Cache;
 use object_store::ObjectStore;
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -48,6 +50,7 @@ pub async fn start_server(
     addr: SocketAddr,
     config: SchedulerConfig,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
@@ -70,6 +73,7 @@ pub async fn start_server(
             config,
             metrics_collector,
             object_store,
+            clients,
         );
 
     scheduler_server.init().await?;

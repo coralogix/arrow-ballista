@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ballista_core::client::BallistaClient;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::{
     execution_plans::{ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec},
@@ -34,6 +35,7 @@ use datafusion::physical_plan::{
 };
 
 use log::{debug, info};
+use moka::future::Cache;
 use object_store::ObjectStore;
 
 type PartialQueryStageResult = (Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>);
@@ -210,6 +212,7 @@ pub fn remove_unresolved_shuffles(
     stage: Arc<dyn ExecutionPlan>,
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {
@@ -251,12 +254,14 @@ pub fn remove_unresolved_shuffles(
                 relevant_locations,
                 unresolved_shuffle.schema().clone(),
                 object_store.clone(),
+                clients.clone(),
             )))
         } else {
             new_children.push(remove_unresolved_shuffles(
                 child,
                 partition_locations,
                 object_store.clone(),
+                clients.clone(),
             )?);
         }
     }

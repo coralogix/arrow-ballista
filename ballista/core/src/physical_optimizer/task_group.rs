@@ -177,6 +177,7 @@ mod tests {
         arrow::datatypes::Schema,
         physical_plan::{limit::LocalLimitExec, union::UnionExec},
     };
+    use moka::future::Cache;
 
     use crate::execution_plans::{
         CoalesceTasksExec, ShuffleReaderExec, ShuffleWriterExec,
@@ -258,6 +259,7 @@ mod tests {
                 Field::new("c", DataType::UInt32, false),
             ])),
             None,
+            Arc::new(Cache::new(10)),
         ))
     }
 
@@ -335,6 +337,7 @@ mod tests {
             Vec::default(),
             Arc::new(Schema::empty()),
             None,
+            Arc::new(Cache::new(10)),
         ));
 
         let optiized = optimizer.insert_coalesce(input).unwrap().into();

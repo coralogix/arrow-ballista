@@ -419,6 +419,7 @@ mod tests {
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
     use datafusion::prelude::{SessionConfig, SessionContext};
+    use moka::future::Cache;
     use std::sync::Arc;
 
     #[tokio::test]
@@ -651,6 +652,7 @@ filter_expr="]
             0,
             None,
             vec![],
+            Arc::new(Cache::new(100)),
         )
     }
 
@@ -685,6 +687,7 @@ filter_expr="]
             0,
             None,
             vec![],
+            Arc::new(Cache::new(100)),
         )
     }
 }
