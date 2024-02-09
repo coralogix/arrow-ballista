@@ -157,7 +157,10 @@ impl BallistaCluster {
                     EtcdClient::new(config.namespace.clone(), etcd),
                     scheduler,
                     default_session_builder,
-                    BallistaCodec::new_with_optional_object_store(object_store.clone()),
+                    BallistaCodec::new_with_object_store_and_clients(
+                        object_store.clone(),
+                        clients.clone(),
+                    ),
                     Extensions::default(),
                     object_store,
                     clients,
@@ -179,8 +182,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_optional_object_store(
+                        BallistaCodec::new_with_object_store_and_clients(
                             object_store.clone(),
+                            clients.clone(),
                         ),
                         Extensions::default(),
                         object_store,
@@ -194,8 +198,9 @@ impl BallistaCluster {
                         sled,
                         scheduler,
                         default_session_builder,
-                        BallistaCodec::new_with_optional_object_store(
+                        BallistaCodec::new_with_object_store_and_clients(
                             object_store.clone(),
+                            clients.clone(),
                         ),
                         Extensions::default(),
                         object_store,

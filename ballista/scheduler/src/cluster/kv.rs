@@ -883,7 +883,10 @@ mod test {
         Ok(KeyValueState::new(
             "",
             SledClient::try_new_temporary()?,
-            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+            BallistaCodec::new_with_object_store_and_clients(
+                Some(Arc::new(LocalFileSystem::new())),
+                Arc::new(Cache::new(100)),
+            ),
             default_session_builder,
             Extensions::default(),
             None,

@@ -103,21 +103,15 @@ impl Default for BallistaCodec {
 }
 
 impl BallistaCodec {
-    pub fn new_with_optional_object_store(
+    pub fn new_with_object_store_and_clients(
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
-        match object_store {
-            Some(object_store) => Self::new_with_object_store(object_store),
-            _ => Self::default(),
-        }
-    }
-
-    pub fn new_with_object_store(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
             physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
-                object_store: Some(object_store),
-                ..Default::default()
+                object_store,
+                clients,
             }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,

@@ -462,7 +462,10 @@ impl SchedulerTest {
                 TEST_SCHEDULER_NAME.into(),
                 TEST_SCHEDULER_VERSION.into(),
                 cluster,
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 config,
                 metrics_collector,
                 Arc::new(launcher),

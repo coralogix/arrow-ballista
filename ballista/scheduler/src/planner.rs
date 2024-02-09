@@ -331,6 +331,7 @@ mod test {
     use datafusion_proto::physical_plan::AsExecutionPlan;
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
     use std::ops::Deref;
     use std::sync::Arc;
@@ -644,7 +645,10 @@ order by
         plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>, BallistaError> {
         let codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new()));
+            BallistaCodec::new_with_object_store_and_clients(
+                Some(Arc::new(LocalFileSystem::new())),
+                Arc::new(Cache::new(100)),
+            );
         let proto: datafusion_proto::protobuf::PhysicalPlanNode =
             datafusion_proto::protobuf::PhysicalPlanNode::try_from_physical_plan(
                 plan.clone(),

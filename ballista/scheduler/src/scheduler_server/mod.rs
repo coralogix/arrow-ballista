@@ -786,7 +786,10 @@ mod test {
                 "localhost:50050".to_owned(),
                 "test-v0.1".to_owned(),
                 cluster,
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default().with_scheduler_policy(scheduling_policy),
                 Arc::new(TestMetricsCollector::default()),
                 None,

@@ -69,7 +69,10 @@ pub async fn start_server(
             config.scheduler_name(),
             config.version.clone(),
             cluster,
-            BallistaCodec::new_with_optional_object_store(object_store.clone()),
+            BallistaCodec::new_with_object_store_and_clients(
+                object_store.clone(),
+                clients.clone(),
+            ),
             config,
             metrics_collector,
             object_store,
