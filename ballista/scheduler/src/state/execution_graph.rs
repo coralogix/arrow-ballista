@@ -361,9 +361,9 @@ impl ExecutionGraph {
         )
     }
 
-    // If executor is None,
-    // we do not collect output partitions.
-    // E.g. in case of circuit breaker.
+    /// If executor is None,
+    /// we do not collect output partitions.
+    /// E.g. in case of circuit breaker.
     fn update_task_status_internal(
         &mut self,
         executor: Option<&ExecutorMetadata>,
@@ -967,7 +967,7 @@ impl ExecutionGraph {
             .collect::<Vec<_>>()
     }
 
-    // Return all currently running tasks along with the executor ID on which they are assigned
+    /// Return all currently running tasks along with the executor ID on which they are assigned
     pub fn running_tasks(&self) -> Option<Vec<RunningTaskInfo>> {
         let mut tasks = Vec::default();
 
@@ -993,7 +993,7 @@ impl ExecutionGraph {
         None
     }
 
-    // Total number of tasks in this plan that are ready for scheduling
+    /// Total number of tasks in this plan that are ready for scheduling
     pub fn available_tasks(&self) -> usize {
         self.stages
             .values()
@@ -1021,7 +1021,7 @@ impl ExecutionGraph {
         if matches!(
             self.status,
             JobStatus {
-                status: Some(job_status::Status::Failed(_)),
+                status: Some(Status::Failed(_)),
                 ..
             }
         ) {

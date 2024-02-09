@@ -335,7 +335,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                         tasks.push(task);
                     }
 
-                    // let mut join_handles = vec![];
                     for (executor_id, tasks) in executor_stage_assignments.into_iter() {
                         self.launch_tasks_async(executor_id, tasks, tx_event.clone());
                     }
@@ -636,7 +635,7 @@ mod test {
 
         state.offer_reservation(reservations, tx_event).await?;
 
-        // All task slots should be assigned so we should not be able to reserve more tasks
+        // All task slots should be assigned, so we should not be able to reserve more tasks
         let reservations = state.executor_manager.reserve_slots(4).await?;
 
         assert_eq!(reservations.len(), 0);
