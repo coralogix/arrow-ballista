@@ -1575,7 +1575,7 @@ mod tests {
 }
 
 #[cfg(test)]
-// #[cfg(feature = "ci")]
+#[cfg(feature = "ci")]
 mod ballista_round_trip {
     use super::*;
     use ballista_core::serde::BallistaCodec;
