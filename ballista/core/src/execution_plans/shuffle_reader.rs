@@ -107,12 +107,13 @@ impl ShuffleReaderExec {
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
     ) -> Self {
+        let max_capacity = partition.iter().flatten().count() as u64;
         Self {
             partition,
             schema,
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
-            clients: Arc::new(Cache::new(100)),
+            clients: Arc::new(Cache::new(max_capacity)),
         }
     }
 }
@@ -181,7 +182,7 @@ impl ExecutionPlan for ShuffleReaderExec {
         let mut partition_locations = HashMap::new();
         for p in &self.partition[partition] {
             partition_locations
-                .entry(p.executor_meta.id.clone())
+                .entry(p.executor_meta.host.clone())
                 .or_insert_with(Vec::new)
                 .push(p.clone());
         }
