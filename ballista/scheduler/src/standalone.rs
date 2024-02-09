@@ -79,7 +79,10 @@ pub async fn new_standalone_scheduler_with_codec(
 
 pub async fn new_standalone_scheduler() -> Result<SocketAddr> {
     new_standalone_scheduler_with_codec(
-        Arc::new(BallistaPhysicalExtensionCodec::default()),
+        Arc::new(BallistaPhysicalExtensionCodec::new(
+            None,
+            Arc::new(Cache::new(100)),
+        )),
         Arc::new(DefaultLogicalExtensionCodec {}),
     )
     .await

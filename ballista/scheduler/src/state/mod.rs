@@ -514,7 +514,10 @@ mod test {
         let state: Arc<SchedulerState<LogicalPlanNode, PhysicalPlanNode>> =
             Arc::new(SchedulerState::new_with_default_scheduler_name_and_version(
                 test_cluster_context(),
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store_and_clients(
+                    None,
+                    Arc::new(Cache::new(200)),
+                ),
                 None,
             ));
 

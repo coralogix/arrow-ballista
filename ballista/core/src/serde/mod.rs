@@ -91,17 +91,6 @@ pub struct BallistaCodec<
     physical_plan_repr: PhantomData<U>,
 }
 
-impl Default for BallistaCodec {
-    fn default() -> Self {
-        Self {
-            logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
-            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
-            logical_plan_repr: Default::default(),
-            physical_plan_repr: Default::default(),
-        }
-    }
-}
-
 impl BallistaCodec {
     pub fn new_with_object_store_and_clients(
         object_store: Option<Arc<dyn ObjectStore>>,
@@ -147,22 +136,13 @@ pub struct BallistaPhysicalExtensionCodec {
     pub clients: Arc<Cache<String, BallistaClient>>,
 }
 
-impl Default for BallistaPhysicalExtensionCodec {
-    fn default() -> Self {
-        Self {
-            object_store: None,
-            clients: Arc::new(Cache::new(200)),
-        }
-    }
-}
-
 impl BallistaPhysicalExtensionCodec {
     pub fn new(
-        object_store: Arc<dyn ObjectStore>,
+        object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         Self {
-            object_store: Some(object_store),
+            object_store,
             clients,
         }
     }

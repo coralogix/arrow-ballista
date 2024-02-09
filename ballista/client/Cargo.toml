@@ -39,6 +39,7 @@ parking_lot = "0.12"
 sqlparser = { workspace = true }
 tempfile = "3"
 tokio = "1.0"
+moka = { workspace = true }
 
 [features]
 azure = ["ballista-core/azure"]

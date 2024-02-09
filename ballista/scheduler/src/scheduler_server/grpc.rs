@@ -961,7 +961,10 @@ mod test {
                 "localhost:50050".to_owned(),
                 SCHEDULER_VERSION.to_owned(),
                 cluster,
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store_and_clients(
+                    None,
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,

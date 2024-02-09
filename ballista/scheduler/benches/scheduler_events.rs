@@ -317,8 +317,9 @@ async fn setup_env(
         .with_scheduler_tick_interval_ms(100)
         .with_scheduler_policy(TaskSchedulingPolicy::PushStaged);
 
+    let clients = Arc::new(Cache::new(200));
     let metrics = Arc::new(NoopMetricsCollector::default());
-    let codec = BallistaCodec::default();
+    let codec = BallistaCodec::new_with_object_store_and_clients(None, clients.clone());
 
     let (status_tx, mut status_rx) = mpsc::channel(10_000);
 
@@ -333,7 +334,7 @@ async fn setup_env(
         metrics,
         launcher,
         None,
-        Arc::new(Cache::new(200)),
+        clients,
     );
 
     server.init().await.unwrap();
