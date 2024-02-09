@@ -614,8 +614,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                             continue;
                         }
 
-                        let res = graph.pop_next_task(exec_id, slots.len());
-                        match res {
+                        match graph.pop_next_task(exec_id, slots.len()) {
                             Ok(Some(task)) => {
                                 TASK_IDELE_TIME.observe(
                                     timestamp_millis().saturating_sub(task.resolved_at)
@@ -631,7 +630,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                                 // no more tasks to assign
                                 break;
                             }
-                            Err(_) => {
+                            res @ Err(_) => {
                                 // push job back into queue with updated remaining tasks
                                 self.active_job_queue.push_active_job(ActiveJob::new(
                                     active_job.job_id.clone(),
