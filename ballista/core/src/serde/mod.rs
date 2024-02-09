@@ -18,11 +18,9 @@
 //! This crate contains code generated from the Ballista Protocol Buffer Definition as well
 //! as convenience code for interacting with the generated code.
 
-use crate::client::BallistaClient;
 use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 
 use arrow_flight::sql::ProstMessageExt;
-use dashmap::DashMap;
 use datafusion::arrow::compute::SortOptions;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::common::DataFusionError;
@@ -117,7 +115,6 @@ impl BallistaCodec {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
             physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
                 object_store: Some(object_store),
-                ..Default::default()
             }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,
@@ -150,17 +147,12 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
 #[derive(Debug, Default, Clone)]
 pub struct BallistaPhysicalExtensionCodec {
     pub object_store: Option<Arc<dyn ObjectStore>>,
-    pub clients: Arc<DashMap<String, BallistaClient>>,
 }
 
 impl BallistaPhysicalExtensionCodec {
-    pub fn new(
-        object_store: Arc<dyn ObjectStore>,
-        clients: Arc<DashMap<String, BallistaClient>>,
-    ) -> Self {
+    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             object_store: Some(object_store),
-            clients,
         }
     }
 }
