@@ -75,7 +75,7 @@ lazy_static! {
             "ballista_shuffle_reader_fetch_partition_latency",
             "Fetch partition latency in seconds",
             &["type"],
-            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0],
+            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
         )
         .unwrap();
     static ref SHUFFLE_READER_FETCH_PARTITION_TOTAL: IntCounterVec =
