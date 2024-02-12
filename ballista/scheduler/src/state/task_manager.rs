@@ -601,8 +601,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             if let Some(job_info) = self.active_job_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
                 for (exec_id, slots) in free_reservations.iter_mut() {
-                    if slots.is_empty() {
-                        continue;
+                    if !graph.is_failed() {
+                        break;
                     }
 
                     if let Some(task) = graph.pop_next_task(exec_id, slots.len())? {

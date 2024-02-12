@@ -313,10 +313,8 @@ impl ExecutionGraph {
             .all(|s| matches!(s, ExecutionStage::Successful(_)))
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.stages
-            .values()
-            .all(|s| matches!(s, ExecutionStage::Successful(_)))
+    pub fn is_failed(&self) -> bool {
+        matches!(self.status.status.as_ref(), Some(Status::Failed(_)))
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
