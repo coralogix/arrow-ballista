@@ -21,6 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
+use ballista_core::client::BallistaClient;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{
@@ -29,6 +30,7 @@ use datafusion::physical_plan::{
 use datafusion::prelude::SessionContext;
 use datafusion_proto::logical_plan::AsLogicalPlan;
 use itertools::Itertools;
+use moka::future::Cache;
 use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
@@ -161,6 +163,7 @@ impl ExecutionGraph {
         queued_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
         warnings: Vec<String>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -169,7 +172,7 @@ impl ExecutionGraph {
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
         let builder = match object_store {
-            Some(object_store) => ExecutionStageBuilder::new(object_store),
+            Some(object_store) => ExecutionStageBuilder::new(object_store, clients),
             _ => ExecutionStageBuilder::default(),
         };
         let stages = builder.build(shuffle_stages)?;
@@ -1323,6 +1326,7 @@ for (partition, status) in stage.task_infos
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Result<ExecutionGraph> {
         let status = proto.status.ok_or_else(|| {
             BallistaError::Internal("Invalid Execution Graph".to_owned())
@@ -1338,6 +1342,7 @@ for (partition, status) in stage.task_infos
                         codec,
                         session_ctx,
                         object_store.clone(),
+                        clients.clone(),
                     )?;
                     (stage.stage_id, ExecutionStage::UnResolved(stage))
                 }
@@ -1347,6 +1352,7 @@ for (partition, status) in stage.task_infos
                         codec,
                         session_ctx,
                         object_store.clone(),
+                        clients.clone(),
                     )?;
                     (stage.stage_id, ExecutionStage::Resolved(stage))
                 }
@@ -1356,6 +1362,7 @@ for (partition, status) in stage.task_infos
                         codec,
                         session_ctx,
                         object_store.clone(),
+                        clients.clone(),
                     )?;
                     (stage.stage_id, ExecutionStage::Successful(stage))
                 }
@@ -1596,7 +1603,6 @@ impl Debug for ExecutionGraph {
 ///
 /// This will infer the dependency structure for the stages
 /// so that we can construct a DAG from the stages.
-#[derive(Default)]
 struct ExecutionStageBuilder {
     /// Stage ID which is currently being visited
     current_stage_id: usize,
@@ -1605,15 +1611,32 @@ struct ExecutionStageBuilder {
     /// Map from Stage ID -> output link
     output_links: HashMap<usize, Vec<usize>>,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
+}
+
+impl Default for ExecutionStageBuilder {
+    fn default() -> Self {
+        Self {
+            current_stage_id: 0,
+            stage_dependencies: HashMap::new(),
+            output_links: HashMap::new(),
+            object_store: None,
+            clients: Arc::new(Cache::new(200)),
+        }
+    }
 }
 
 impl ExecutionStageBuilder {
-    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
+    pub fn new(
+        object_store: Arc<dyn ObjectStore>,
+        clients: Arc<Cache<String, BallistaClient>>,
+    ) -> Self {
         Self {
             current_stage_id: 0,
             stage_dependencies: HashMap::new(),
             output_links: HashMap::new(),
             object_store: Some(object_store),
+            clients,
         }
     }
 
@@ -1648,6 +1671,7 @@ impl ExecutionStageBuilder {
                     HashMap::new(),
                     HashSet::new(),
                     self.object_store.clone(),
+                    self.clients.clone(),
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1657,6 +1681,7 @@ impl ExecutionStageBuilder {
                     output_links,
                     child_stages,
                     self.object_store.clone(),
+                    self.clients.clone(),
                 ))
             };
             execution_stages.insert(stage_id, stage);

@@ -20,6 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ballista_core::client::BallistaClient;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::{
     execution_plans::{ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec},
@@ -34,6 +35,7 @@ use datafusion::physical_plan::{
 };
 
 use log::{debug, info};
+use moka::future::Cache;
 use object_store::ObjectStore;
 
 type PartialQueryStageResult = (Arc<dyn ExecutionPlan>, Vec<Arc<ShuffleWriterExec>>);
@@ -210,6 +212,7 @@ pub fn remove_unresolved_shuffles(
     stage: Arc<dyn ExecutionPlan>,
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {
@@ -247,16 +250,18 @@ pub fn remove_unresolved_shuffles(
                     .collect::<Vec<_>>()
                     .join("\n")
             );
-            new_children.push(Arc::new(ShuffleReaderExec::try_new(
+            new_children.push(Arc::new(ShuffleReaderExec::new(
                 relevant_locations,
                 unresolved_shuffle.schema().clone(),
                 object_store.clone(),
-            )?))
+                clients.clone(),
+            )))
         } else {
             new_children.push(remove_unresolved_shuffles(
                 child,
                 partition_locations,
                 object_store.clone(),
+                clients.clone(),
             )?);
         }
     }
@@ -326,6 +331,7 @@ mod test {
     use datafusion_proto::physical_plan::AsExecutionPlan;
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
     use std::ops::Deref;
     use std::sync::Arc;
@@ -639,7 +645,10 @@ order by
         plan: Arc<dyn ExecutionPlan>,
     ) -> Result<Arc<dyn ExecutionPlan>, BallistaError> {
         let codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-            BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new()));
+            BallistaCodec::new_with_object_store_and_clients(
+                Some(Arc::new(LocalFileSystem::new())),
+                Arc::new(Cache::new(100)),
+            );
         let proto: datafusion_proto::protobuf::PhysicalPlanNode =
             datafusion_proto::protobuf::PhysicalPlanNode::try_from_physical_plan(
                 plan.clone(),

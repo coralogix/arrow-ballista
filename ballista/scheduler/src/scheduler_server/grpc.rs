@@ -722,6 +722,7 @@ mod test {
 
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
+    use moka::future::Cache;
     use object_store::local::LocalFileSystem;
     use tonic::Request;
 
@@ -754,10 +755,14 @@ mod test {
                 "localhost:50050".to_owned(),
                 SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -788,7 +793,10 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 None,
             );
         state.init().await?;
@@ -821,7 +829,10 @@ mod test {
         let state: SchedulerState<LogicalPlanNode, PhysicalPlanNode> =
             SchedulerState::new_with_default_scheduler_name_and_version(
                 cluster.clone(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 None,
             );
         state.init().await?;
@@ -850,10 +861,14 @@ mod test {
                 "localhost:50050".to_owned(),
                 SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default().with_remove_executor_wait_secs(0),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 
@@ -946,10 +961,14 @@ mod test {
                 "localhost:50050".to_owned(),
                 SCHEDULER_VERSION.to_owned(),
                 cluster,
-                BallistaCodec::default(),
+                BallistaCodec::new_with_object_store_and_clients(
+                    None,
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 
@@ -1006,10 +1025,14 @@ mod test {
                 "localhost:50050".to_owned(),
                 SCHEDULER_VERSION.to_owned(),
                 cluster.clone(),
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 SchedulerConfig::default(),
                 default_metrics_collector().unwrap(),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 

@@ -177,6 +177,7 @@ mod tests {
         arrow::datatypes::Schema,
         physical_plan::{limit::LocalLimitExec, union::UnionExec},
     };
+    use moka::future::Cache;
 
     use crate::execution_plans::{
         CoalesceTasksExec, ShuffleReaderExec, ShuffleWriterExec,
@@ -250,18 +251,16 @@ mod tests {
             .collect();
 
         let partitions = std::iter::repeat(locations).take(partitions).collect();
-        Arc::new(
-            ShuffleReaderExec::try_new(
-                partitions,
-                Arc::new(Schema::new(vec![
-                    Field::new("a", DataType::UInt32, false),
-                    Field::new("b", DataType::UInt32, false),
-                    Field::new("c", DataType::UInt32, false),
-                ])),
-                None,
-            )
-            .unwrap(),
-        )
+        Arc::new(ShuffleReaderExec::new(
+            partitions,
+            Arc::new(Schema::new(vec![
+                Field::new("a", DataType::UInt32, false),
+                Field::new("b", DataType::UInt32, false),
+                Field::new("c", DataType::UInt32, false),
+            ])),
+            None,
+            Arc::new(Cache::new(10)),
+        ))
     }
 
     #[test]
@@ -334,10 +333,12 @@ mod tests {
     #[test]
     fn test_optimizer_insert_coalesce_on_top_of_the_leaf() {
         let optimizer = OptimizeTaskGroup::new(Vec::default());
-        let input = Arc::new(
-            ShuffleReaderExec::try_new(Vec::default(), Arc::new(Schema::empty()), None)
-                .unwrap(),
-        );
+        let input = Arc::new(ShuffleReaderExec::new(
+            Vec::default(),
+            Arc::new(Schema::empty()),
+            None,
+            Arc::new(Cache::new(10)),
+        ));
 
         let optiized = optimizer.insert_coalesce(input).unwrap().into();
         assert!(optiized.as_ref().as_any().is::<CoalesceTasksExec>());

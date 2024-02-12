@@ -17,6 +17,7 @@
 
 use ballista_core::error::{BallistaError, Result};
 use datafusion::config::Extensions;
+use moka::future::Cache;
 use object_store::local::LocalFileSystem;
 use std::any::Any;
 use std::collections::HashMap;
@@ -419,7 +420,9 @@ impl SchedulerTest {
         runner: Option<Arc<dyn TaskRunner>>,
         flaky: bool,
     ) -> Result<Self> {
-        let cluster = BallistaCluster::new_from_config(&config, None).await?;
+        let cluster =
+            BallistaCluster::new_from_config(&config, None, Arc::new(Cache::new(100)))
+                .await?;
 
         let ballista_config = if num_executors > 0 && task_slots_per_executor > 0 {
             BallistaConfig::builder()
@@ -459,11 +462,15 @@ impl SchedulerTest {
                 TEST_SCHEDULER_NAME.into(),
                 TEST_SCHEDULER_VERSION.into(),
                 cluster,
-                BallistaCodec::new_with_object_store(Arc::new(LocalFileSystem::new())),
+                BallistaCodec::new_with_object_store_and_clients(
+                    Some(Arc::new(LocalFileSystem::new())),
+                    Arc::new(Cache::new(100)),
+                ),
                 config,
                 metrics_collector,
                 Arc::new(launcher),
                 None,
+                Arc::new(Cache::new(100)),
             );
         scheduler.init().await?;
 
@@ -883,6 +890,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap()
 }
@@ -928,6 +936,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap()
 }
@@ -965,6 +974,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap()
 }
@@ -1023,6 +1033,7 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap();
 
@@ -1064,6 +1075,7 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap();
 
@@ -1105,6 +1117,7 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         0,
         None,
         vec![],
+        Arc::new(Cache::new(100)),
     )
     .unwrap();
 

@@ -35,6 +35,7 @@ datafusion = { workspace = true }
 datafusion-proto = { workspace = true }
 futures = "0.3"
 log = "0.4"
+moka = { workspace = true }
 parking_lot = "0.12"
 sqlparser = { workspace = true }
 tempfile = "3"

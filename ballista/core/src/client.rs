@@ -44,7 +44,7 @@ use prost::Message;
 const MAX_GRPC_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 
 /// Client for interacting with Ballista executors.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BallistaClient {
     flight_client: FlightServiceClient<tonic::transport::channel::Channel>,
 }

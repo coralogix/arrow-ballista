@@ -1584,6 +1584,7 @@ mod ballista_round_trip {
     use datafusion::physical_plan::ExecutionPlan;
     use datafusion_proto::logical_plan::AsLogicalPlan;
     use datafusion_proto::physical_plan::AsExecutionPlan;
+    use moka::future::Cache;
     use std::env;
     use std::ops::Deref;
 
@@ -1596,7 +1597,10 @@ mod ballista_round_trip {
         let codec: BallistaCodec<
             datafusion_proto::protobuf::LogicalPlanNode,
             datafusion_proto::protobuf::PhysicalPlanNode,
-        > = BallistaCodec::default();
+        > = BallistaCodec::new_with_object_store_and_clients(
+            None,
+            Arc::new(Cache::new(200)),
+        );
 
         // set tpch_data_path to dummy value and skip physical plan serde test when TPCH_DATA
         // is not set.
@@ -1652,7 +1656,10 @@ mod ballista_round_trip {
         let codec: BallistaCodec<
             datafusion_proto::protobuf::LogicalPlanNode,
             datafusion_proto::protobuf::PhysicalPlanNode,
-        > = BallistaCodec::default();
+        > = BallistaCodec::new_with_object_store_and_clients(
+            None,
+            Arc::new(Cache::new(200)),
+        );
 
         // set tpch_data_path to dummy value and skip physical plan serde test when TPCH_DATA
         // is not set.

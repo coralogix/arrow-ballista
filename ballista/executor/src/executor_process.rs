@@ -29,6 +29,7 @@ use datafusion::config::Extensions;
 use datafusion::execution::object_store::ObjectStoreUrl;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use moka::future::Cache;
 use tempfile::TempDir;
 use tokio::fs::DirEntry;
 use tokio::signal;
@@ -273,7 +274,10 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
     ));
 
     let default_codec: BallistaCodec<LogicalPlanNode, PhysicalPlanNode> =
-        BallistaCodec::new_with_object_store(replicator_object_store.unwrap());
+        BallistaCodec::new_with_object_store_and_clients(
+            replicator_object_store,
+            Arc::new(Cache::new(100)),
+        );
 
     let scheduler_policy = opt.task_scheduling_policy;
     let job_data_ttl_seconds = opt.job_data_ttl_seconds;

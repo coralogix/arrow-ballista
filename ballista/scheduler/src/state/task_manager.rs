@@ -20,10 +20,12 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::state::execution_graph::{ExecutionGraph, RunningTaskInfo, TaskDescription};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
+use ballista_core::client::BallistaClient;
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
+use moka::future::Cache;
 use object_store::ObjectStore;
 
 use crate::cluster::JobState;
@@ -302,6 +304,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
     object_store: Option<Arc<dyn ObjectStore>>,
+    clients: Arc<Cache<String, BallistaClient>>,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -377,11 +380,18 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
 
-        Self::with_launcher(state, scheduler_id, Arc::new(launcher), object_store)
+        Self::with_launcher(
+            state,
+            scheduler_id,
+            Arc::new(launcher),
+            object_store,
+            clients,
+        )
     }
 
     #[allow(dead_code)]
@@ -390,6 +400,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         scheduler_id: String,
         launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -401,6 +412,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             drained: Arc::new(drained),
             check_drained,
             object_store,
+            clients,
         }
     }
 
@@ -446,6 +458,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             queued_at,
             self.object_store.clone(),
             warnings,
+            self.clients.clone(),
         )?;
         info!(
             job_id,
@@ -472,8 +485,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 jobs.push(graph.deref().into());
             } else if let Some(graph) = self.state.get_execution_graph(job_id).await? {
                 jobs.push((&graph).into());
-            } else {
-                warn!("Error getting job overview, no execution graph found for job {job_id} in either the active job cache or completed jobs");
             }
         }
 

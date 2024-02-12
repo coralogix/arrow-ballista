@@ -18,6 +18,7 @@
 //! This crate contains code generated from the Ballista Protocol Buffer Definition as well
 //! as convenience code for interacting with the generated code.
 
+use crate::client::BallistaClient;
 use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 
 use arrow_flight::sql::ProstMessageExt;
@@ -40,6 +41,7 @@ use datafusion_proto::{
     physical_plan::{AsExecutionPlan, PhysicalExtensionCodec},
 };
 
+use moka::future::Cache;
 use object_store::ObjectStore;
 use prost::Message;
 use std::fmt::Debug;
@@ -89,31 +91,16 @@ pub struct BallistaCodec<
     physical_plan_repr: PhantomData<U>,
 }
 
-impl Default for BallistaCodec {
-    fn default() -> Self {
-        Self {
-            logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
-            physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec::default()),
-            logical_plan_repr: Default::default(),
-            physical_plan_repr: Default::default(),
-        }
-    }
-}
-
 impl BallistaCodec {
-    pub fn new_with_optional_object_store(
+    pub fn new_with_object_store_and_clients(
         object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
     ) -> Self {
-        match object_store {
-            Some(object_store) => Self::new_with_object_store(object_store),
-            _ => Self::default(),
-        }
-    }
-    pub fn new_with_object_store(object_store: Arc<dyn ObjectStore>) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
             physical_extension_codec: Arc::new(BallistaPhysicalExtensionCodec {
-                object_store: Some(object_store),
+                object_store,
+                clients,
             }),
             logical_plan_repr: PhantomData,
             physical_plan_repr: PhantomData,
@@ -143,15 +130,20 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct BallistaPhysicalExtensionCodec {
     pub object_store: Option<Arc<dyn ObjectStore>>,
+    pub clients: Arc<Cache<String, BallistaClient>>,
 }
 
 impl BallistaPhysicalExtensionCodec {
-    pub fn new(object_store: Arc<dyn ObjectStore>) -> Self {
+    pub fn new(
+        object_store: Option<Arc<dyn ObjectStore>>,
+        clients: Arc<Cache<String, BallistaClient>>,
+    ) -> Self {
         Self {
-            object_store: Some(object_store),
+            object_store,
+            clients,
         }
     }
 }
@@ -219,11 +211,12 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let shuffle_reader = ShuffleReaderExec::try_new(
+                let shuffle_reader = ShuffleReaderExec::new(
                     partition_location,
                     schema,
                     self.object_store.clone(),
-                )?;
+                    self.clients.clone(),
+                );
                 Ok(Arc::new(shuffle_reader))
             }
             PhysicalPlanType::UnresolvedShuffle(unresolved_shuffle) => {
