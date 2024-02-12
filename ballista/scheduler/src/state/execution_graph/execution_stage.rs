@@ -1326,7 +1326,7 @@ fn decode_inputs(
                 let partition = loc.partition as usize;
                 let locations = loc
                     .partition_location
-                    .into_iter()
+                    .iter()
                     .map(|l| l.try_into())
                     .collect::<Result<Vec<_>>>()?;
                 Ok((partition, locations))

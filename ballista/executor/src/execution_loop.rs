@@ -59,13 +59,8 @@ pub async fn poll_loop<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     codec: BallistaCodec<T, U>,
     default_extensions: Extensions,
 ) -> Result<(), BallistaError> {
-    let executor_specification: ExecutorSpecification = executor
-        .metadata
-        .specification
-        .as_ref()
-        .unwrap()
-        .clone()
-        .into();
+    let executor_specification: ExecutorSpecification =
+        executor.metadata.specification.as_ref().unwrap().into();
     let available_task_slots =
         Arc::new(Semaphore::new(executor_specification.task_slots as usize));
 

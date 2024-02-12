@@ -22,10 +22,10 @@ use crate::cluster::{
 };
 use crate::config::TaskDistribution;
 use crate::scheduler_server::{timestamp_millis, timestamp_secs, SessionBuilder};
+use crate::state::decode_protobuf;
 use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::session_manager::create_datafusion_context;
-use crate::state::{decode_into, decode_protobuf};
 use async_trait::async_trait;
 use ballista_core::client::BallistaClient;
 use ballista_core::config::BallistaConfig;
@@ -456,8 +456,16 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
             metadata.value().clone()
         } else {
             let value = self.store.get(Keyspace::Executors, executor_id).await?;
-            let decoded =
-                decode_into::<protobuf::ExecutorMetadata, ExecutorMetadata>(&value)?;
+            let decoded: ExecutorMetadata =
+                protobuf::ExecutorMetadata::decode(value.as_slice())
+                    .map_err(|e| {
+                        BallistaError::Internal(format!(
+                            "Could not deserialize ExecutorMetadata: {}",
+                            e
+                        ))
+                    })
+                    .map(|t| (&t).into())?;
+
             self.executors
                 .insert(executor_id.to_string(), decoded.clone());
 
