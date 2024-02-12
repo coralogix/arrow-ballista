@@ -617,7 +617,7 @@ impl PartitionReader for PartitionReaderEnum {
     }
 }
 
-async fn get_execution_client(
+async fn get_executor_client(
     clients: &Cache<String, BallistaClient>,
     location: &PartitionLocation,
     metadata: &ExecutorMetadata,
@@ -647,7 +647,7 @@ async fn fetch_partition_remote(
     // TODO for shuffle client connections, we should avoid creating new connections again and again.
     // And we should also avoid to keep alive too many connections for long time.
 
-    let mut ballista_client = get_execution_client(clients, location, metadata).await?;
+    let mut ballista_client = get_executor_client(clients, location, metadata).await?;
 
     ballista_client
         .fetch_partition(
