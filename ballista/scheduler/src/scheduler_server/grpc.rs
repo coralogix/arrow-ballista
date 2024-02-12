@@ -107,7 +107,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
                 port: metadata.port as u16,
                 grpc_port: metadata.grpc_port as u16,
-                specification: metadata.specification.unwrap().into(),
+                specification: metadata.specification.as_ref().unwrap().into(),
             };
 
             self.state
@@ -180,7 +180,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                     .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
                 port: metadata.port as u16,
                 grpc_port: metadata.grpc_port as u16,
-                specification: metadata.specification.unwrap().into(),
+                specification: metadata.specification.as_ref().unwrap().into(),
             };
 
             self.do_register_executor(metadata).await.map_err(|e| {
@@ -228,7 +228,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
                         .unwrap_or_else(|| remote_addr.unwrap().ip().to_string()),
                     port: metadata.port as u16,
                     grpc_port: metadata.grpc_port as u16,
-                    specification: metadata.specification.unwrap().into(),
+                    specification: metadata.specification.as_ref().unwrap().into(),
                 };
 
                 self.do_register_executor(metadata).await.map_err(|e| {

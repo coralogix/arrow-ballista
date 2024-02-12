@@ -58,7 +58,7 @@ impl TryInto<Action> for protobuf::Action {
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<PartitionStats> for protobuf::PartitionStats {
+impl Into<PartitionStats> for &protobuf::PartitionStats {
     fn into(self) -> PartitionStats {
         PartitionStats::new(
             foo(self.num_rows),
@@ -76,21 +76,18 @@ fn foo(n: i64) -> Option<u64> {
     }
 }
 
-impl TryInto<PartitionLocation> for protobuf::PartitionLocation {
+impl TryInto<PartitionLocation> for &protobuf::PartitionLocation {
     type Error = BallistaError;
 
     fn try_into(self) -> Result<PartitionLocation, Self::Error> {
         Ok(PartitionLocation {
-            job_id: self.job_id,
+            job_id: self.job_id.clone(),
             stage_id: self.stage_id as usize,
-            map_partitions: self
-                .map_partitions
-                .into_iter()
-                .map(|p| p as usize)
-                .collect(),
+            map_partitions: self.map_partitions.iter().map(|p| *p as usize).collect(),
             output_partition: self.output_partition as usize,
             executor_meta: self
                 .executor_meta
+                .as_ref()
                 .ok_or_else(|| {
                     BallistaError::General(
                         "executor_meta in PartitionLocation is missing".to_owned(),
@@ -99,13 +96,14 @@ impl TryInto<PartitionLocation> for protobuf::PartitionLocation {
                 .into(),
             partition_stats: self
                 .partition_stats
+                .as_ref()
                 .ok_or_else(|| {
                     BallistaError::General(
                         "partition_stats in PartitionLocation is missing".to_owned(),
                     )
                 })?
                 .into(),
-            path: self.path,
+            path: self.path.clone(),
         })
     }
 }
@@ -201,29 +199,29 @@ impl TryInto<MetricsSet> for protobuf::OperatorMetricsSet {
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<ExecutorMetadata> for protobuf::ExecutorMetadata {
+impl Into<ExecutorMetadata> for &protobuf::ExecutorMetadata {
     fn into(self) -> ExecutorMetadata {
         ExecutorMetadata {
-            id: self.id,
-            host: self.host,
+            id: self.id.clone(),
+            host: self.host.clone(),
             port: self.port as u16,
             grpc_port: self.grpc_port as u16,
-            specification: self.specification.unwrap().into(),
+            specification: self.specification.as_ref().unwrap().into(),
         }
     }
 }
 
 #[allow(clippy::from_over_into)]
-impl Into<ExecutorSpecification> for protobuf::ExecutorSpecification {
+impl Into<ExecutorSpecification> for &protobuf::ExecutorSpecification {
     fn into(self) -> ExecutorSpecification {
         let mut task_slots = 0;
         let mut version = "0".to_string();
 
-        for exec_resource in self.resources {
-            if let Some(resource) = exec_resource.resource {
+        for exec_resource in &self.resources {
+            if let Some(resource) = exec_resource.resource.as_ref() {
                 match resource {
-                    Resource::TaskSlots(tasks) => task_slots = tasks,
-                    Resource::Version(v) => version = v,
+                    Resource::TaskSlots(tasks) => task_slots = *tasks,
+                    Resource::Version(v) => version = v.clone(),
                 }
             }
         }

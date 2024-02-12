@@ -1378,7 +1378,7 @@ for (partition, status) in stage.task_infos
 
         let output_locations: Vec<PartitionLocation> = proto
             .output_locations
-            .into_iter()
+            .iter()
             .map(|loc| loc.try_into())
             .collect::<Result<Vec<_>>>()?;
 
