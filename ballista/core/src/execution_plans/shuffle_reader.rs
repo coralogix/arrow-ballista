@@ -512,11 +512,11 @@ fn send_fetch_partitions(
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = channel(shuffle_reader_parallelism);
+    let (response_sender, response_receiver) = channel(parallelism);
 
-    let semaphore = Arc::new(Semaphore::new(shuffle_reader_parallelism));
+    let semaphore = Arc::new(Semaphore::new(parallelism));
     let mut join_handles = Vec::with_capacity(2);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
