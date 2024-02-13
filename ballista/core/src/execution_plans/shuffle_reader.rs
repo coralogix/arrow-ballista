@@ -21,7 +21,8 @@ use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
+    register_gauge_vec, register_histogram_vec, register_int_counter_vec, GaugeVec,
+    HistogramVec, IntCounterVec,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -85,6 +86,12 @@ lazy_static! {
             &["type"]
         )
         .unwrap();
+    static ref SHUFFLE_READER_FETCH_PARALLELISM: GaugeVec = register_gauge_vec!(
+        "ballista_shuffle_reader_fetch_parallelism",
+        "Number of parallel fetch partition calls",
+        &["type"]
+    )
+    .unwrap();
 }
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
@@ -421,6 +428,9 @@ fn send_fetch_partitions_with_fallback(
 
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["remote"])
+                .inc();
             let now = Instant::now();
             let result = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
@@ -466,6 +476,9 @@ fn send_fetch_partitions_with_fallback(
 
             // Increase semaphore by dropping existing permits.
             drop(permit);
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["remote"])
+                .dec();
         }
     }));
 
@@ -480,6 +493,9 @@ fn send_fetch_partitions_with_fallback(
                 .acquire_owned()
                 .await
                 .unwrap();
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["object_store"])
+                .inc();
             let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
@@ -500,7 +516,10 @@ fn send_fetch_partitions_with_fallback(
                 );
             }
 
-            drop(permit)
+            drop(permit);
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["object_store"])
+                .dec();
         }
     }));
 
