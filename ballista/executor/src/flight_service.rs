@@ -114,7 +114,7 @@ impl FlightService for BallistaFlightService {
             .map_err(from_arrow_err)?;
         let schema = reader.schema();
 
-        let (tx, rx) = channel(2);
+        let (tx, rx) = channel(10);
 
         let executor_id = self.executor_id.clone();
         task::spawn(async move {
