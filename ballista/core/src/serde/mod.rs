@@ -216,7 +216,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     schema,
                     self.object_store.clone(),
                     self.clients.clone(),
-                    shuffle_reader.max_request_num as usize,
+                    shuffle_reader.shuffle_reader_parallelism as usize,
                 );
                 Ok(Arc::new(shuffle_reader))
             }
@@ -327,7 +327,8 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     protobuf::ShuffleReaderExecNode {
                         partition,
                         schema: Some(exec.schema().as_ref().try_into()?),
-                        max_request_num: exec.shuffle_reader_parallelism as u32,
+                        shuffle_reader_parallelism: exec.shuffle_reader_parallelism
+                            as u32,
                     },
                 )),
             };
