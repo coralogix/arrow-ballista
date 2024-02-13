@@ -77,7 +77,7 @@ pub struct ShuffleReaderExecNode {
     #[prost(message, optional, tag = "2")]
     pub schema: ::core::option::Option<::datafusion_proto::protobuf::Schema>,
     #[prost(uint32, tag = "3")]
-    pub shuffle_reader_parallelism: u32,
+    pub parallelism: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

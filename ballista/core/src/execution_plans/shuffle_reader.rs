@@ -98,7 +98,7 @@ pub struct ShuffleReaderExec {
     metrics: ExecutionPlanMetricsSet,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-    pub shuffle_reader_parallelism: usize,
+    pub parallelism: usize,
 }
 
 impl ShuffleReaderExec {
@@ -108,7 +108,7 @@ impl ShuffleReaderExec {
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        parallelism: usize,
     ) -> Self {
         Self {
             partition,
@@ -116,7 +116,7 @@ impl ShuffleReaderExec {
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            parallelism,
         }
     }
 }
@@ -222,7 +222,7 @@ impl ExecutionPlan for ShuffleReaderExec {
                 partition_locations,
                 object_store.clone(),
                 self.clients.clone(),
-                self.shuffle_reader_parallelism,
+                self.parallelism,
             )
         } else {
             send_fetch_partitions(
@@ -230,7 +230,7 @@ impl ExecutionPlan for ShuffleReaderExec {
                 partition,
                 partition_locations,
                 self.clients.clone(),
-                self.shuffle_reader_parallelism,
+                self.parallelism,
             )
         };
 
@@ -369,10 +369,10 @@ fn send_fetch_partitions_with_fallback(
 
     object_store: Arc<dyn ObjectStore>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = mpsc::channel(shuffle_reader_parallelism);
-    let semaphore = Arc::new(Semaphore::new(shuffle_reader_parallelism));
+    let (response_sender, response_receiver) = mpsc::channel(parallelism);
+    let semaphore = Arc::new(Semaphore::new(parallelism));
     let mut join_handles = Vec::with_capacity(3);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()

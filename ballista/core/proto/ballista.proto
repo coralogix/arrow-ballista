@@ -64,7 +64,7 @@ message UnresolvedShuffleExecNode {
 message ShuffleReaderExecNode {
   repeated ShuffleReaderPartition partition = 1;
   datafusion.Schema schema = 2;
-  uint32 shuffle_reader_parallelism = 3;
+  uint32 parallelism = 3;
 }
 
 message ShuffleReaderPartition {
