@@ -335,6 +335,7 @@ async fn setup_env(
         launcher,
         None,
         clients,
+        50,
     );
 
     server.init().await.unwrap();

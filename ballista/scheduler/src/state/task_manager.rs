@@ -305,6 +305,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     check_drained: watch::Receiver<()>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -381,6 +382,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         scheduler_id: String,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
@@ -391,6 +393,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Arc::new(launcher),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         )
     }
 
@@ -401,6 +404,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -413,6 +417,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             check_drained,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -459,6 +464,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.object_store.clone(),
             warnings,
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         )?;
         info!(
             job_id,

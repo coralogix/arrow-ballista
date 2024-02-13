@@ -64,6 +64,7 @@ message UnresolvedShuffleExecNode {
 message ShuffleReaderExecNode {
   repeated ShuffleReaderPartition partition = 1;
   datafusion.Schema schema = 2;
+  uint32 max_request_num = 3;
 }
 
 message ShuffleReaderPartition {
@@ -146,6 +147,7 @@ message UnResolvedStage {
   bytes plan = 5;
   uint32 stage_attempt_num = 6;
   repeated string last_attempt_failure_reasons = 7;
+  uint32 shuffle_reader_parallelism = 8;
 }
 
 message ResolvedStage {
@@ -158,6 +160,7 @@ message ResolvedStage {
   uint32 stage_attempt_num = 7;
   repeated string last_attempt_failure_reasons = 8;
   uint64 resolved_at = 9;
+  uint32 shuffle_reader_parallelism = 10;
 }
 
 message SuccessfulStage {
@@ -170,6 +173,7 @@ message SuccessfulStage {
   repeated TaskInfo task_infos = 7;
   repeated OperatorMetricsSet stage_metrics = 8;
   uint32 stage_attempt_num = 9;
+  uint32 shuffle_reader_parallelism = 10;
 }
 
 message FailedStage {

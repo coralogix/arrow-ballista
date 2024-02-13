@@ -98,6 +98,7 @@ pub struct ShuffleReaderExec {
     metrics: ExecutionPlanMetricsSet,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    pub shuffle_reader_parallelism: usize,
 }
 
 impl ShuffleReaderExec {
@@ -107,6 +108,7 @@ impl ShuffleReaderExec {
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             partition,
@@ -114,6 +116,7 @@ impl ShuffleReaderExec {
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 }
@@ -177,8 +180,6 @@ impl ExecutionPlan for ShuffleReaderExec {
             "executing shuffle read"
         );
 
-        // TODO make the maximum size configurable, or make it depends on global memory control
-        let max_request_num = 50usize;
         let mut partition_locations = HashMap::new();
         for p in &self.partition[partition] {
             partition_locations
@@ -219,17 +220,17 @@ impl ExecutionPlan for ShuffleReaderExec {
                 task_id,
                 partition,
                 partition_locations,
-                max_request_num,
                 object_store.clone(),
                 self.clients.clone(),
+                self.shuffle_reader_parallelism,
             )
         } else {
             send_fetch_partitions(
                 task_id,
                 partition,
                 partition_locations,
-                max_request_num,
                 self.clients.clone(),
+                self.shuffle_reader_parallelism,
             )
         };
 
@@ -365,12 +366,13 @@ fn send_fetch_partitions_with_fallback(
     task_id: String,
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
-    max_request_num: usize,
+
     object_store: Arc<dyn ObjectStore>,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
-    let semaphore = Arc::new(Semaphore::new(max_request_num));
+    let (response_sender, response_receiver) = mpsc::channel(shuffle_reader_parallelism);
+    let semaphore = Arc::new(Semaphore::new(shuffle_reader_parallelism));
     let mut join_handles = Vec::with_capacity(3);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
@@ -509,12 +511,12 @@ fn send_fetch_partitions(
     task_id: String,
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
-    max_request_num: usize,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = channel(max_request_num);
+    let (response_sender, response_receiver) = channel(shuffle_reader_parallelism);
 
-    let semaphore = Arc::new(Semaphore::new(max_request_num));
+    let semaphore = Arc::new(Semaphore::new(shuffle_reader_parallelism));
     let mut join_handles = Vec::with_capacity(2);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
@@ -644,9 +646,6 @@ async fn fetch_partition_remote(
     clients: &Cache<String, BallistaClient>,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
-    // TODO for shuffle client connections, we should avoid creating new connections again and again.
-    // And we should also avoid to keep alive too many connections for long time.
-
     let mut ballista_client = get_executor_client(clients, location, metadata).await?;
 
     ballista_client
@@ -936,6 +935,7 @@ mod tests {
             Arc::new(schema),
             None,
             Arc::new(Cache::new(10)),
+            50,
         );
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
@@ -1007,7 +1007,10 @@ mod tests {
         }
     }
 
-    async fn test_send_fetch_partitions(max_request_num: usize, partition_num: usize) {
+    async fn test_send_fetch_partitions(
+        partition_num: usize,
+        shuffle_reader_parallelism: usize,
+    ) {
         let schema = get_test_partition_schema();
         let data_array = Int32Array::from(vec![1]);
         let batch =
@@ -1029,8 +1032,8 @@ mod tests {
             "job_id".to_string(),
             0,
             partition_locations,
-            max_request_num,
             Arc::new(Cache::new(10)),
+            shuffle_reader_parallelism,
         );
 
         let stream = RecordBatchStreamAdapter::new(

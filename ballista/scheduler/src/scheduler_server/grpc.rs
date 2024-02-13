@@ -763,6 +763,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -869,6 +870,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
 
@@ -969,6 +971,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
 
@@ -1033,6 +1036,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
 

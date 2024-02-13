@@ -260,6 +260,7 @@ mod tests {
             ])),
             None,
             Arc::new(Cache::new(10)),
+            50,
         ))
     }
 
@@ -338,6 +339,7 @@ mod tests {
             Arc::new(Schema::empty()),
             None,
             Arc::new(Cache::new(10)),
+            50,
         ));
 
         let optiized = optimizer.insert_coalesce(input).unwrap().into();

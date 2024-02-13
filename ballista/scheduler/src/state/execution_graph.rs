@@ -164,6 +164,7 @@ impl ExecutionGraph {
         object_store: Option<Arc<dyn ObjectStore>>,
         warnings: Vec<String>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -172,8 +173,19 @@ impl ExecutionGraph {
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
         let builder = match object_store {
-            Some(object_store) => ExecutionStageBuilder::new(object_store, clients),
-            _ => ExecutionStageBuilder::default(),
+            Some(object_store) => ExecutionStageBuilder::new(
+                object_store,
+                clients,
+                shuffle_reader_parallelism,
+            ),
+            _ => ExecutionStageBuilder {
+                clients,
+                shuffle_reader_parallelism,
+                current_stage_id: 0,
+                stage_dependencies: HashMap::new(),
+                output_links: HashMap::new(),
+                object_store: None,
+            },
         };
         let stages = builder.build(shuffle_stages)?;
 
@@ -1610,24 +1622,14 @@ struct ExecutionStageBuilder {
     output_links: HashMap<usize, Vec<usize>>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-}
-
-impl Default for ExecutionStageBuilder {
-    fn default() -> Self {
-        Self {
-            current_stage_id: 0,
-            stage_dependencies: HashMap::new(),
-            output_links: HashMap::new(),
-            object_store: None,
-            clients: Arc::new(Cache::new(200)),
-        }
-    }
+    shuffle_reader_parallelism: usize,
 }
 
 impl ExecutionStageBuilder {
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             current_stage_id: 0,
@@ -1635,6 +1637,7 @@ impl ExecutionStageBuilder {
             output_links: HashMap::new(),
             object_store: Some(object_store),
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -1670,6 +1673,7 @@ impl ExecutionStageBuilder {
                     HashSet::new(),
                     self.object_store.clone(),
                     self.clients.clone(),
+                    self.shuffle_reader_parallelism,
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1680,6 +1684,7 @@ impl ExecutionStageBuilder {
                     child_stages,
                     self.object_store.clone(),
                     self.clients.clone(),
+                    self.shuffle_reader_parallelism,
                 ))
             };
             execution_stages.insert(stage_id, stage);

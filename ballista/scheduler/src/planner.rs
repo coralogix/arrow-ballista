@@ -213,6 +213,7 @@ pub fn remove_unresolved_shuffles(
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {
@@ -255,6 +256,7 @@ pub fn remove_unresolved_shuffles(
                 unresolved_shuffle.schema().clone(),
                 object_store.clone(),
                 clients.clone(),
+                shuffle_reader_parallelism,
             )))
         } else {
             new_children.push(remove_unresolved_shuffles(
@@ -262,6 +264,7 @@ pub fn remove_unresolved_shuffles(
                 partition_locations,
                 object_store.clone(),
                 clients.clone(),
+                shuffle_reader_parallelism,
             )?);
         }
     }

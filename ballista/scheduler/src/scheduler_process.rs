@@ -51,6 +51,7 @@ pub async fn start_server(
     config: SchedulerConfig,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
@@ -77,6 +78,7 @@ pub async fn start_server(
             metrics_collector,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         );
 
     scheduler_server.init().await?;
