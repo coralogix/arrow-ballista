@@ -21,7 +21,8 @@ use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
 use prometheus::{
-    register_histogram_vec, register_int_counter_vec, HistogramVec, IntCounterVec,
+    register_gauge_vec, register_histogram_vec, register_int_counter_vec, GaugeVec,
+    HistogramVec, IntCounterVec,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -75,7 +76,7 @@ lazy_static! {
             "ballista_shuffle_reader_fetch_partition_latency",
             "Fetch partition latency in seconds",
             &["type"],
-            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0],
+            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
         )
         .unwrap();
     static ref SHUFFLE_READER_FETCH_PARTITION_TOTAL: IntCounterVec =
@@ -85,6 +86,12 @@ lazy_static! {
             &["type"]
         )
         .unwrap();
+    static ref SHUFFLE_READER_FETCH_PARALLELISM: GaugeVec = register_gauge_vec!(
+        "ballista_shuffle_reader_fetch_parallelism",
+        "Number of parallel fetch partition calls",
+        &["type"]
+    )
+    .unwrap();
 }
 
 /// ShuffleReaderExec reads partitions that have already been materialized by a ShuffleWriterExec
@@ -98,6 +105,7 @@ pub struct ShuffleReaderExec {
     metrics: ExecutionPlanMetricsSet,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    pub parallelism: usize,
 }
 
 impl ShuffleReaderExec {
@@ -107,6 +115,7 @@ impl ShuffleReaderExec {
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        parallelism: usize,
     ) -> Self {
         Self {
             partition,
@@ -114,6 +123,7 @@ impl ShuffleReaderExec {
             metrics: ExecutionPlanMetricsSet::new(),
             object_store,
             clients,
+            parallelism,
         }
     }
 }
@@ -177,8 +187,6 @@ impl ExecutionPlan for ShuffleReaderExec {
             "executing shuffle read"
         );
 
-        // TODO make the maximum size configurable, or make it depends on global memory control
-        let max_request_num = 50usize;
         let mut partition_locations = HashMap::new();
         for p in &self.partition[partition] {
             partition_locations
@@ -219,17 +227,17 @@ impl ExecutionPlan for ShuffleReaderExec {
                 task_id,
                 partition,
                 partition_locations,
-                max_request_num,
                 object_store.clone(),
                 self.clients.clone(),
+                self.parallelism,
             )
         } else {
             send_fetch_partitions(
                 task_id,
                 partition,
                 partition_locations,
-                max_request_num,
                 self.clients.clone(),
+                self.parallelism,
             )
         };
 
@@ -365,12 +373,13 @@ fn send_fetch_partitions_with_fallback(
     task_id: String,
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
-    max_request_num: usize,
+
     object_store: Arc<dyn ObjectStore>,
     clients: Arc<Cache<String, BallistaClient>>,
+    parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = mpsc::channel(max_request_num);
-    let semaphore = Arc::new(Semaphore::new(max_request_num));
+    let (response_sender, response_receiver) = mpsc::channel(parallelism);
+    let semaphore = Arc::new(Semaphore::new(parallelism));
     let mut join_handles = Vec::with_capacity(3);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
@@ -419,6 +428,9 @@ fn send_fetch_partitions_with_fallback(
 
             // Block if exceeds max request number
             let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["remote"])
+                .inc();
             let now = Instant::now();
             let result = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
@@ -464,6 +476,9 @@ fn send_fetch_partitions_with_fallback(
 
             // Increase semaphore by dropping existing permits.
             drop(permit);
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["remote"])
+                .dec();
         }
     }));
 
@@ -478,6 +493,9 @@ fn send_fetch_partitions_with_fallback(
                 .acquire_owned()
                 .await
                 .unwrap();
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["object_store"])
+                .inc();
             let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
@@ -498,7 +516,10 @@ fn send_fetch_partitions_with_fallback(
                 );
             }
 
-            drop(permit)
+            drop(permit);
+            SHUFFLE_READER_FETCH_PARALLELISM
+                .with_label_values(&["object_store"])
+                .dec();
         }
     }));
 
@@ -509,12 +530,12 @@ fn send_fetch_partitions(
     task_id: String,
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
-    max_request_num: usize,
     clients: Arc<Cache<String, BallistaClient>>,
+    parallelism: usize,
 ) -> AbortableReceiverStream {
-    let (response_sender, response_receiver) = channel(max_request_num);
+    let (response_sender, response_receiver) = channel(parallelism);
 
-    let semaphore = Arc::new(Semaphore::new(max_request_num));
+    let semaphore = Arc::new(Semaphore::new(parallelism));
     let mut join_handles = Vec::with_capacity(2);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
@@ -644,9 +665,6 @@ async fn fetch_partition_remote(
     clients: &Cache<String, BallistaClient>,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
-    // TODO for shuffle client connections, we should avoid creating new connections again and again.
-    // And we should also avoid to keep alive too many connections for long time.
-
     let mut ballista_client = get_executor_client(clients, location, metadata).await?;
 
     ballista_client
@@ -936,6 +954,7 @@ mod tests {
             Arc::new(schema),
             None,
             Arc::new(Cache::new(10)),
+            50,
         );
         let mut stream = shuffle_reader_exec.execute(0, task_ctx)?;
         let batches = utils::collect_stream(&mut stream).await;
@@ -1007,7 +1026,10 @@ mod tests {
         }
     }
 
-    async fn test_send_fetch_partitions(max_request_num: usize, partition_num: usize) {
+    async fn test_send_fetch_partitions(
+        partition_num: usize,
+        shuffle_reader_parallelism: usize,
+    ) {
         let schema = get_test_partition_schema();
         let data_array = Int32Array::from(vec![1]);
         let batch =
@@ -1029,8 +1051,8 @@ mod tests {
             "job_id".to_string(),
             0,
             partition_locations,
-            max_request_num,
             Arc::new(Cache::new(10)),
+            shuffle_reader_parallelism,
         );
 
         let stream = RecordBatchStreamAdapter::new(

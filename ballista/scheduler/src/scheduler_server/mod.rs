@@ -85,6 +85,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             cluster,
@@ -94,6 +95,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config.clone(),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -128,6 +130,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -138,6 +141,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             task_launcher,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -794,6 +798,7 @@ mod test {
                 Arc::new(TestMetricsCollector::default()),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
 

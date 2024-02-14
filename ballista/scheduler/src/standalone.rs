@@ -55,6 +55,7 @@ pub async fn new_standalone_scheduler_with_codec(
             metrics_collector,
             None,
             Arc::new(Cache::new(100)),
+            50,
         );
 
     scheduler_server.init().await?;

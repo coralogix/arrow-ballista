@@ -76,6 +76,8 @@ pub struct ShuffleReaderExecNode {
     pub partition: ::prost::alloc::vec::Vec<ShuffleReaderPartition>,
     #[prost(message, optional, tag = "2")]
     pub schema: ::core::option::Option<::datafusion_proto::protobuf::Schema>,
+    #[prost(uint32, tag = "3")]
+    pub parallelism: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -213,6 +215,8 @@ pub struct UnResolvedStage {
     pub last_attempt_failure_reasons: ::prost::alloc::vec::Vec<
         ::prost::alloc::string::String,
     >,
+    #[prost(uint32, tag = "8")]
+    pub shuffle_reader_parallelism: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -239,6 +243,8 @@ pub struct ResolvedStage {
     >,
     #[prost(uint64, tag = "9")]
     pub resolved_at: u64,
+    #[prost(uint32, tag = "10")]
+    pub shuffle_reader_parallelism: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -263,6 +269,8 @@ pub struct SuccessfulStage {
     pub stage_metrics: ::prost::alloc::vec::Vec<OperatorMetricsSet>,
     #[prost(uint32, tag = "9")]
     pub stage_attempt_num: u32,
+    #[prost(uint32, tag = "10")]
+    pub shuffle_reader_parallelism: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
