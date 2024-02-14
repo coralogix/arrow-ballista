@@ -68,7 +68,7 @@ tokio = { version = "1.0", features = [
     "signal",
 ] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tokio-util = { version = "0.7.10", features = ["compat"] }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = "0.1.36"
 tracing-appender = "0.2.2"

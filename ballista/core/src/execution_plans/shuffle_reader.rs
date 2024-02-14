@@ -17,6 +17,7 @@
 
 use async_trait::async_trait;
 use datafusion::common::stats::Precision;
+use futures::io::BufReader;
 use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
@@ -27,15 +28,14 @@ use prometheus::{
 use std::any::Any;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs::File;
-use std::io::BufReader;
 use std::pin::Pin;
 use std::result;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
-use tokio::sync::mpsc::error::SendError;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::fs::File;
+use tokio::sync::mpsc::Receiver;
+use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 use crate::async_reader::AsyncStreamReader;
 use crate::client::BallistaClient;
@@ -43,18 +43,15 @@ use crate::serde::scheduler::{ExecutorMetadata, PartitionLocation, PartitionStat
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
-use datafusion::arrow::ipc::reader::StreamReader;
-use datafusion::arrow::record_batch::RecordBatch;
 
 use datafusion::error::{DataFusionError, Result};
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
     ColumnStatistics, DisplayAs, DisplayFormatType, EmptyRecordBatchStream,
-    ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
-    Statistics,
+    ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
 };
-use futures::{AsyncRead, Stream, StreamExt, TryStreamExt};
+use futures::{Stream, StreamExt, TryStreamExt};
 
 use crate::error::BallistaError;
 use datafusion::execution::context::TaskContext;
@@ -66,7 +63,7 @@ use rand::prelude::SliceRandom;
 use rand::thread_rng;
 use tokio::sync::mpsc::channel;
 use tokio::sync::{mpsc, Semaphore};
-use tokio::task::{self, JoinHandle};
+use tokio::task::JoinHandle;
 use tokio_stream::wrappers::ReceiverStream;
 use tracing::{info, warn};
 
@@ -287,36 +284,6 @@ fn stats_for_partitions(
     }
 }
 
-struct LocalShuffleStream {
-    reader: StreamReader<BufReader<File>>,
-}
-
-impl LocalShuffleStream {
-    pub fn new(reader: StreamReader<BufReader<File>>) -> Self {
-        LocalShuffleStream { reader }
-    }
-}
-
-impl Stream for LocalShuffleStream {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        if let Some(batch) = self.reader.next() {
-            return Poll::Ready(Some(batch.map_err(|e| e.into())));
-        }
-        Poll::Ready(None)
-    }
-}
-
-impl RecordBatchStream for LocalShuffleStream {
-    fn schema(&self) -> SchemaRef {
-        self.reader.schema()
-    }
-}
-
 /// Adapter for a tokio ReceiverStream that implements the SendableRecordBatchStream interface
 struct AbortableReceiverStream {
     inner: ReceiverStream<result::Result<SendableRecordBatchStream, BallistaError>>,
@@ -379,7 +346,6 @@ fn send_fetch_partitions_with_fallback(
     parallelism: usize,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) = mpsc::channel(parallelism);
-    let semaphore = Arc::new(Semaphore::new(parallelism));
     let mut join_handles = Vec::with_capacity(3);
     let (local_locations, remote_locations): (Vec<_>, Vec<_>) = partition_locations
         .into_iter()
@@ -418,16 +384,13 @@ fn send_fetch_partitions_with_fallback(
 
     let (failed_partition_sender, mut failed_partition_receiver) = mpsc::channel(2);
     let sender_to_remote = response_sender.clone();
-    let semaphore_for_remote: Arc<Semaphore> = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.into_iter() {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
             let failed_partition_sender = failed_partition_sender.clone();
-
-            // Block if exceeds max request number
-            let permit = semaphore_for_remote.clone().acquire_owned().await.unwrap();
+            let permit = sender_to_remote.reserve().await.unwrap();
             SHUFFLE_READER_FETCH_PARALLELISM
                 .with_label_values(&["remote"])
                 .inc();
@@ -442,19 +405,9 @@ fn send_fetch_partitions_with_fallback(
                 .observe(now.elapsed().as_secs_f64());
 
             match result {
-                Ok(batch_stream) => {
-                    // Block if the channel buffer is ful
-                    if let Err(e) = sender_to_remote.send(Ok(batch_stream)).await {
-                        warn!(
-                            job_id = p.job_id,
-                            stage_id = p.stage_id,
-                            partition_id = p.output_partition,
-                            "Fail to send response event to the channel due to {}",
-                            e
-                        );
-                    }
-                }
+                Ok(batch_stream) => permit.send(Ok(batch_stream)),
                 Err(error) => {
+                    drop(permit);
                     warn!(
                         job_id = p.job_id,
                         stage_id = p.stage_id,
@@ -473,26 +426,18 @@ fn send_fetch_partitions_with_fallback(
                     }
                 }
             }
-
-            // Increase semaphore by dropping existing permits.
-            drop(permit);
             SHUFFLE_READER_FETCH_PARALLELISM
                 .with_label_values(&["remote"])
                 .dec();
         }
     }));
 
-    let semaphore_for_object_store: Arc<Semaphore> = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["object_store"])
                 .inc();
-            let permit = semaphore_for_object_store
-                .clone()
-                .acquire_owned()
-                .await
-                .unwrap();
+            let permit = response_sender.reserve().await.unwrap();
             SHUFFLE_READER_FETCH_PARALLELISM
                 .with_label_values(&["object_store"])
                 .inc();
@@ -506,17 +451,8 @@ fn send_fetch_partitions_with_fallback(
                 .with_label_values(&["object_store"])
                 .observe(now.elapsed().as_secs_f64());
 
-            if let Err(e) = response_sender.send(r).await {
-                warn!(
-                    job_id = partition.job_id,
-                    stage_id = partition.stage_id,
-                    partition_id = partition.output_partition,
-                    "Fail to send response event to the channel due to {}",
-                    e
-                );
-            }
+            permit.send(r);
 
-            drop(permit);
             SHUFFLE_READER_FETCH_PARALLELISM
                 .with_label_values(&["object_store"])
                 .dec();
@@ -687,7 +623,7 @@ async fn fetch_partition_local(
     let path = &location.path;
     let metadata = &location.executor_meta;
 
-    let reader = fetch_partition_local_inner(path).map_err(|e| {
+    let reader = fetch_partition_local_inner(path).await.map_err(|e| {
         // return BallistaError::FetchFailed may let scheduler retry this task.
         BallistaError::FetchFailed(
             metadata.id.clone(),
@@ -696,20 +632,30 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
-    Ok(Box::pin(LocalShuffleStream::new(reader)))
+
+    reader.to_stream(2).await.map_err(|e| {
+        BallistaError::FetchFailed(
+            metadata.id.clone(),
+            location.stage_id,
+            location.map_partitions.clone(),
+            e.to_string(),
+        )
+    })
 }
 
-fn fetch_partition_local_inner(
+async fn fetch_partition_local_inner(
     path: &str,
-) -> result::Result<StreamReader<BufReader<File>>, BallistaError> {
-    let file = File::open(path).map_err(|e| {
+) -> result::Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
+    let file = File::open(path).await.map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader = StreamReader::try_new(file, None).map_err(|e| {
-        BallistaError::General(format!(
-            "Failed to new arrow StreamReader at {path}: {e:?}"
-        ))
-    })?;
+    let reader = AsyncStreamReader::try_new(file.compat(), None)
+        .await
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to new arrow StreamReader at {path}: {e:?}"
+            ))
+        })?;
     Ok(reader)
 }
 
@@ -741,7 +687,7 @@ pub async fn batch_stream_from_object_store(
     stage_id: usize,
     map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
-) -> Result<RecordBatchReceiver> {
+) -> Result<SendableRecordBatchStream> {
     let stream = object_store
         .as_ref()
         .get(path)
@@ -760,7 +706,6 @@ pub async fn batch_stream_from_object_store(
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
-    let (tx, rx) = channel(2);
     let reader = AsyncStreamReader::try_new(async_reader, None)
         .await
         .map_err(|e| {
@@ -770,71 +715,9 @@ pub async fn batch_stream_from_object_store(
             ))
         })?;
 
-    let schema = reader.schema();
-    let executor_id = executor_id.clone();
-
-    task::spawn(async move {
-        if let Err(e) = read_stream_partition(reader, tx).await {
-            warn!(executor_id, error = %e, "error streaming shuffle partition");
-        }
-    });
-    Ok(RecordBatchReceiver::new(rx, schema))
+    reader.to_stream(2).await
 }
 
-async fn read_stream_partition<T: AsyncRead + Unpin + Send>(
-    mut reader: AsyncStreamReader<T>,
-    tx: Sender<Result<RecordBatch>>,
-) -> Result<()> {
-    if tx.is_closed() {
-        return Err(DataFusionError::Internal(
-            "Can't send a batch, channel is closed".to_string(),
-        ));
-    }
-
-    while let Some(batch) = reader.maybe_next().await.transpose() {
-        tx.send(batch.map_err(|err| err.into()))
-            .await
-            .map_err(|err| {
-                if let SendError(Err(err)) = err {
-                    err
-                } else {
-                    DataFusionError::Internal(
-                        "Can't send a batch, something went wrong".to_string(),
-                    )
-                }
-            })?
-    }
-
-    Ok(())
-}
-
-pub struct RecordBatchReceiver {
-    inner: Receiver<Result<RecordBatch>>,
-    schema: SchemaRef,
-}
-
-impl RecordBatchReceiver {
-    fn new(inner: Receiver<Result<RecordBatch>>, schema: SchemaRef) -> Self {
-        Self { inner, schema }
-    }
-}
-
-impl Stream for RecordBatchReceiver {
-    type Item = Result<RecordBatch>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        self.inner.poll_recv(cx)
-    }
-}
-
-impl RecordBatchStream for RecordBatchReceiver {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1010,10 +893,9 @@ mod tests {
 
         // from to input partitions test the first one with two batches
         let file_path = path.value(0);
-        let reader = fetch_partition_local_inner(file_path).unwrap();
+        let reader = fetch_partition_local_inner(file_path).await.unwrap();
 
-        let mut stream: Pin<Box<dyn RecordBatchStream + Send>> =
-            async { Box::pin(LocalShuffleStream::new(reader)) }.await;
+        let mut stream = async { reader.to_stream(2).await }.await.unwrap();
 
         let result = utils::collect_stream(&mut stream)
             .await
@@ -1037,7 +919,7 @@ mod tests {
                 .unwrap();
         let tmp_dir = tempdir().unwrap();
         let file_path = tmp_dir.path().join("shuffle_data");
-        let file = File::create(&file_path).unwrap();
+        let file = std::fs::File::create(&file_path).unwrap();
         let mut writer = StreamWriter::try_new(file, &schema).unwrap();
         writer.write(&batch).unwrap();
         writer.finish().unwrap();

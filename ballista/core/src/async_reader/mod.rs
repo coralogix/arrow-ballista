@@ -1,20 +1,33 @@
-use std::{collections::HashMap, fmt, io::SeekFrom, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    io::SeekFrom,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
-use datafusion::arrow::{
-    array::ArrayRef,
-    buffer::MutableBuffer,
-    datatypes::{Schema, SchemaRef},
-    error::ArrowError,
-    ipc::{
-        convert,
-        reader::{read_dictionary, read_record_batch},
-        root_as_footer, root_as_message, Block, MessageHeader, MetadataVersion,
+use datafusion::{
+    arrow::{
+        array::ArrayRef,
+        buffer::MutableBuffer,
+        datatypes::{Schema, SchemaRef},
+        error::ArrowError,
+        ipc::{
+            convert,
+            reader::{read_dictionary, read_record_batch},
+            root_as_footer, root_as_message, Block, MessageHeader, MetadataVersion,
+        },
+        record_batch::RecordBatch,
     },
-    record_batch::RecordBatch,
+    error::DataFusionError,
+    physical_plan::{RecordBatchStream, SendableRecordBatchStream},
 };
 use futures::{
     future::BoxFuture, io::BufReader, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt,
+    Stream,
 };
+use tokio::sync::mpsc::{error::SendError, Receiver, Sender};
 
 const ARROW_MAGIC: [u8; 6] = [b'A', b'R', b'R', b'O', b'W', b'1'];
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
@@ -467,6 +480,77 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<R> {
     /// It is inadvisable to directly read from the underlying reader.
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.reader
+    }
+
+    async fn consume(
+        mut self,
+        tx: Sender<Result<RecordBatch, DataFusionError>>,
+    ) -> Result<(), DataFusionError> {
+        if tx.is_closed() {
+            return Err(DataFusionError::Internal(
+                "Can't send a batch, channel is closed".to_string(),
+            ));
+        }
+
+        while let Some(batch) = self.maybe_next().await.transpose() {
+            tx.send(batch.map_err(|err| err.into()))
+                .await
+                .map_err(|err| {
+                    if let SendError(Err(err)) = err {
+                        err
+                    } else {
+                        DataFusionError::Internal(
+                            "Can't send a batch, something went wrong".to_string(),
+                        )
+                    }
+                })?
+        }
+
+        Ok(())
+    }
+}
+
+impl<R: AsyncRead + Unpin + Send + 'static> AsyncStreamReader<R> {
+    pub async fn to_stream(
+        self,
+        channel_capacity: usize,
+    ) -> Result<SendableRecordBatchStream, DataFusionError> {
+        let (tx, rx) = tokio::sync::mpsc::channel(channel_capacity);
+        let schema = self.schema();
+        tokio::task::spawn(async move { self.consume(tx).await });
+
+        Ok(Box::pin(RecordBatchReceiver::new(rx, schema)))
+    }
+}
+
+struct RecordBatchReceiver {
+    inner: Receiver<Result<RecordBatch, DataFusionError>>,
+    schema: SchemaRef,
+}
+
+impl RecordBatchReceiver {
+    fn new(
+        inner: Receiver<Result<RecordBatch, DataFusionError>>,
+        schema: SchemaRef,
+    ) -> Self {
+        Self { inner, schema }
+    }
+}
+
+impl Stream for RecordBatchReceiver {
+    type Item = Result<RecordBatch, DataFusionError>;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        self.inner.poll_recv(cx)
+    }
+}
+
+impl RecordBatchStream for RecordBatchReceiver {
+    fn schema(&self) -> SchemaRef {
+        self.schema.clone()
     }
 }
 
