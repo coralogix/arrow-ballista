@@ -981,7 +981,7 @@ impl ExecutionGraph {
     }
 
     // Return all currently running tasks along with the executor ID on which they are assigned
-    pub fn running_tasks(&self) -> Option<Vec<RunningTaskInfo>> {
+    pub fn running_tasks(&self) -> Vec<RunningTaskInfo> {
         let mut tasks = Vec::default();
 
         for (_, stage) in self.stages().iter() {
@@ -998,12 +998,8 @@ impl ExecutionGraph {
             }
         }
 
-        if !tasks.is_empty() {
-            tasks.shrink_to_fit();
-            return Some(tasks);
-        }
-
-        None
+        tasks.shrink_to_fit();
+        tasks
     }
 
     // Total number of tasks in this plan that are ready for scheduling
