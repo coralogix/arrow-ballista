@@ -130,7 +130,7 @@ pub(crate) struct UnresolvedStage {
     /// If `output_links` is empty then this the final stage in the `ExecutionGraph`
     pub(crate) output_links: Vec<usize>,
     /// Represents the outputs from this stage's child stages.
-    /// This stage can only be resolved an executed once all child stages are completed.
+    /// This stage can only be resolved and executed once all child stages are completed.
     pub(crate) inputs: HashMap<usize, StageOutput>,
     /// `ExecutionPlan` for this stage
     pub(crate) plan: Arc<dyn ExecutionPlan>,
