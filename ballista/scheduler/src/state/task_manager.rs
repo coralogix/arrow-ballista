@@ -694,26 +694,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 let mut guard = job.graph_mut().await;
 
                 let pending_tasks = guard.available_tasks();
-                if let Some(running_tasks) = guard.running_tasks() {
-                    info!(
-                        job_id,
-                        tasks = running_tasks.len(),
-                        "cancelling running tasks"
-                    );
+                let running_tasks = guard.running_tasks();
+                info!(
+                    job_id,
+                    tasks = running_tasks.len(),
+                    "cancelling running tasks"
+                );
 
-                    guard.fail_job(reason);
+                guard.fail_job(reason);
 
-                    self.state.save_job(job_id, &guard).await?;
+                self.state.save_job(job_id, &guard).await?;
 
-                    // After state is saved, remove job from active cache
-                    let _ = self.remove_active_execution_graph(job_id);
+                // After state is saved, remove job from active cache
+                let _ = self.remove_active_execution_graph(job_id);
 
-                    (running_tasks, pending_tasks)
-                } else {
-                    // TODO listen the job state update event and fix task cancelling
-                    warn!(job_id, "no running tasks found for job");
-                    (vec![], pending_tasks)
-                }
+                (running_tasks, pending_tasks)
             } else {
                 // TODO listen the job state update event and fix task cancelling
                 warn!(
