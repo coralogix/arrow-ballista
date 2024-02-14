@@ -27,7 +27,7 @@ use futures::{
     future::BoxFuture, io::BufReader, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt,
     Stream,
 };
-use tokio::sync::mpsc::{error::SendError, Receiver, Sender};
+use tokio::sync::mpsc::{error::SendError, Receiver};
 
 const ARROW_MAGIC: [u8; 6] = [b'A', b'R', b'R', b'O', b'W', b'1'];
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
@@ -481,43 +481,32 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<R> {
     pub fn get_mut(&mut self) -> &mut R {
         &mut self.reader
     }
-
-    async fn consume(
-        mut self,
-        tx: Sender<Result<RecordBatch, DataFusionError>>,
-    ) -> Result<(), DataFusionError> {
-        if tx.is_closed() {
-            return Err(DataFusionError::Internal(
-                "Can't send a batch, channel is closed".to_string(),
-            ));
-        }
-
-        while let Some(batch) = self.maybe_next().await.transpose() {
-            tx.send(batch.map_err(|err| err.into()))
-                .await
-                .map_err(|err| {
-                    if let SendError(Err(err)) = err {
-                        err
-                    } else {
-                        DataFusionError::Internal(
-                            "Can't send a batch, something went wrong".to_string(),
-                        )
-                    }
-                })?
-        }
-
-        Ok(())
-    }
 }
 
 impl<R: AsyncRead + Unpin + Send + 'static> AsyncStreamReader<R> {
     pub async fn to_stream(
-        self,
+        mut self,
         channel_capacity: usize,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
         let (tx, rx) = tokio::sync::mpsc::channel(channel_capacity);
         let schema = self.schema();
-        tokio::task::spawn(async move { self.consume(tx).await });
+        tokio::task::spawn(async move {
+            while let Some(batch) = self.maybe_next().await.transpose() {
+                tx.send(batch.map_err(|err| err.into()))
+                    .await
+                    .map_err(|err| {
+                        if let SendError(Err(err)) = err {
+                            err
+                        } else {
+                            DataFusionError::Internal(
+                                "Can't send a batch, something went wrong".to_string(),
+                            )
+                        }
+                    })?
+            }
+
+            Ok::<(), DataFusionError>(())
+        });
 
         Ok(Box::pin(RecordBatchReceiver::new(rx, schema)))
     }
