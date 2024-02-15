@@ -415,10 +415,7 @@ fn send_fetch_partitions_with_fallback(
                 .with_label_values(&["local"])
                 .inc();
             let now = Instant::now();
-            let r: std::prelude::v1::Result<
-                Pin<Box<dyn RecordBatchStream + Send>>,
-                BallistaError,
-            > = PartitionReaderEnum::Local {
+            let r = PartitionReaderEnum::Local {
                 parallelism: local_partition_fetch_capacity,
             }
             .fetch_partition(p)
