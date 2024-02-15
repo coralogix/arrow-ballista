@@ -457,7 +457,8 @@ async fn flight_server_run(
     );
 
     let shutdown_signal = grpc_shutdown.recv();
-    let svc = FlightServiceServer::new(BallistaFlightService::new(executor_id.clone()));
+    let svc =
+        FlightServiceServer::new(BallistaFlightService::new(executor_id.clone(), 10));
     create_grpc_server()
         .add_service(svc)
         .serve_with_shutdown(addr, shutdown_signal)

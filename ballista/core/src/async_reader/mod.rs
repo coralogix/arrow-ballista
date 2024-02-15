@@ -21,7 +21,7 @@ use datafusion::{
         record_batch::RecordBatch,
     },
     error::DataFusionError,
-    physical_plan::{RecordBatchStream, SendableRecordBatchStream},
+    physical_plan::RecordBatchStream,
 };
 use futures::{
     future::BoxFuture, io::BufReader, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt,
@@ -487,7 +487,7 @@ impl<R: AsyncRead + Unpin + Send + 'static> AsyncStreamReader<R> {
     pub async fn to_stream(
         mut self,
         channel_capacity: usize,
-    ) -> Result<SendableRecordBatchStream, DataFusionError> {
+    ) -> Result<RecordBatchReceiver, DataFusionError> {
         let (tx, rx) = tokio::sync::mpsc::channel(channel_capacity);
         let schema = self.schema();
         tokio::task::spawn(async move {
@@ -508,11 +508,11 @@ impl<R: AsyncRead + Unpin + Send + 'static> AsyncStreamReader<R> {
             Ok::<(), DataFusionError>(())
         });
 
-        Ok(Box::pin(RecordBatchReceiver::new(rx, schema)))
+        Ok(RecordBatchReceiver::new(rx, schema))
     }
 }
 
-struct RecordBatchReceiver {
+pub struct RecordBatchReceiver {
     inner: Receiver<Result<RecordBatch, DataFusionError>>,
     schema: SchemaRef,
 }

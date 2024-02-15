@@ -33,19 +33,14 @@ use arrow_flight::{
     FlightData, FlightDescriptor, FlightInfo, HandshakeRequest, HandshakeResponse,
     PutResult, SchemaResult, Ticket,
 };
-use datafusion::arrow::{error::ArrowError, record_batch::RecordBatch};
-use futures::io::BufReader;
-use futures::{AsyncRead, AsyncSeek, Stream, TryStreamExt};
+use datafusion::arrow::error::ArrowError;
+use futures::{Stream, TryStreamExt};
 
 use tokio::fs::File;
-use tokio::sync::mpsc::channel;
-use tokio::sync::mpsc::error::SendError;
-use tokio::{sync::mpsc::Sender, task};
-use tokio_stream::wrappers::ReceiverStream;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status, Streaming};
-use tracing::{info, warn};
+use tracing::info;
 
 // TODO this is currently configured in two different places
 // 4 MiB
@@ -55,12 +50,14 @@ const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
 #[derive(Clone)]
 pub struct BallistaFlightService {
     executor_id: String,
+    do_get_channel_capacity: usize,
 }
 
 impl BallistaFlightService {
-    pub fn new(executor_id: impl Into<String>) -> Self {
+    pub fn new(executor_id: impl Into<String>, do_get_channel_capacity: usize) -> Self {
         Self {
             executor_id: executor_id.into(),
+            do_get_channel_capacity,
         }
     }
 }
@@ -108,34 +105,40 @@ impl FlightService for BallistaFlightService {
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
-
-        let mut reader = AsyncStreamReader::try_new(file.compat(), None)
+        let reader = AsyncStreamReader::try_new(file.compat(), None)
             .await
             .map_err(from_arrow_err)?;
         let schema = reader.schema();
 
-        let (tx, rx) = channel(10);
-
-        let executor_id = self.executor_id.clone();
-        task::spawn(async move {
-            if let Err(e) =
-                read_partition(job_id, stage_id, partition, &mut reader, tx).await
-            {
-                warn!(executor_id, error = %e, "error streaming shuffle partition");
-            }
-        });
+        let stream = reader
+            .to_stream(self.do_get_channel_capacity)
+            .await
+            .map_err(|e| {
+                Status::internal(format!(
+                    "Unable to create partition batch stream: {e:?}"
+                ))
+            })?
+            .map_err(|e| {
+                FlightError::Tonic(Status::internal(format!(
+                    "Cannot process batch: {:?}",
+                    e
+                )))
+            });
 
         let write_options = IpcWriteOptions::default()
             .try_with_compression(Some(CompressionType::LZ4_FRAME))
             .map_err(from_arrow_err)?;
-
         let flight_data_stream = FlightDataEncoderBuilder::new()
             .with_max_flight_data_size(MAX_MESSAGE_SIZE)
             .with_schema(schema)
             .with_options(write_options)
-            .build(ReceiverStream::new(rx))
+            .build(stream)
             .map_err(|err| Status::from_error(Box::new(err)));
 
+        info!(
+            executor_id = self.executor_id,
+            job_id, stage_id, partition, path, "fetched shuffle partition"
+        );
         Ok(Response::new(
             Box::pin(flight_data_stream) as Self::DoGetStream
         ))
@@ -213,41 +216,6 @@ impl FlightService for BallistaFlightService {
     ) -> Result<Response<Self::DoExchangeStream>, Status> {
         Err(Status::unimplemented("do_exchange"))
     }
-}
-
-async fn read_partition<T>(
-    job_id: String,
-    stage_id: usize,
-    partition: usize,
-    reader: &mut AsyncStreamReader<BufReader<T>>,
-    tx: Sender<Result<RecordBatch, FlightError>>,
-) -> Result<(), FlightError>
-where
-    T: Send + Unpin + AsyncRead + AsyncSeek,
-{
-    if tx.is_closed() {
-        return Err(FlightError::Tonic(Status::internal(
-            "Can't send a batch, channel is closed",
-        )));
-    }
-
-    while let Some(batch) = reader.maybe_next().await.transpose() {
-        tx.send(batch.map_err(|err| err.into()))
-            .await
-            .map_err(|err| {
-                if let SendError(Err(err)) = err {
-                    err
-                } else {
-                    FlightError::Tonic(Status::internal(
-                        "Can't send a batch, something went wrong",
-                    ))
-                }
-            })?
-    }
-
-    info!(job_id, stage_id, partition, "finished reading partition");
-
-    Ok(())
 }
 
 fn from_arrow_err(e: ArrowError) -> Status {

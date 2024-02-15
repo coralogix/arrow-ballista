@@ -632,15 +632,15 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
-
-    reader.to_stream(2).await.map_err(|e| {
+    let stream = reader.to_stream(50).await.map_err(|e| {
         BallistaError::FetchFailed(
             metadata.id.clone(),
             location.stage_id,
             location.map_partitions.clone(),
             e.to_string(),
         )
-    })
+    })?;
+    Ok(Box::pin(stream))
 }
 
 async fn fetch_partition_local_inner(
@@ -715,7 +715,7 @@ pub async fn batch_stream_from_object_store(
             ))
         })?;
 
-    reader.to_stream(2).await
+    Ok(Box::pin(reader.to_stream(50).await?))
 }
 
 #[cfg(test)]
@@ -895,7 +895,8 @@ mod tests {
         let file_path = path.value(0);
         let reader = fetch_partition_local_inner(file_path).await.unwrap();
 
-        let mut stream = async { reader.to_stream(2).await }.await.unwrap();
+        let mut stream: SendableRecordBatchStream =
+            Box::pin(async { reader.to_stream(2).await }.await.unwrap());
 
         let result = utils::collect_stream(&mut stream)
             .await

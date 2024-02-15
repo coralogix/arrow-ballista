@@ -90,7 +90,7 @@ pub async fn new_standalone_executor<
         None,
     ));
 
-    let service = BallistaFlightService::new(executor_id);
+    let service = BallistaFlightService::new(executor_id, 10);
     let server = FlightServiceServer::new(service);
     tokio::spawn(
         create_grpc_server()
