@@ -50,8 +50,7 @@ use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::metrics::{ExecutionPlanMetricsSet, MetricsSet};
 use datafusion::physical_plan::{
     ColumnStatistics, DisplayAs, DisplayFormatType, EmptyRecordBatchStream,
-    ExecutionPlan, Partitioning, RecordBatchStream, SendableRecordBatchStream,
-    Statistics,
+    ExecutionPlan, Partitioning, SendableRecordBatchStream, Statistics,
 };
 use futures::{Stream, StreamExt, TryStreamExt};
 
@@ -416,7 +415,7 @@ fn send_fetch_partitions_with_fallback(
                 .inc();
             let now = Instant::now();
             let r = PartitionReaderEnum::Local {
-                parallelism: local_partition_fetch_capacity,
+                buffer_capacity: local_partition_fetch_capacity,
             }
             .fetch_partition(p)
             .await;
@@ -499,7 +498,7 @@ fn send_fetch_partitions_with_fallback(
             let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
-                parallelism: object_store_partition_fetch_capacity,
+                buffer_capacity: object_store_partition_fetch_capacity,
             }
             .fetch_partition(&partition)
             .await;
@@ -545,7 +544,7 @@ fn send_fetch_partitions(
     join_handles.push(tokio::spawn(async move {
         for p in local_locations {
             let r = PartitionReaderEnum::Local {
-                parallelism: local_partition_fetch_capacity,
+                buffer_capacity: local_partition_fetch_capacity,
             }
             .fetch_partition(&p)
             .await;
@@ -595,14 +594,14 @@ trait PartitionReader: Send + Sync + Clone {
 #[derive(Clone)]
 enum PartitionReaderEnum {
     Local {
-        parallelism: usize,
+        buffer_capacity: usize,
     },
     FlightRemote {
         clients: Arc<Cache<String, BallistaClient>>,
     },
     ObjectStoreRemote {
         object_store: Arc<dyn ObjectStore>,
-        parallelism: usize,
+        buffer_capacity: usize,
     },
 }
 
@@ -614,18 +613,22 @@ impl PartitionReader for PartitionReaderEnum {
         location: &PartitionLocation,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
-            PartitionReaderEnum::Local { parallelism } => {
-                fetch_partition_local(location, *parallelism).await
+            PartitionReaderEnum::Local { buffer_capacity } => {
+                fetch_partition_local(location, *buffer_capacity).await
             }
             PartitionReaderEnum::FlightRemote { clients } => {
                 fetch_partition_remote(location, clients.as_ref()).await
             }
             PartitionReaderEnum::ObjectStoreRemote {
                 object_store,
-                parallelism,
+                buffer_capacity,
             } => {
-                fetch_partition_object_store(location, object_store.clone(), *parallelism)
-                    .await
+                fetch_partition_object_store(
+                    location,
+                    object_store.clone(),
+                    *buffer_capacity,
+                )
+                .await
             }
         }
     }
@@ -676,7 +679,7 @@ async fn fetch_partition_remote(
 
 async fn fetch_partition_local(
     location: &PartitionLocation,
-    parallelism: usize,
+    buffer_capacity: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let path = &location.path;
     let metadata = &location.executor_meta;
@@ -690,7 +693,7 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
-    let stream = reader.to_stream(parallelism).await.map_err(|e| {
+    let stream = reader.to_stream(buffer_capacity).await.map_err(|e| {
         BallistaError::FetchFailed(
             metadata.id.clone(),
             location.stage_id,
@@ -720,7 +723,7 @@ async fn fetch_partition_local_inner(
 pub async fn fetch_partition_object_store(
     location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
-    parallelism: usize,
+    buffer_capacity: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let executor_id = location.executor_meta.id.clone();
     let path = Path::parse(format!("{}{}", executor_id, location.path)).map_err(|e| {
@@ -732,7 +735,7 @@ pub async fn fetch_partition_object_store(
         location.stage_id,
         &location.map_partitions,
         object_store,
-        parallelism,
+        buffer_capacity,
     )
     .await?;
     Ok(Box::pin(RecordBatchStreamAdapter::new(
@@ -747,7 +750,7 @@ pub async fn batch_stream_from_object_store(
     stage_id: usize,
     map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
-    parallelism: usize,
+    buffer_capacity: usize,
 ) -> Result<SendableRecordBatchStream> {
     let stream = object_store
         .as_ref()
@@ -776,7 +779,7 @@ pub async fn batch_stream_from_object_store(
             ))
         })?;
 
-    Ok(Box::pin(reader.to_stream(parallelism).await?))
+    Ok(Box::pin(reader.to_stream(buffer_capacity).await?))
 }
 
 #[cfg(test)]
