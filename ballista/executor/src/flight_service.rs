@@ -48,6 +48,15 @@ pub struct BallistaFlightServiceOptions {
     do_get_channel_capacity: usize,
 }
 
+impl BallistaFlightServiceOptions {
+    pub fn new(max_message_size: usize, do_get_channel_capacity: usize) -> Self {
+        Self {
+            max_message_size,
+            do_get_channel_capacity,
+        }
+    }
+}
+
 impl Default for BallistaFlightServiceOptions {
     fn default() -> Self {
         Self {
