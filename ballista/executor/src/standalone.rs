@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use crate::flight_service::BallistaFlightServiceOptions;
 use crate::metrics::LoggingMetricsCollector;
 use crate::{execution_loop, executor::Executor, flight_service::BallistaFlightService};
 use arrow_flight::flight_service_server::FlightServiceServer;
@@ -90,7 +91,8 @@ pub async fn new_standalone_executor<
         None,
     ));
 
-    let service = BallistaFlightService::new(executor_id, 10);
+    let service =
+        BallistaFlightService::new(executor_id, BallistaFlightServiceOptions::default());
     let server = FlightServiceServer::new(service);
     tokio::spawn(
         create_grpc_server()

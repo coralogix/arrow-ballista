@@ -22,6 +22,7 @@ use std::iter::FromIterator;
 use std::sync::Arc;
 
 use ballista_core::client::BallistaClient;
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use datafusion::physical_optimizer::aggregate_statistics::AggregateStatistics;
 use datafusion::physical_optimizer::join_selection::JoinSelection;
 use datafusion::physical_optimizer::PhysicalOptimizerRule;
@@ -141,7 +142,7 @@ pub(crate) struct UnresolvedStage {
 
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
 
-    pub(crate) shuffle_reader_parallelism: usize,
+    pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
@@ -171,7 +172,7 @@ pub(crate) struct ResolvedStage {
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
-    pub(crate) shuffle_reader_parallelism: usize,
+    pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -208,7 +209,7 @@ pub(crate) struct RunningStage {
     pub(crate) resolved_at: u64,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
-    pub(crate) shuffle_reader_parallelism: usize,
+    pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
@@ -237,7 +238,7 @@ pub(crate) struct SuccessfulStage {
     pub(crate) stage_metrics: Vec<MetricsSet>,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
-    pub(crate) shuffle_reader_parallelism: usize,
+    pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 /// If a stage fails, it will be with an error message
@@ -304,7 +305,7 @@ impl UnresolvedStage {
         child_stage_ids: Vec<usize>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
         for input_stage_id in child_stage_ids {
@@ -321,7 +322,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons: Default::default(),
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -336,7 +337,7 @@ impl UnresolvedStage {
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
             stage_id,
@@ -348,7 +349,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons,
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -422,7 +423,7 @@ impl UnresolvedStage {
             &input_locations,
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         )?;
 
         // Optimize join order and aggregate based on new resolved statistics
@@ -443,7 +444,7 @@ impl UnresolvedStage {
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         ))
     }
 
@@ -468,7 +469,13 @@ impl UnresolvedStage {
         )?;
 
         let inputs = decode_inputs(stage.inputs)?;
-
+        let shuffle_reader_options = stage
+            .shuffle_reader_options
+            .as_ref()
+            .ok_or_else(|| {
+                BallistaError::General("ShuffleReaderExecOptions is missing".to_owned())
+            })?
+            .into();
         Ok(UnresolvedStage {
             stage_id: stage.stage_id as usize,
             stage_attempt_num: stage.stage_attempt_num as usize,
@@ -481,7 +488,7 @@ impl UnresolvedStage {
             ),
             object_store,
             clients,
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
+            shuffle_reader_options: Arc::new(shuffle_reader_options),
         })
     }
 
@@ -508,7 +515,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons: Vec::from_iter(
                 stage.last_attempt_failure_reasons.clone(),
             ),
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
+            shuffle_reader_options: Some(stage.shuffle_reader_options.as_ref().into()),
         })
     }
 }
@@ -541,7 +548,7 @@ impl ResolvedStage {
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
 
@@ -557,7 +564,7 @@ impl ResolvedStage {
             resolved_at: timestamp_millis(),
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -574,7 +581,7 @@ impl ResolvedStage {
             self.resolved_at,
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         )
     }
 
@@ -592,7 +599,7 @@ impl ResolvedStage {
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         );
         Ok(unresolved)
     }
@@ -618,7 +625,15 @@ impl ResolvedStage {
         )?;
 
         let inputs = decode_inputs(stage.inputs)?;
-
+        let shuffle_reader_options = stage
+            .shuffle_reader_options
+            .as_ref()
+            .ok_or_else(|| {
+                BallistaError::General(
+                    "ShuffleReaderExecNodeOptions is missing".to_owned(),
+                )
+            })?
+            .into();
         Ok(ResolvedStage {
             stage_id: stage.stage_id as usize,
             stage_attempt_num: stage.stage_attempt_num as usize,
@@ -633,7 +648,7 @@ impl ResolvedStage {
             resolved_at: stage.resolved_at,
             object_store,
             clients,
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
+            shuffle_reader_options: Arc::new(shuffle_reader_options),
         })
     }
 
@@ -649,7 +664,7 @@ impl ResolvedStage {
             hash_partitioning_to_proto(stage.output_partitioning.as_ref())?;
 
         let inputs = encode_inputs(&stage.inputs)?;
-
+        let shuffle_reader_options = stage.shuffle_reader_options.as_ref().into();
         Ok(protobuf::ResolvedStage {
             stage_id: stage.stage_id as u32,
             stage_attempt_num: stage.stage_attempt_num as u32,
@@ -662,7 +677,7 @@ impl ResolvedStage {
                 stage.last_attempt_failure_reasons.clone(),
             ),
             resolved_at: stage.resolved_at,
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
+            shuffle_reader_options: Some(shuffle_reader_options),
         })
     }
 }
@@ -692,7 +707,7 @@ impl RunningStage {
         resolved_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
             stage_id,
@@ -708,7 +723,7 @@ impl RunningStage {
             resolved_at,
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -742,7 +757,7 @@ impl RunningStage {
             stage_metrics,
             object_store: self.object_store.clone(),
             clients: self.clients.clone(),
-            shuffle_reader_parallelism: self.shuffle_reader_parallelism,
+            shuffle_reader_options: self.shuffle_reader_options.clone(),
         }
     }
 
@@ -772,7 +787,7 @@ impl RunningStage {
             HashSet::new(),
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         )
     }
 
@@ -793,7 +808,7 @@ impl RunningStage {
             failure_reasons,
             self.object_store.clone(),
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         );
         Ok(unresolved)
     }
@@ -1049,7 +1064,7 @@ impl SuccessfulStage {
             resolved_at: timestamp_millis(),
             object_store: self.object_store.clone(),
             clients: self.clients.clone(),
-            shuffle_reader_parallelism: self.shuffle_reader_parallelism,
+            shuffle_reader_options: self.shuffle_reader_options.clone(),
         }
     }
 
@@ -1085,7 +1100,13 @@ impl SuccessfulStage {
             .into_iter()
             .map(|m| m.try_into())
             .collect::<Result<Vec<_>>>()?;
-
+        let shuffle_reader_options = stage
+            .shuffle_reader_options
+            .as_ref()
+            .ok_or_else(|| {
+                BallistaError::General("ShuffleReaderExecOptions is missing".to_owned())
+            })?
+            .into();
         Ok(SuccessfulStage {
             stage_id: stage.stage_id as usize,
             stage_attempt_num: stage.stage_attempt_num as usize,
@@ -1098,7 +1119,7 @@ impl SuccessfulStage {
             stage_metrics,
             object_store,
             clients,
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
+            shuffle_reader_options: Arc::new(shuffle_reader_options),
         })
     }
 
@@ -1128,7 +1149,7 @@ impl SuccessfulStage {
             .iter()
             .map(|m| m.try_into())
             .collect::<Result<Vec<_>>>()?;
-
+        let shuffle_reader_options = stage.shuffle_reader_options.as_ref().into();
         Ok(protobuf::SuccessfulStage {
             stage_id: stage_id as u32,
             stage_attempt_num: stage.stage_attempt_num as u32,
@@ -1139,7 +1160,7 @@ impl SuccessfulStage {
             plan,
             task_infos,
             stage_metrics,
-            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
+            shuffle_reader_options: Some(shuffle_reader_options),
         })
     }
 }

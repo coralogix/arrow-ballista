@@ -42,22 +42,36 @@ use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::info;
 
-// TODO this is currently configured in two different places
-// 4 MiB
-const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+#[derive(Clone)]
+pub struct BallistaFlightServiceOptions {
+    max_message_size: usize,
+    do_get_channel_capacity: usize,
+}
+
+impl Default for BallistaFlightServiceOptions {
+    fn default() -> Self {
+        Self {
+            max_message_size: 4 * 1024 * 1024,
+            do_get_channel_capacity: 20,
+        }
+    }
+}
 
 /// Service implementing the Apache Arrow Flight Protocol
 #[derive(Clone)]
 pub struct BallistaFlightService {
     executor_id: String,
-    do_get_channel_capacity: usize,
+    options: BallistaFlightServiceOptions,
 }
 
 impl BallistaFlightService {
-    pub fn new(executor_id: impl Into<String>, do_get_channel_capacity: usize) -> Self {
+    pub fn new(
+        executor_id: impl Into<String>,
+        options: BallistaFlightServiceOptions,
+    ) -> Self {
         Self {
             executor_id: executor_id.into(),
-            do_get_channel_capacity,
+            options,
         }
     }
 }
@@ -111,7 +125,7 @@ impl FlightService for BallistaFlightService {
         let schema = reader.schema();
 
         let stream = reader
-            .to_stream(self.do_get_channel_capacity)
+            .to_stream(self.options.do_get_channel_capacity)
             .await
             .map_err(|e| {
                 Status::internal(format!(
@@ -129,7 +143,7 @@ impl FlightService for BallistaFlightService {
             .try_with_compression(Some(CompressionType::LZ4_FRAME))
             .map_err(from_arrow_err)?;
         let flight_data_stream = FlightDataEncoderBuilder::new()
-            .with_max_flight_data_size(MAX_MESSAGE_SIZE)
+            .with_max_flight_data_size(self.options.max_message_size)
             .with_schema(schema)
             .with_options(write_options)
             .build(stream)

@@ -720,6 +720,7 @@ mod test {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use ballista_core::execution_plans::ShuffleReaderExecOptions;
     use datafusion_proto::protobuf::LogicalPlanNode;
     use datafusion_proto::protobuf::PhysicalPlanNode;
     use moka::future::Cache;
@@ -763,7 +764,11 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                    local_partition_fetch_buffer_capacity: 100,
+                    object_store_partition_fetch_buffer_capacity: 100,
+                }),
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -870,7 +875,11 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                    local_partition_fetch_buffer_capacity: 100,
+                    object_store_partition_fetch_buffer_capacity: 100,
+                }),
             );
         scheduler.init().await?;
 
@@ -971,7 +980,11 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                    local_partition_fetch_buffer_capacity: 100,
+                    object_store_partition_fetch_buffer_capacity: 100,
+                }),
             );
         scheduler.init().await?;
 
@@ -1036,7 +1049,11 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                    local_partition_fetch_buffer_capacity: 100,
+                    object_store_partition_fetch_buffer_capacity: 100,
+                }),
             );
         scheduler.init().await?;
 

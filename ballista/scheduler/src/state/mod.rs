@@ -16,6 +16,7 @@
 // under the License.
 
 use ballista_core::client::BallistaClient;
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::warning_collector::WarningCollector;
 use datafusion::common::tree_node::{TreeNode, VisitRecursion};
 use datafusion::common::DataFusionError;
@@ -119,7 +120,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             SchedulerConfig::default(),
             object_store,
             Arc::new(Cache::new(100)),
-            50,
+            Arc::new(ShuffleReaderExecOptions {
+                partition_fetch_parallelism: 50,
+                local_partition_fetch_buffer_capacity: 100,
+                object_store_partition_fetch_buffer_capacity: 100,
+            }),
         )
     }
 
@@ -132,7 +137,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         config: SchedulerConfig,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
             scheduler_version,
@@ -146,7 +151,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 scheduler_name,
                 object_store,
                 clients,
-                shuffle_reader_parallelism,
+                shuffle_reader_options,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -165,7 +170,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
             scheduler_version,
@@ -179,7 +184,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 dispatcher,
                 object_store,
                 clients,
-                shuffle_reader_parallelism,
+                shuffle_reader_options,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -489,6 +494,7 @@ mod test {
     use crate::state::SchedulerState;
     use ballista_core::config::{BallistaConfig, BALLISTA_DEFAULT_SHUFFLE_PARTITIONS};
     use ballista_core::error::Result;
+    use ballista_core::execution_plans::ShuffleReaderExecOptions;
     use ballista_core::serde::scheduler::{
         ExecutorData, ExecutorMetadata, ExecutorSpecification,
     };
@@ -572,7 +578,11 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                    local_partition_fetch_buffer_capacity: 100,
+                    object_store_partition_fetch_buffer_capacity: 100,
+                }),
             ));
 
         let session_ctx = state

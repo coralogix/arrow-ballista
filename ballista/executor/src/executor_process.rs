@@ -62,7 +62,7 @@ use crate::circuit_breaker::client::CircuitBreakerClientConfig;
 use crate::execution_engine::ExecutionEngine;
 use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
-use crate::flight_service::BallistaFlightService;
+use crate::flight_service::{BallistaFlightService, BallistaFlightServiceOptions};
 use crate::metrics::LoggingMetricsCollector;
 use crate::replicator::start_replication;
 use crate::shutdown::Shutdown;
@@ -457,8 +457,10 @@ async fn flight_server_run(
     );
 
     let shutdown_signal = grpc_shutdown.recv();
-    let svc =
-        FlightServiceServer::new(BallistaFlightService::new(executor_id.clone(), 10));
+    let svc = FlightServiceServer::new(BallistaFlightService::new(
+        executor_id.clone(),
+        BallistaFlightServiceOptions::default(),
+    ));
     create_grpc_server()
         .add_service(svc)
         .serve_with_shutdown(addr, shutdown_signal)
