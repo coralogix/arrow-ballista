@@ -731,7 +731,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         job_id: &str,
         reason: Arc<execution_error::Error>,
     ) -> Result<(Vec<RunningTaskInfo>, usize)> {
-        let (tasks_to_cancel, pending_tasks) =
+        let (tasks_to_cancel, available_tasks) =
             if let Some(job) = self.active_job_queue.get_job(job_id) {
                 let mut guard = job.graph_mut().await;
 
@@ -750,12 +750,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 // After state is saved, remove job from active cache
                 let _ = self.remove_active_execution_graph(job_id);
 
-                    (running_tasks, available_tasks)
-                } else {
-                    // TODO listen the job state update event and fix task cancelling
-                    warn!(job_id, "no running tasks found for job");
-                    (vec![], available_tasks)
-                }
+                (running_tasks, available_tasks)
             } else {
                 // TODO listen the job state update event and fix task cancelling
                 warn!(
@@ -765,7 +760,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 (vec![], 0)
             };
 
-        Ok((tasks_to_cancel, pending_tasks))
+        Ok((tasks_to_cancel, available_tasks))
     }
 
     /// Mark a unscheduled job as failed. This will create a key under the FailedJobs keyspace
