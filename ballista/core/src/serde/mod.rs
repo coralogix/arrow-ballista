@@ -50,8 +50,7 @@ use std::sync::Arc;
 use std::{convert::TryInto, io::Cursor};
 
 use crate::execution_plans::{
-    CoalesceTasksExec, ShuffleReaderExec, ShuffleReaderExecOptions, ShuffleWriterExec,
-    UnresolvedShuffleExec,
+    CoalesceTasksExec, ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec,
 };
 use crate::serde::protobuf::ballista_physical_plan_node::PhysicalPlanType;
 use crate::serde::scheduler::PartitionLocation;
@@ -212,27 +211,22 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
-                let options = shuffle_reader.options.as_ref().ok_or_else(|| {
-                    DataFusionError::Internal(
-                        "Fail to get shuffle reader options".to_string(),
-                    )
-                })?;
+                let options = shuffle_reader
+                    .options
+                    .as_ref()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(
+                            "Fail to get shuffle reader options".to_string(),
+                        )
+                    })?
+                    .into();
 
                 let shuffle_reader = ShuffleReaderExec::new(
                     partition_location,
                     schema,
                     self.object_store.clone(),
                     self.clients.clone(),
-                    Arc::new(ShuffleReaderExecOptions {
-                        partition_fetch_parallelism: options.partition_fetch_parallelism
-                            as usize,
-                        local_partition_fetch_buffer_capacity: options
-                            .local_partition_fetch_buffer_capacity
-                            as usize,
-                        object_store_partition_fetch_buffer_capacity: options
-                            .object_store_partition_fetch_buffer_capacity
-                            as usize,
-                    }),
+                    Arc::new(options),
                 );
                 Ok(Arc::new(shuffle_reader))
             }
