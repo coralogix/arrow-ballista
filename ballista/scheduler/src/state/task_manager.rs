@@ -611,10 +611,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         continue;
                     }
 
-                    if graph.is_failed() {
-                        break;
-                    }
-
                     if let Some(task) = graph.pop_next_task(exec_id, slots.len())? {
                         TASK_IDELE_TIME.observe(
                             timestamp_millis().saturating_sub(task.resolved_at) as f64

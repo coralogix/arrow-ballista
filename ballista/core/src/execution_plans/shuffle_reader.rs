@@ -361,12 +361,12 @@ fn send_fetch_partitions_with_fallback(
     // keep local shuffle files reading in serial order for memory control.
     let sender_for_local = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
-        for p in local_locations {
+        for p in local_locations.iter() {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
             let now = Instant::now();
-            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
+            let r = PartitionReaderEnum::Local.fetch_partition(p).await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
                 .observe(now.elapsed().as_secs_f64());
@@ -385,7 +385,7 @@ fn send_fetch_partitions_with_fallback(
     let (failed_partition_sender, mut failed_partition_receiver) = mpsc::channel(2);
     let sender_to_remote = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
-        for p in remote_locations.into_iter() {
+        for p in remote_locations.iter() {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
@@ -398,7 +398,7 @@ fn send_fetch_partitions_with_fallback(
             let result = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
             }
-            .fetch_partition(&p)
+            .fetch_partition(p)
             .await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["remote"])
