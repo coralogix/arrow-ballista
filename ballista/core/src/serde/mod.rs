@@ -337,20 +337,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     protobuf::ShuffleReaderExecNode {
                         partition,
                         schema: Some(exec.schema().as_ref().try_into()?),
-                        options: Some(protobuf::ShuffleReaderExecNodeOptions {
-                            partition_fetch_parallelism: exec
-                                .options
-                                .partition_fetch_parallelism
-                                as u32,
-                            local_partition_fetch_buffer_capacity: exec
-                                .options
-                                .local_partition_fetch_buffer_capacity
-                                as u32,
-                            object_store_partition_fetch_buffer_capacity: exec
-                                .options
-                                .object_store_partition_fetch_buffer_capacity
-                                as u32,
-                        }),
+                        options: Some(exec.options.as_ref().into()),
                     },
                 )),
             };
