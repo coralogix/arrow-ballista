@@ -18,15 +18,14 @@
 //! Implementation of the Apache Arrow Flight protocol that wraps an executor.
 
 use std::convert::TryFrom;
-use std::fs::File;
 use std::pin::Pin;
 
 use arrow::ipc::writer::IpcWriteOptions;
 use arrow::ipc::CompressionType;
+use ballista_core::async_reader::AsyncStreamReader;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
 
-use arrow::ipc::reader::StreamReader;
 use arrow_flight::encode::FlightDataEncoderBuilder;
 use arrow_flight::error::FlightError;
 use arrow_flight::{
@@ -35,12 +34,15 @@ use arrow_flight::{
     PutResult, SchemaResult, Ticket,
 };
 use datafusion::arrow::{error::ArrowError, record_batch::RecordBatch};
-use futures::{Stream, TryStreamExt};
-use std::io::{Read, Seek};
+use futures::io::BufReader;
+use futures::{AsyncRead, AsyncSeek, Stream, TryStreamExt};
+
+use tokio::fs::File;
 use tokio::sync::mpsc::channel;
 use tokio::sync::mpsc::error::SendError;
 use tokio::{sync::mpsc::Sender, task};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_util::compat::TokioAsyncReadCompatExt;
 use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status, Streaming};
 use tracing::{info, warn};
@@ -103,18 +105,22 @@ impl FlightService for BallistaFlightService {
             executor_id = self.executor_id,
             job_id, stage_id, partition, path, "fetching shuffle partition"
         );
-        let file = File::open(path.as_str()).map_err(|e| {
+        let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
 
-        let reader = StreamReader::try_new(file, None).map_err(from_arrow_err)?;
+        let mut reader = AsyncStreamReader::try_new(file.compat(), None)
+            .await
+            .map_err(from_arrow_err)?;
         let schema = reader.schema();
 
-        let (tx, rx) = channel(2);
+        let (tx, rx) = channel(10);
 
         let executor_id = self.executor_id.clone();
-        task::spawn_blocking(move || {
-            if let Err(e) = read_partition(job_id, stage_id, partition, reader, tx) {
+        task::spawn(async move {
+            if let Err(e) =
+                read_partition(job_id, stage_id, partition, &mut reader, tx).await
+            {
                 warn!(executor_id, error = %e, "error streaming shuffle partition");
             }
         });
@@ -209,15 +215,15 @@ impl FlightService for BallistaFlightService {
     }
 }
 
-fn read_partition<T>(
+async fn read_partition<T>(
     job_id: String,
     stage_id: usize,
     partition: usize,
-    reader: StreamReader<std::io::BufReader<T>>,
+    reader: &mut AsyncStreamReader<BufReader<T>>,
     tx: Sender<Result<RecordBatch, FlightError>>,
 ) -> Result<(), FlightError>
 where
-    T: Read + Seek,
+    T: Send + Unpin + AsyncRead + AsyncSeek,
 {
     if tx.is_closed() {
         return Err(FlightError::Tonic(Status::internal(
@@ -225,8 +231,9 @@ where
         )));
     }
 
-    for batch in reader {
-        tx.blocking_send(batch.map_err(|err| err.into()))
+    while let Some(batch) = reader.maybe_next().await.transpose() {
+        tx.send(batch.map_err(|err| err.into()))
+            .await
             .map_err(|err| {
                 if let SendError(Err(err)) = err {
                     err

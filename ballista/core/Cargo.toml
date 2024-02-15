@@ -75,6 +75,7 @@ sqlparser = { workspace = true }
 sys-info = "0.9.0"
 tokio = "1.0"
 tokio-stream = { version = "0.1", features = ["net"] }
+tokio-util = { workspace = true }
 tonic = { workspace = true }
 tracing = "0.1.36"
 url = "2.2"

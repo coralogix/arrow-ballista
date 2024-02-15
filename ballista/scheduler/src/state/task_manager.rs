@@ -322,6 +322,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     check_drained: watch::Receiver<()>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
+    shuffle_reader_parallelism: usize,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -398,6 +399,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         scheduler_id: String,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
@@ -408,6 +410,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Arc::new(launcher),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         )
     }
 
@@ -418,6 +421,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -430,6 +434,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             check_drained,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -476,6 +481,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.object_store.clone(),
             warnings,
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         )?;
         info!(
             job_id,
@@ -625,6 +631,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                             continue;
                         }
 
+                        if graph.is_failed() {
+                            break;
+                        }
+
                         match graph.pop_next_task(exec_id, slots.len()) {
                             Ok(Some(task)) => {
                                 TASK_IDELE_TIME.observe(
@@ -726,19 +736,19 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 let mut guard = job.graph_mut().await;
 
                 let available_tasks = guard.available_tasks();
-                if let Some(running_tasks) = guard.running_tasks() {
-                    info!(
-                        job_id,
-                        tasks = running_tasks.len(),
-                        "cancelling running tasks"
-                    );
+                let running_tasks = guard.running_tasks();
+                info!(
+                    job_id,
+                    tasks = running_tasks.len(),
+                    "cancelling running tasks"
+                );
 
-                    guard.fail_job(reason);
+                guard.fail_job(reason);
 
-                    self.state.save_job(job_id, &guard).await?;
+                self.state.save_job(job_id, &guard).await?;
 
-                    // After state is saved, remove job from active cache
-                    let _ = self.remove_active_execution_graph(job_id);
+                // After state is saved, remove job from active cache
+                let _ = self.remove_active_execution_graph(job_id);
 
                     (running_tasks, available_tasks)
                 } else {

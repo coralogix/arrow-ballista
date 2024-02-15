@@ -164,6 +164,7 @@ impl ExecutionGraph {
         object_store: Option<Arc<dyn ObjectStore>>,
         warnings: Vec<String>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -172,8 +173,19 @@ impl ExecutionGraph {
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
         let builder = match object_store {
-            Some(object_store) => ExecutionStageBuilder::new(object_store, clients),
-            _ => ExecutionStageBuilder::default(),
+            Some(object_store) => ExecutionStageBuilder::new(
+                object_store,
+                clients,
+                shuffle_reader_parallelism,
+            ),
+            _ => ExecutionStageBuilder {
+                clients,
+                shuffle_reader_parallelism,
+                current_stage_id: 0,
+                stage_dependencies: HashMap::new(),
+                output_links: HashMap::new(),
+                object_store: None,
+            },
         };
         let stages = builder.build(shuffle_stages)?;
 
@@ -313,10 +325,8 @@ impl ExecutionGraph {
             .all(|s| matches!(s, ExecutionStage::Successful(_)))
     }
 
-    pub fn is_complete(&self) -> bool {
-        self.stages
-            .values()
-            .all(|s| matches!(s, ExecutionStage::Successful(_)))
+    pub fn is_failed(&self) -> bool {
+        matches!(self.status.status.as_ref(), Some(Status::Failed(_)))
     }
 
     /// Revive the execution graph by converting the resolved stages to running stages
@@ -971,7 +981,7 @@ impl ExecutionGraph {
     }
 
     /// Return all currently running tasks along with the executor ID on which they are assigned
-    pub fn running_tasks(&self) -> Option<Vec<RunningTaskInfo>> {
+    pub fn running_tasks(&self) -> Vec<RunningTaskInfo> {
         let mut tasks = Vec::default();
 
         for (_, stage) in self.stages().iter() {
@@ -988,12 +998,8 @@ impl ExecutionGraph {
             }
         }
 
-        if !tasks.is_empty() {
-            tasks.shrink_to_fit();
-            return Some(tasks);
-        }
-
-        None
+        tasks.shrink_to_fit();
+        tasks
     }
 
     /// Total number of tasks in this plan that are ready for scheduling
@@ -1612,24 +1618,14 @@ struct ExecutionStageBuilder {
     output_links: HashMap<usize, Vec<usize>>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-}
-
-impl Default for ExecutionStageBuilder {
-    fn default() -> Self {
-        Self {
-            current_stage_id: 0,
-            stage_dependencies: HashMap::new(),
-            output_links: HashMap::new(),
-            object_store: None,
-            clients: Arc::new(Cache::new(200)),
-        }
-    }
+    shuffle_reader_parallelism: usize,
 }
 
 impl ExecutionStageBuilder {
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             current_stage_id: 0,
@@ -1637,6 +1633,7 @@ impl ExecutionStageBuilder {
             output_links: HashMap::new(),
             object_store: Some(object_store),
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -1672,6 +1669,7 @@ impl ExecutionStageBuilder {
                     HashSet::new(),
                     self.object_store.clone(),
                     self.clients.clone(),
+                    self.shuffle_reader_parallelism,
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1682,6 +1680,7 @@ impl ExecutionStageBuilder {
                     child_stages,
                     self.object_store.clone(),
                     self.clients.clone(),
+                    self.shuffle_reader_parallelism,
                 ))
             };
             execution_stages.insert(stage_id, stage);

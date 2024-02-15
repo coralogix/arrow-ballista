@@ -140,6 +140,8 @@ pub(crate) struct UnresolvedStage {
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+
+    pub(crate) shuffle_reader_parallelism: usize,
 }
 
 /// For a stage, if it has no inputs or all of its input stages are completed,
@@ -169,6 +171,7 @@ pub(crate) struct ResolvedStage {
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) shuffle_reader_parallelism: usize,
 }
 
 /// Different from the resolved stage, a running stage will
@@ -205,6 +208,7 @@ pub(crate) struct RunningStage {
     pub(crate) resolved_at: u64,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) shuffle_reader_parallelism: usize,
 }
 
 /// If a stage finishes successfully, its task statuses and metrics will be finalized
@@ -233,6 +237,7 @@ pub(crate) struct SuccessfulStage {
     pub(crate) stage_metrics: Vec<MetricsSet>,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
     pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) shuffle_reader_parallelism: usize,
 }
 
 /// If a stage fails, it will be with an error message
@@ -290,6 +295,7 @@ impl TaskInfo {
 }
 
 impl UnresolvedStage {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         stage_id: usize,
         plan: Arc<dyn ExecutionPlan>,
@@ -298,6 +304,7 @@ impl UnresolvedStage {
         child_stage_ids: Vec<usize>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
         for input_stage_id in child_stage_ids {
@@ -314,6 +321,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons: Default::default(),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -328,6 +336,7 @@ impl UnresolvedStage {
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             stage_id,
@@ -339,6 +348,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -412,6 +422,7 @@ impl UnresolvedStage {
             &input_locations,
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         )?;
 
         // Optimize join order and aggregate based on new resolved statistics
@@ -432,6 +443,7 @@ impl UnresolvedStage {
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         ))
     }
 
@@ -469,6 +481,7 @@ impl UnresolvedStage {
             ),
             object_store,
             clients,
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
         })
     }
 
@@ -495,6 +508,7 @@ impl UnresolvedStage {
             last_attempt_failure_reasons: Vec::from_iter(
                 stage.last_attempt_failure_reasons.clone(),
             ),
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
         })
     }
 }
@@ -527,6 +541,7 @@ impl ResolvedStage {
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
 
@@ -542,6 +557,7 @@ impl ResolvedStage {
             resolved_at: timestamp_millis(),
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -558,6 +574,7 @@ impl ResolvedStage {
             self.resolved_at,
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         )
     }
 
@@ -575,6 +592,7 @@ impl ResolvedStage {
             self.last_attempt_failure_reasons.clone(),
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         );
         Ok(unresolved)
     }
@@ -615,6 +633,7 @@ impl ResolvedStage {
             resolved_at: stage.resolved_at,
             object_store,
             clients,
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
         })
     }
 
@@ -643,6 +662,7 @@ impl ResolvedStage {
                 stage.last_attempt_failure_reasons.clone(),
             ),
             resolved_at: stage.resolved_at,
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
         })
     }
 }
@@ -672,6 +692,7 @@ impl RunningStage {
         resolved_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             stage_id,
@@ -687,6 +708,7 @@ impl RunningStage {
             resolved_at,
             object_store,
             clients,
+            shuffle_reader_parallelism,
         }
     }
 
@@ -720,6 +742,7 @@ impl RunningStage {
             stage_metrics,
             object_store: self.object_store.clone(),
             clients: self.clients.clone(),
+            shuffle_reader_parallelism: self.shuffle_reader_parallelism,
         }
     }
 
@@ -749,6 +772,7 @@ impl RunningStage {
             HashSet::new(),
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         )
     }
 
@@ -769,6 +793,7 @@ impl RunningStage {
             failure_reasons,
             self.object_store.clone(),
             self.clients.clone(),
+            self.shuffle_reader_parallelism,
         );
         Ok(unresolved)
     }
@@ -1024,6 +1049,7 @@ impl SuccessfulStage {
             resolved_at: timestamp_millis(),
             object_store: self.object_store.clone(),
             clients: self.clients.clone(),
+            shuffle_reader_parallelism: self.shuffle_reader_parallelism,
         }
     }
 
@@ -1072,6 +1098,7 @@ impl SuccessfulStage {
             stage_metrics,
             object_store,
             clients,
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as usize,
         })
     }
 
@@ -1112,6 +1139,7 @@ impl SuccessfulStage {
             plan,
             task_infos,
             stage_metrics,
+            shuffle_reader_parallelism: stage.shuffle_reader_parallelism as u32,
         })
     }
 }

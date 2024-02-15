@@ -119,9 +119,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             SchedulerConfig::default(),
             object_store,
             Arc::new(Cache::new(100)),
+            50,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         cluster: BallistaCluster,
         codec: BallistaCodec<T, U>,
@@ -130,6 +132,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         config: SchedulerConfig,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             scheduler_version,
@@ -143,6 +146,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 scheduler_name,
                 object_store,
                 clients,
+                shuffle_reader_parallelism,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -161,6 +165,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
+        shuffle_reader_parallelism: usize,
     ) -> Self {
         Self {
             scheduler_version,
@@ -174,6 +179,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
                 dispatcher,
                 object_store,
                 clients,
+                shuffle_reader_parallelism,
             ),
             session_manager: SessionManager::new(cluster.job_state()),
             codec,
@@ -565,6 +571,7 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             ));
 
         let session_ctx = state

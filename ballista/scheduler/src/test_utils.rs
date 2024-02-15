@@ -471,6 +471,7 @@ impl SchedulerTest {
                 Arc::new(launcher),
                 None,
                 Arc::new(Cache::new(100)),
+                50,
             );
         scheduler.init().await?;
 
@@ -891,6 +892,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap()
 }
@@ -937,6 +939,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap()
 }
@@ -975,6 +978,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap()
 }
@@ -1034,6 +1038,7 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap();
 
@@ -1076,6 +1081,7 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap();
 
@@ -1118,6 +1124,7 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
+        50,
     )
     .unwrap();
 

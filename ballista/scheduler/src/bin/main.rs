@@ -127,6 +127,6 @@ async fn main() -> Result<()> {
     let cluster =
         BallistaCluster::new_from_config(&config, None, clients.clone()).await?;
 
-    start_server(cluster, addr, config, None, clients).await?;
+    start_server(cluster, addr, config, None, clients, 50).await?;
     Ok(())
 }
