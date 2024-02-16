@@ -19,19 +19,6 @@ use datafusion::{
 use futures::{
     future::BoxFuture, io::BufReader, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt,
 };
-use lazy_static::lazy_static;
-use prometheus::{register_histogram_vec, HistogramVec};
-
-lazy_static! {
-    static ref ASYNC_READER_PERMIT_ACQUISITION_LATENCY: HistogramVec =
-        register_histogram_vec!(
-            "async_reader_permit_acquisition_latency",
-            "Fetch partition latency in seconds",
-            &["type"],
-            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
-        )
-        .unwrap();
-}
 
 const ARROW_MAGIC: [u8; 6] = [b'A', b'R', b'R', b'O', b'W', b'1'];
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
