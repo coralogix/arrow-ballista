@@ -122,8 +122,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             Arc::new(Cache::new(100)),
             Arc::new(ShuffleReaderExecOptions {
                 partition_fetch_parallelism: 50,
-                local_partition_fetch_buffer_capacity: 100,
-                object_store_partition_fetch_buffer_capacity: 100,
             }),
         )
     }
@@ -580,8 +578,6 @@ mod test {
                 Arc::new(Cache::new(100)),
                 Arc::new(ShuffleReaderExecOptions {
                     partition_fetch_parallelism: 50,
-                    local_partition_fetch_buffer_capacity: 100,
-                    object_store_partition_fetch_buffer_capacity: 100,
                 }),
             ));
 

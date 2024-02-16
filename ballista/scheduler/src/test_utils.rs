@@ -474,8 +474,6 @@ impl SchedulerTest {
                 Arc::new(Cache::new(100)),
                 Arc::new(ShuffleReaderExecOptions {
                     partition_fetch_parallelism: 50,
-                    local_partition_fetch_buffer_capacity: 100,
-                    object_store_partition_fetch_buffer_capacity: 100,
                 }),
             );
         scheduler.init().await?;
@@ -899,8 +897,6 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap()
@@ -950,8 +946,6 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap()
@@ -993,8 +987,6 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap()
@@ -1057,8 +1049,6 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap();
@@ -1104,8 +1094,6 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap();
@@ -1151,8 +1139,6 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         Arc::new(Cache::new(100)),
         Arc::new(ShuffleReaderExecOptions {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }),
     )
     .unwrap();

@@ -516,7 +516,6 @@ mod tests {
             0,
             &[],
             object_store,
-            10,
         )
         .await?;
 

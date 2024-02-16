@@ -74,10 +74,6 @@ pub struct UnresolvedShuffleExecNode {
 pub struct ShuffleReaderExecNodeOptions {
     #[prost(uint32, tag = "1")]
     pub partition_fetch_parallelism: u32,
-    #[prost(uint32, tag = "2")]
-    pub local_partition_fetch_buffer_capacity: u32,
-    #[prost(uint32, tag = "3")]
-    pub object_store_partition_fetch_buffer_capacity: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

@@ -45,15 +45,11 @@ use tracing::info;
 #[derive(Clone)]
 pub struct BallistaFlightServiceOptions {
     max_message_size: usize,
-    do_get_channel_capacity: usize,
 }
 
 impl BallistaFlightServiceOptions {
-    pub fn new(max_message_size: usize, do_get_channel_capacity: usize) -> Self {
-        Self {
-            max_message_size,
-            do_get_channel_capacity,
-        }
+    pub fn new(max_message_size: usize) -> Self {
+        Self { max_message_size }
     }
 }
 
@@ -61,7 +57,6 @@ impl Default for BallistaFlightServiceOptions {
     fn default() -> Self {
         Self {
             max_message_size: 4 * 1024 * 1024,
-            do_get_channel_capacity: 20,
         }
     }
 }
@@ -133,20 +128,9 @@ impl FlightService for BallistaFlightService {
             .map_err(from_arrow_err)?;
         let schema = reader.schema();
 
-        let stream = reader
-            .to_stream(self.options.do_get_channel_capacity)
-            .await
-            .map_err(|e| {
-                Status::internal(format!(
-                    "Unable to create partition batch stream: {e:?}"
-                ))
-            })?
-            .map_err(|e| {
-                FlightError::Tonic(Status::internal(format!(
-                    "Cannot process batch: {:?}",
-                    e
-                )))
-            });
+        let stream = reader.to_stream().map_err(|e| {
+            FlightError::Tonic(Status::internal(format!("Cannot process batch: {:?}", e)))
+        });
 
         let write_options = IpcWriteOptions::default()
             .try_with_compression(Some(CompressionType::LZ4_FRAME))

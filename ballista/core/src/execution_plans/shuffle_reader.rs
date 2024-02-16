@@ -95,20 +95,12 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub struct ShuffleReaderExecOptions {
     pub partition_fetch_parallelism: usize,
-    pub local_partition_fetch_buffer_capacity: usize,
-    pub object_store_partition_fetch_buffer_capacity: usize,
 }
 
 impl From<&ShuffleReaderExecNodeOptions> for ShuffleReaderExecOptions {
     fn from(val: &ShuffleReaderExecNodeOptions) -> Self {
         ShuffleReaderExecOptions {
             partition_fetch_parallelism: val.partition_fetch_parallelism as usize,
-            local_partition_fetch_buffer_capacity: val
-                .local_partition_fetch_buffer_capacity
-                as usize,
-            object_store_partition_fetch_buffer_capacity: val
-                .object_store_partition_fetch_buffer_capacity
-                as usize,
         }
     }
 }
@@ -117,12 +109,6 @@ impl From<&ShuffleReaderExecOptions> for ShuffleReaderExecNodeOptions {
     fn from(val: &ShuffleReaderExecOptions) -> Self {
         Self {
             partition_fetch_parallelism: val.partition_fetch_parallelism as u32,
-            local_partition_fetch_buffer_capacity: val
-                .local_partition_fetch_buffer_capacity
-                as u32,
-            object_store_partition_fetch_buffer_capacity: val
-                .object_store_partition_fetch_buffer_capacity
-                as u32,
         }
     }
 }
@@ -132,8 +118,6 @@ impl Default for ShuffleReaderExecOptions {
     fn default() -> Self {
         Self {
             partition_fetch_parallelism: 50,
-            local_partition_fetch_buffer_capacity: 100,
-            object_store_partition_fetch_buffer_capacity: 100,
         }
     }
 }
@@ -407,18 +391,13 @@ fn send_fetch_partitions_with_fallback(
 
     // keep local shuffle files reading in serial order for memory control.
     let sender_for_local = response_sender.clone();
-    let local_partition_fetch_capacity = options.local_partition_fetch_buffer_capacity;
     join_handles.push(tokio::spawn(async move {
         for p in local_locations.iter() {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
             let now = Instant::now();
-            let r = PartitionReaderEnum::Local {
-                buffer_capacity: local_partition_fetch_capacity,
-            }
-            .fetch_partition(p)
-            .await;
+            let r = PartitionReaderEnum::Local.fetch_partition(p).await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
                 .observe(now.elapsed().as_secs_f64());
@@ -484,8 +463,6 @@ fn send_fetch_partitions_with_fallback(
         }
     }));
 
-    let object_store_partition_fetch_capacity =
-        options.object_store_partition_fetch_buffer_capacity;
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
@@ -498,7 +475,6 @@ fn send_fetch_partitions_with_fallback(
             let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
-                buffer_capacity: object_store_partition_fetch_capacity,
             }
             .fetch_partition(&partition)
             .await;
@@ -540,14 +516,9 @@ fn send_fetch_partitions(
 
     // keep local shuffle files reading in serial order for memory control.
     let sender_for_local = response_sender.clone();
-    let local_partition_fetch_capacity = options.local_partition_fetch_buffer_capacity;
     join_handles.push(tokio::spawn(async move {
         for p in local_locations {
-            let r = PartitionReaderEnum::Local {
-                buffer_capacity: local_partition_fetch_capacity,
-            }
-            .fetch_partition(&p)
-            .await;
+            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
             if let Err(e) = sender_for_local.send(r).await {
                 warn!(
                     job_id = p.job_id,
@@ -593,15 +564,12 @@ trait PartitionReader: Send + Sync + Clone {
 
 #[derive(Clone)]
 enum PartitionReaderEnum {
-    Local {
-        buffer_capacity: usize,
-    },
+    Local,
     FlightRemote {
         clients: Arc<Cache<String, BallistaClient>>,
     },
     ObjectStoreRemote {
         object_store: Arc<dyn ObjectStore>,
-        buffer_capacity: usize,
     },
 }
 
@@ -613,22 +581,12 @@ impl PartitionReader for PartitionReaderEnum {
         location: &PartitionLocation,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
-            PartitionReaderEnum::Local { buffer_capacity } => {
-                fetch_partition_local(location, *buffer_capacity).await
-            }
+            PartitionReaderEnum::Local { .. } => fetch_partition_local(location).await,
             PartitionReaderEnum::FlightRemote { clients } => {
                 fetch_partition_remote(location, clients.as_ref()).await
             }
-            PartitionReaderEnum::ObjectStoreRemote {
-                object_store,
-                buffer_capacity,
-            } => {
-                fetch_partition_object_store(
-                    location,
-                    object_store.clone(),
-                    *buffer_capacity,
-                )
-                .await
+            PartitionReaderEnum::ObjectStoreRemote { object_store } => {
+                fetch_partition_object_store(location, object_store.clone()).await
             }
         }
     }
@@ -679,7 +637,6 @@ async fn fetch_partition_remote(
 
 async fn fetch_partition_local(
     location: &PartitionLocation,
-    buffer_capacity: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let path = &location.path;
     let metadata = &location.executor_meta;
@@ -693,15 +650,8 @@ async fn fetch_partition_local(
             e.to_string(),
         )
     })?;
-    let stream = reader.to_stream(buffer_capacity).await.map_err(|e| {
-        BallistaError::FetchFailed(
-            metadata.id.clone(),
-            location.stage_id,
-            location.map_partitions.clone(),
-            e.to_string(),
-        )
-    })?;
-    Ok(Box::pin(stream))
+
+    Ok(reader.to_stream())
 }
 
 async fn fetch_partition_local_inner(
@@ -723,25 +673,20 @@ async fn fetch_partition_local_inner(
 pub async fn fetch_partition_object_store(
     location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
-    buffer_capacity: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let executor_id = location.executor_meta.id.clone();
     let path = Path::parse(format!("{}{}", executor_id, location.path)).map_err(|e| {
         BallistaError::General(format!("Failed to parse partition location - {:?}", e))
     })?;
-    let stream = batch_stream_from_object_store(
+
+    batch_stream_from_object_store(
         executor_id,
         &path,
         location.stage_id,
         &location.map_partitions,
         object_store,
-        buffer_capacity,
     )
-    .await?;
-    Ok(Box::pin(RecordBatchStreamAdapter::new(
-        stream.schema(),
-        stream,
-    )))
+    .await
 }
 
 pub async fn batch_stream_from_object_store(
@@ -750,8 +695,7 @@ pub async fn batch_stream_from_object_store(
     stage_id: usize,
     map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
-    buffer_capacity: usize,
-) -> Result<SendableRecordBatchStream> {
+) -> Result<SendableRecordBatchStream, BallistaError> {
     let stream = object_store
         .as_ref()
         .get(path)
@@ -778,8 +722,7 @@ pub async fn batch_stream_from_object_store(
                 e
             ))
         })?;
-
-    Ok(Box::pin(reader.to_stream(buffer_capacity).await?))
+    Ok(reader.to_stream())
 }
 
 #[cfg(test)]
@@ -959,8 +902,7 @@ mod tests {
         let file_path = path.value(0);
         let reader = fetch_partition_local_inner(file_path).await.unwrap();
 
-        let mut stream: SendableRecordBatchStream =
-            Box::pin(async { reader.to_stream(2).await }.await.unwrap());
+        let mut stream: SendableRecordBatchStream = reader.to_stream();
 
         let result = utils::collect_stream(&mut stream)
             .await

@@ -58,8 +58,6 @@ pub async fn new_standalone_scheduler_with_codec(
             Arc::new(Cache::new(100)),
             Arc::new(ShuffleReaderExecOptions {
                 partition_fetch_parallelism: 50,
-                local_partition_fetch_buffer_capacity: 100,
-                object_store_partition_fetch_buffer_capacity: 100,
             }),
         );
 
