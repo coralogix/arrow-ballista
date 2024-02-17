@@ -46,6 +46,7 @@ simd = ["datafusion/simd"]
 [dependencies]
 ahash = { version = "0.8", default-features = false }
 arrow-flight = { workspace = true }
+async-stream = { workspace = true }
 async-trait = "0.1.73"
 chrono = { version = "0.4", default-features = false }
 clap = { version = "3", features = ["derive", "cargo"] }
@@ -81,7 +82,6 @@ tracing = "0.1.36"
 url = "2.2"
 uuid = { version = "1.0", features = ["v4"] }
 walkdir = "2.3.2"
-async-stream = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
