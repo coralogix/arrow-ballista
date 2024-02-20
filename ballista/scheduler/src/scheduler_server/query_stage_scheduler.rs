@@ -551,7 +551,7 @@ mod tests {
             test.tick().await?;
         }
 
-        // The second stage should be resolved, so we should have a new pending task
+        // The second stage should be resolved so we should have a new pending task
         expect_pending_tasks(&test, 1).await;
 
         // complete the final task
