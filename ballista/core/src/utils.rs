@@ -22,7 +22,6 @@ use crate::execution_plans::{
 };
 use crate::serde::scheduler::PartitionStats;
 use async_trait::async_trait;
-use core::time;
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
 use datafusion::arrow::ipc::writer::StreamWriter;
