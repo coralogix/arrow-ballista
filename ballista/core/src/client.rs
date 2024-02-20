@@ -20,10 +20,14 @@
 use std::{
     convert::TryInto,
     task::{Context, Poll},
+    time::Duration,
 };
 
-use crate::error::{BallistaError, Result};
 use crate::serde::scheduler::Action;
+use crate::{
+    error::{BallistaError, Result},
+    utils::create_grpc_client_connection_configurable,
+};
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -63,6 +67,32 @@ impl BallistaClient {
                     "Error connecting to Ballista scheduler or executor at {addr}: {e:?}"
                 ))
                 })?;
+        let flight_client = FlightServiceClient::new(connection)
+            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
+            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
+
+        debug!("BallistaClient connected OK");
+
+        Ok(Self { flight_client })
+    }
+
+    /// Create a new BallistaClient to connect to the executor listening on the specified
+    /// host and port
+    pub async fn try_new_more_aggressive(host: &str, port: u16) -> Result<Self> {
+        let addr = format!("http://{host}:{port}");
+        debug!("BallistaClient connecting to {}", addr);
+        let connection = create_grpc_client_connection_configurable(
+            addr.clone(),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+        )
+        .await
+        .map_err(|e| {
+            BallistaError::GrpcConnectionError(format!(
+                "Error connecting to Ballista scheduler or executor at {addr}: {e:?}"
+            ))
+        })?;
         let flight_client = FlightServiceClient::new(connection)
             .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
