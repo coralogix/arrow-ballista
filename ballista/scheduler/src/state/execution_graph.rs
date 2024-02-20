@@ -35,7 +35,9 @@ use object_store::ObjectStore;
 use tracing::{error, info, warn};
 
 use ballista_core::error::{BallistaError, Result};
-use ballista_core::execution_plans::{ShuffleWriterExec, UnresolvedShuffleExec};
+use ballista_core::execution_plans::{
+    ShuffleReaderExecOptions, ShuffleWriterExec, UnresolvedShuffleExec,
+};
 use ballista_core::serde::protobuf::failed_task::FailedReason;
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
@@ -164,7 +166,7 @@ impl ExecutionGraph {
         object_store: Option<Arc<dyn ObjectStore>>,
         warnings: Vec<String>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
 
@@ -173,14 +175,12 @@ impl ExecutionGraph {
         let shuffle_stages = planner.plan_query_stages(job_id, plan)?;
 
         let builder = match object_store {
-            Some(object_store) => ExecutionStageBuilder::new(
-                object_store,
-                clients,
-                shuffle_reader_parallelism,
-            ),
+            Some(object_store) => {
+                ExecutionStageBuilder::new(object_store, clients, shuffle_reader_options)
+            }
             _ => ExecutionStageBuilder {
                 clients,
-                shuffle_reader_parallelism,
+                shuffle_reader_options,
                 current_stage_id: 0,
                 stage_dependencies: HashMap::new(),
                 output_links: HashMap::new(),
@@ -1618,14 +1618,14 @@ struct ExecutionStageBuilder {
     output_links: HashMap<usize, Vec<usize>>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 impl ExecutionStageBuilder {
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
             current_stage_id: 0,
@@ -1633,7 +1633,7 @@ impl ExecutionStageBuilder {
             output_links: HashMap::new(),
             object_store: Some(object_store),
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -1669,7 +1669,7 @@ impl ExecutionStageBuilder {
                     HashSet::new(),
                     self.object_store.clone(),
                     self.clients.clone(),
-                    self.shuffle_reader_parallelism,
+                    self.shuffle_reader_options.clone(),
                 ))
             } else {
                 ExecutionStage::UnResolved(UnresolvedStage::new(
@@ -1680,7 +1680,7 @@ impl ExecutionStageBuilder {
                     child_stages,
                     self.object_store.clone(),
                     self.clients.clone(),
-                    self.shuffle_reader_parallelism,
+                    self.shuffle_reader_options.clone(),
                 ))
             };
             execution_stages.insert(stage_id, stage);

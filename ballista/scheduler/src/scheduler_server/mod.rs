@@ -22,6 +22,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ballista_core::client::BallistaClient;
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::serde::protobuf::{StopExecutorParams, TaskStatus};
 use ballista_core::serde::BallistaCodec;
 
@@ -85,7 +86,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
             cluster,
@@ -95,7 +96,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             config.clone(),
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -130,7 +131,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
             cluster,
@@ -141,7 +142,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
             task_launcher,
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         ));
         let query_stage_scheduler = Arc::new(QueryStageScheduler::new(
             state.clone(),
@@ -430,6 +431,7 @@ pub fn timestamp_millis() -> u64 {
 mod test {
     use std::sync::Arc;
 
+    use ballista_core::execution_plans::ShuffleReaderExecOptions;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::config::Extensions;
     use datafusion::logical_expr::{col, sum, LogicalPlan};
@@ -798,7 +800,9 @@ mod test {
                 Arc::new(TestMetricsCollector::default()),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                }),
             );
         scheduler.init().await?;
 

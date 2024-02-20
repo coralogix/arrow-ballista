@@ -16,6 +16,7 @@
 // under the License.
 
 use ballista_core::error::{BallistaError, Result};
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use datafusion::config::Extensions;
 use moka::future::Cache;
 use object_store::local::LocalFileSystem;
@@ -471,7 +472,9 @@ impl SchedulerTest {
                 Arc::new(launcher),
                 None,
                 Arc::new(Cache::new(100)),
-                50,
+                Arc::new(ShuffleReaderExecOptions {
+                    partition_fetch_parallelism: 50,
+                }),
             );
         scheduler.init().await?;
 
@@ -892,7 +895,9 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap()
 }
@@ -939,7 +944,9 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap()
 }
@@ -978,7 +985,9 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap()
 }
@@ -1038,7 +1047,9 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap();
 
@@ -1081,7 +1092,9 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap();
 
@@ -1124,7 +1137,9 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     )
     .unwrap();
 

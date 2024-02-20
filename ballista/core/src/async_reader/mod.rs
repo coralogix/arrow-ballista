@@ -1,12 +1,6 @@
-use std::{
-    collections::HashMap,
-    fmt,
-    io::SeekFrom,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{collections::HashMap, fmt, io::SeekFrom, sync::Arc};
 
+use async_stream::stream;
 use datafusion::{
     arrow::{
         array::ArrayRef,
@@ -20,14 +14,11 @@ use datafusion::{
         },
         record_batch::RecordBatch,
     },
-    error::DataFusionError,
-    physical_plan::{RecordBatchStream, SendableRecordBatchStream},
+    physical_plan::{stream::RecordBatchStreamAdapter, SendableRecordBatchStream},
 };
 use futures::{
     future::BoxFuture, io::BufReader, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt,
-    Stream,
 };
-use tokio::sync::mpsc::{error::SendError, Receiver};
 
 const ARROW_MAGIC: [u8; 6] = [b'A', b'R', b'R', b'O', b'W', b'1'];
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
@@ -484,62 +475,16 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<R> {
 }
 
 impl<R: AsyncRead + Unpin + Send + 'static> AsyncStreamReader<R> {
-    pub async fn to_stream(
-        mut self,
-        channel_capacity: usize,
-    ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let (tx, rx) = tokio::sync::mpsc::channel(channel_capacity);
+    pub fn to_stream(mut self) -> SendableRecordBatchStream {
         let schema = self.schema();
-        tokio::task::spawn(async move {
-            while let Some(batch) = self.maybe_next().await.transpose() {
-                tx.send(batch.map_err(|err| err.into()))
-                    .await
-                    .map_err(|err| {
-                        if let SendError(Err(err)) = err {
-                            err
-                        } else {
-                            DataFusionError::Internal(
-                                "Can't send a batch, something went wrong".to_string(),
-                            )
-                        }
-                    })?
-            }
-
-            Ok::<(), DataFusionError>(())
-        });
-
-        Ok(Box::pin(RecordBatchReceiver::new(rx, schema)))
-    }
-}
-
-struct RecordBatchReceiver {
-    inner: Receiver<Result<RecordBatch, DataFusionError>>,
-    schema: SchemaRef,
-}
-
-impl RecordBatchReceiver {
-    fn new(
-        inner: Receiver<Result<RecordBatch, DataFusionError>>,
-        schema: SchemaRef,
-    ) -> Self {
-        Self { inner, schema }
-    }
-}
-
-impl Stream for RecordBatchReceiver {
-    type Item = Result<RecordBatch, DataFusionError>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        self.inner.poll_recv(cx)
-    }
-}
-
-impl RecordBatchStream for RecordBatchReceiver {
-    fn schema(&self) -> SchemaRef {
-        self.schema.clone()
+        Box::pin(RecordBatchStreamAdapter::new(
+            schema,
+            stream! {
+                while let Some(batch) = self.maybe_next().await.transpose() {
+                    yield batch.map_err(|err| err.into())
+                }
+            },
+        ))
     }
 }
 

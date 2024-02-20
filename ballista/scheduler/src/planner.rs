@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use ballista_core::client::BallistaClient;
 use ballista_core::error::{BallistaError, Result};
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::{
     execution_plans::{ShuffleReaderExec, ShuffleWriterExec, UnresolvedShuffleExec},
     serde::scheduler::PartitionLocation,
@@ -213,7 +214,7 @@ pub fn remove_unresolved_shuffles(
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    options: Arc<ShuffleReaderExecOptions>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];
     for child in stage.children() {
@@ -256,7 +257,7 @@ pub fn remove_unresolved_shuffles(
                 unresolved_shuffle.schema().clone(),
                 object_store.clone(),
                 clients.clone(),
-                shuffle_reader_parallelism,
+                options.clone(),
             )))
         } else {
             new_children.push(remove_unresolved_shuffles(
@@ -264,7 +265,7 @@ pub fn remove_unresolved_shuffles(
                 partition_locations,
                 object_store.clone(),
                 clients.clone(),
-                shuffle_reader_parallelism,
+                options.clone(),
             )?);
         }
     }

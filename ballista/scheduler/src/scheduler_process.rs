@@ -19,6 +19,7 @@ use anyhow::{Context, Result};
 #[cfg(feature = "flight-sql")]
 use arrow_flight::flight_service_server::FlightServiceServer;
 use ballista_core::client::BallistaClient;
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
 use log::info;
@@ -51,7 +52,7 @@ pub async fn start_server(
     config: SchedulerConfig,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 ) -> Result<()> {
     info!(
         "Ballista v{} Scheduler listening on {:?}",
@@ -78,7 +79,7 @@ pub async fn start_server(
             metrics_collector,
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         );
 
     scheduler_server.init().await?;

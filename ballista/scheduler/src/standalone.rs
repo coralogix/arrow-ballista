@@ -19,6 +19,7 @@ use crate::cluster::BallistaCluster;
 use crate::config::SchedulerConfig;
 use crate::metrics::default_metrics_collector;
 use crate::scheduler_server::SchedulerServer;
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::serde::{BallistaCodec, BallistaPhysicalExtensionCodec};
 use ballista_core::utils::{create_grpc_server, default_session_builder};
 use ballista_core::{
@@ -55,7 +56,9 @@ pub async fn new_standalone_scheduler_with_codec(
             metrics_collector,
             None,
             Arc::new(Cache::new(100)),
-            50,
+            Arc::new(ShuffleReaderExecOptions {
+                partition_fetch_parallelism: 50,
+            }),
         );
 
     scheduler_server.init().await?;

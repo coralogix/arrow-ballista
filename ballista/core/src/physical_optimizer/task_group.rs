@@ -180,7 +180,7 @@ mod tests {
     use moka::future::Cache;
 
     use crate::execution_plans::{
-        CoalesceTasksExec, ShuffleReaderExec, ShuffleWriterExec,
+        CoalesceTasksExec, ShuffleReaderExec, ShuffleReaderExecOptions, ShuffleWriterExec,
     };
     use crate::serde::scheduler::{
         ExecutorMetadata, ExecutorSpecification, PartitionLocation, PartitionStats,
@@ -260,7 +260,7 @@ mod tests {
             ])),
             None,
             Arc::new(Cache::new(10)),
-            50,
+            Arc::new(ShuffleReaderExecOptions::default()),
         ))
     }
 
@@ -339,7 +339,7 @@ mod tests {
             Arc::new(Schema::empty()),
             None,
             Arc::new(Cache::new(10)),
-            50,
+            Arc::new(ShuffleReaderExecOptions::default()),
         ));
 
         let optiized = optimizer.insert_coalesce(input).unwrap().into();

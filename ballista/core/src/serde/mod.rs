@@ -211,12 +211,22 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                             .collect::<Result<Vec<_>, _>>()
                     })
                     .collect::<Result<Vec<_>, DataFusionError>>()?;
+                let options = shuffle_reader
+                    .options
+                    .as_ref()
+                    .ok_or_else(|| {
+                        DataFusionError::Internal(
+                            "Fail to get shuffle reader options".to_string(),
+                        )
+                    })?
+                    .into();
+
                 let shuffle_reader = ShuffleReaderExec::new(
                     partition_location,
                     schema,
                     self.object_store.clone(),
                     self.clients.clone(),
-                    shuffle_reader.parallelism as usize,
+                    Arc::new(options),
                 );
                 Ok(Arc::new(shuffle_reader))
             }
@@ -327,7 +337,7 @@ impl PhysicalExtensionCodec for BallistaPhysicalExtensionCodec {
                     protobuf::ShuffleReaderExecNode {
                         partition,
                         schema: Some(exec.schema().as_ref().try_into()?),
-                        parallelism: exec.parallelism as u32,
+                        options: Some(exec.options.as_ref().into()),
                     },
                 )),
             };

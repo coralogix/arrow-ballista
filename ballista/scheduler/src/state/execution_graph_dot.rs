@@ -416,6 +416,7 @@ mod tests {
     use crate::state::execution_graph::ExecutionGraph;
     use crate::state::execution_graph_dot::ExecutionGraphDot;
     use ballista_core::error::{BallistaError, Result};
+    use ballista_core::execution_plans::ShuffleReaderExecOptions;
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::datasource::MemTable;
     use datafusion::prelude::{SessionConfig, SessionContext};
@@ -653,7 +654,9 @@ filter_expr="]
             None,
             vec![],
             Arc::new(Cache::new(100)),
-            50,
+            Arc::new(ShuffleReaderExecOptions {
+                partition_fetch_parallelism: 50,
+            }),
         )
     }
 
@@ -689,7 +692,9 @@ filter_expr="]
             None,
             vec![],
             Arc::new(Cache::new(100)),
-            50,
+            Arc::new(ShuffleReaderExecOptions {
+                partition_fetch_parallelism: 50,
+            }),
         )
     }
 }

@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use ballista_core::config::TaskSchedulingPolicy;
 use ballista_core::error::{BallistaError, Result};
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::serde::protobuf::job_status::Status;
 use ballista_core::serde::protobuf::{
     task_status, ExecutorHeartbeat, JobStatus, ShuffleWritePartition, SuccessfulTask,
@@ -335,7 +336,9 @@ async fn setup_env(
         launcher,
         None,
         clients,
-        50,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
     );
 
     server.init().await.unwrap();

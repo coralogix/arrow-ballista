@@ -23,6 +23,7 @@ use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 use ballista_core::client::BallistaClient;
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use datafusion::config::{ConfigEntry, ConfigOptions};
 use futures::future::try_join_all;
 use moka::future::Cache;
@@ -322,7 +323,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     check_drained: watch::Receiver<()>,
     object_store: Option<Arc<dyn ObjectStore>>,
     clients: Arc<Cache<String, BallistaClient>>,
-    shuffle_reader_parallelism: usize,
+    shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 struct ExecutionGraphWriteGuard<'a> {
@@ -399,7 +400,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         scheduler_id: String,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let launcher =
             DefaultTaskLauncher::new(scheduler_id.clone(), state.clone(), codec);
@@ -410,7 +411,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             Arc::new(launcher),
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         )
     }
 
@@ -421,7 +422,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
         clients: Arc<Cache<String, BallistaClient>>,
-        shuffle_reader_parallelism: usize,
+        shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());
 
@@ -434,7 +435,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             check_drained,
             object_store,
             clients,
-            shuffle_reader_parallelism,
+            shuffle_reader_options,
         }
     }
 
@@ -481,7 +482,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             self.object_store.clone(),
             warnings,
             self.clients.clone(),
-            self.shuffle_reader_parallelism,
+            self.shuffle_reader_options.clone(),
         )?;
         info!(
             job_id,

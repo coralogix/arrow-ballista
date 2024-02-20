@@ -22,6 +22,7 @@ use std::{env, io};
 
 use anyhow::Result;
 
+use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::print_version;
 use ballista_scheduler::scheduler_process::start_server;
 use moka::future::Cache;
@@ -127,6 +128,16 @@ async fn main() -> Result<()> {
     let cluster =
         BallistaCluster::new_from_config(&config, None, clients.clone()).await?;
 
-    start_server(cluster, addr, config, None, clients, 50).await?;
+    start_server(
+        cluster,
+        addr,
+        config,
+        None,
+        clients,
+        Arc::new(ShuffleReaderExecOptions {
+            partition_fetch_parallelism: 50,
+        }),
+    )
+    .await?;
     Ok(())
 }
