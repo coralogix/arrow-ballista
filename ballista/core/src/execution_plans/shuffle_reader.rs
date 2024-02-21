@@ -629,8 +629,6 @@ async fn fetch_partition_remote(
             location.output_partition,
             &location.map_partitions,
             &location.path,
-            &metadata.host,
-            metadata.port,
         )
         .await
 }
