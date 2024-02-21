@@ -90,7 +90,7 @@ impl BallistaClient {
     pub async fn try_new_from_metadata(metadata: &ExecutorMetadata) -> Result<Self> {
         let endpoint = metadata.endpoint();
         let executor_id = metadata.id.as_str();
-        info!(executor_id, endpoint, "Creating ballista conenction client");
+        info!(executor_id, endpoint, "Creating executor ballista client");
 
         let now = Instant::now();
         let connection = create_grpc_client_connection_configurable(
@@ -113,7 +113,7 @@ impl BallistaClient {
             executor_id,
             endpoint,
             elapsed = now.elapsed().as_millis(),
-            "Created ballista conenction client"
+            "Created executor ballista client"
         );
 
         Ok(Self {
