@@ -335,6 +335,8 @@ async fn fetch_partition(
             location.output_partition as usize,
             &map_partitions,
             &location.path,
+            host,
+            port,
         )
         .await
         .map_err(|e| DataFusionError::External(Box::new(e)))

@@ -52,14 +52,10 @@ const MAX_GRPC_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
 /// Client for interacting with Ballista executors.
 #[derive(Clone, Debug)]
 pub struct BallistaClient {
-    endpoint: String,
     flight_client: FlightServiceClient<tonic::transport::channel::Channel>,
 }
 
 impl BallistaClient {
-    pub fn endpoint(&self) -> &str {
-        self.endpoint.as_str()
-    }
     /// Create a new BallistaClient to connect to the executor listening on the specified
     /// host and port
     pub async fn try_new(host: &str, port: u16) -> Result<Self> {
@@ -79,10 +75,7 @@ impl BallistaClient {
 
         debug!("BallistaClient connected OK");
 
-        Ok(Self {
-            flight_client,
-            endpoint,
-        })
+        Ok(Self { flight_client })
     }
 
     /// Create a new BallistaClient to connect to the executor listening on the specified
@@ -116,10 +109,7 @@ impl BallistaClient {
             "Created executor ballista client"
         );
 
-        Ok(Self {
-            flight_client,
-            endpoint,
-        })
+        Ok(Self { flight_client })
     }
 
     /// Fetch a partition from an executor
@@ -132,6 +122,8 @@ impl BallistaClient {
         output_partition: usize,
         map_partitions: &[usize],
         path: &str,
+        host: &str,
+        port: u16,
     ) -> Result<SendableRecordBatchStream> {
         let now = Instant::now();
         let action = Action::FetchPartition {
@@ -139,6 +131,8 @@ impl BallistaClient {
             stage_id,
             partition_id: output_partition,
             path: path.to_owned(),
+            host: host.to_owned(),
+            port,
         };
         let result = self
             .execute_action(&action)
@@ -155,7 +149,7 @@ impl BallistaClient {
             });
         info!(
             executor_id,
-            endpoint = self.endpoint(),
+            endpoint = format!("http://{host}:{port}"),
             partition_id = output_partition,
             job_id,
             stage_id,

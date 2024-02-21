@@ -416,6 +416,10 @@ pub struct FetchPartition {
     pub partition_id: u32,
     #[prost(string, tag = "4")]
     pub path: ::prost::alloc::string::String,
+    #[prost(string, tag = "5")]
+    pub host: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "6")]
+    pub port: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
