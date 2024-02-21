@@ -80,7 +80,7 @@ impl BallistaClient {
 
     /// Create a new BallistaClient to connect to the executor listening on the specified
     /// host and port
-    pub async fn try_new_more_aggressive(metadata: &ExecutorMetadata) -> Result<Self> {
+    pub async fn try_new_from_metadata(metadata: &ExecutorMetadata) -> Result<Self> {
         let endpoint = metadata.endpoint();
         let executor_id = metadata.id.as_str();
         info!(executor_id, endpoint, "Creating ballista conenction client");

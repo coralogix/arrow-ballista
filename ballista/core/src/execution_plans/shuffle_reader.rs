@@ -600,7 +600,7 @@ async fn get_executor_client(
     clients
         .try_get_with_by_ref(
             &metadata.endpoint(),
-            BallistaClient::try_new_more_aggressive(metadata),
+            BallistaClient::try_new_from_metadata(metadata),
         )
         .await
         .map_err(|error| match error.as_ref() {
