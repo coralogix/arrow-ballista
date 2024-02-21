@@ -20,10 +20,14 @@
 use std::{
     convert::TryInto,
     task::{Context, Poll},
+    time::Duration,
 };
 
-use crate::error::{BallistaError, Result};
-use crate::serde::scheduler::Action;
+use crate::serde::scheduler::{Action, ExecutorMetadata};
+use crate::{
+    error::{BallistaError, Result},
+    utils::create_grpc_client_connection_configurable,
+};
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -31,6 +35,8 @@ use arrow_flight::flight_service_client::FlightServiceClient;
 use arrow_flight::Ticket;
 use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use datafusion::error::DataFusionError;
+use tokio::time::Instant;
+use tracing::info;
 
 use crate::serde::protobuf;
 use crate::utils::create_grpc_client_connection;
@@ -53,14 +59,14 @@ impl BallistaClient {
     /// Create a new BallistaClient to connect to the executor listening on the specified
     /// host and port
     pub async fn try_new(host: &str, port: u16) -> Result<Self> {
-        let addr = format!("http://{host}:{port}");
-        debug!("BallistaClient connecting to {}", addr);
+        let endpoint: String = format!("http://{host}:{port}");
+        debug!("BallistaClient connecting to {}", endpoint);
         let connection =
-            create_grpc_client_connection(addr.clone())
+            create_grpc_client_connection(endpoint.clone())
                 .await
                 .map_err(|e| {
                     BallistaError::GrpcConnectionError(format!(
-                    "Error connecting to Ballista scheduler or executor at {addr}: {e:?}"
+                    "Error connecting to Ballista scheduler or executor at {endpoint}: {e:?}"
                 ))
                 })?;
         let flight_client = FlightServiceClient::new(connection)
@@ -68,6 +74,40 @@ impl BallistaClient {
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
 
         debug!("BallistaClient connected OK");
+
+        Ok(Self { flight_client })
+    }
+
+    /// Create a new BallistaClient to connect to the executor listening on the specified
+    /// host and port
+    pub async fn try_new_from_metadata(metadata: &ExecutorMetadata) -> Result<Self> {
+        let endpoint = metadata.endpoint();
+        let executor_id = metadata.id.as_str();
+        info!(executor_id, endpoint, "Creating executor ballista client");
+
+        let now = Instant::now();
+        let connection = create_grpc_client_connection_configurable(
+            metadata.endpoint(),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+            Duration::from_secs(5),
+        )
+        .await
+        .map_err(|e| {
+            BallistaError::GrpcConnectionError(format!(
+                "Error connecting to Ballista scheduler or executor at {endpoint}: {e:?}"
+            ))
+        })?;
+        let flight_client = FlightServiceClient::new(connection)
+            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
+            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
+
+        info!(
+            executor_id,
+            endpoint,
+            elapsed = now.elapsed().as_millis(),
+            "Created executor ballista client"
+        );
 
         Ok(Self { flight_client })
     }
@@ -85,6 +125,7 @@ impl BallistaClient {
         host: &str,
         port: u16,
     ) -> Result<SendableRecordBatchStream> {
+        let now = Instant::now();
         let action = Action::FetchPartition {
             job_id: job_id.to_string(),
             stage_id,
@@ -93,7 +134,8 @@ impl BallistaClient {
             host: host.to_owned(),
             port,
         };
-        self.execute_action(&action)
+        let result = self
+            .execute_action(&action)
             .await
             .map_err(|error| match error {
                 // map grpc connection error to partition fetch error.
@@ -104,7 +146,19 @@ impl BallistaClient {
                     msg,
                 ),
                 other => other,
-            })
+            });
+        info!(
+            executor_id,
+            endpoint = format!("http://{host}:{port}"),
+            partition_id = output_partition,
+            job_id,
+            stage_id,
+            path,
+            elapsed = now.elapsed().as_millis(),
+            "Fetched partition"
+        );
+
+        result
     }
 
     /// Execute an action and retrieve the results

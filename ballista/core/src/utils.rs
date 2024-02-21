@@ -457,6 +457,28 @@ where
     endpoint.connect().await
 }
 
+pub async fn create_grpc_client_connection_configurable<D>(
+    dst: D,
+    connection_timeout: Duration,
+    timeout: Duration,
+    keep_alive_timeout: Duration,
+) -> std::result::Result<Channel, Error>
+where
+    D: std::convert::TryInto<tonic::transport::Endpoint>,
+    D::Error: Into<StdError>,
+{
+    let endpoint = tonic::transport::Endpoint::new(dst)?
+        .connect_timeout(connection_timeout)
+        .timeout(timeout)
+        // Disable Nagle's Algorithm since we don't want packets to wait
+        .tcp_nodelay(true)
+        .tcp_keepalive(Option::Some(Duration::from_secs(3600)))
+        .http2_keep_alive_interval(Duration::from_secs(300))
+        .keep_alive_timeout(keep_alive_timeout)
+        .keep_alive_while_idle(true);
+    endpoint.connect().await
+}
+
 pub fn create_grpc_server() -> Server {
     Server::builder()
         .timeout(Duration::from_secs(20))
