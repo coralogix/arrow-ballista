@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 
-use crate::serde::scheduler::Action;
+use crate::serde::scheduler::{Action, ExecutorMetadata};
 use crate::{
     error::{BallistaError, Result},
     utils::create_grpc_client_connection_configurable,
@@ -35,6 +35,8 @@ use arrow_flight::flight_service_client::FlightServiceClient;
 use arrow_flight::Ticket;
 use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use datafusion::error::DataFusionError;
+use tokio::time::Instant;
+use tracing::info;
 
 use crate::serde::protobuf;
 use crate::utils::create_grpc_client_connection;
@@ -78,11 +80,14 @@ impl BallistaClient {
 
     /// Create a new BallistaClient to connect to the executor listening on the specified
     /// host and port
-    pub async fn try_new_more_aggressive(host: &str, port: u16) -> Result<Self> {
-        let addr = format!("http://{host}:{port}");
-        debug!("BallistaClient connecting to {}", addr);
+    pub async fn try_new_more_aggressive(metadata: &ExecutorMetadata) -> Result<Self> {
+        let endpoint = metadata.endpoint();
+        let executor_id = metadata.id.as_str();
+        info!(executor_id, endpoint, "Creating ballista conenction client");
+
+        let now = Instant::now();
         let connection = create_grpc_client_connection_configurable(
-            addr.clone(),
+            metadata.endpoint(),
             Duration::from_secs(5),
             Duration::from_secs(5),
             Duration::from_secs(5),
@@ -90,14 +95,19 @@ impl BallistaClient {
         .await
         .map_err(|e| {
             BallistaError::GrpcConnectionError(format!(
-                "Error connecting to Ballista scheduler or executor at {addr}: {e:?}"
+                "Error connecting to Ballista scheduler or executor at {endpoint}: {e:?}"
             ))
         })?;
         let flight_client = FlightServiceClient::new(connection)
             .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
 
-        debug!("BallistaClient connected OK");
+        info!(
+            executor_id,
+            endpoint,
+            elapsed = now.elapsed().as_millis(),
+            "Created ballista conenction client"
+        );
 
         Ok(Self { flight_client })
     }
