@@ -45,6 +45,7 @@ simd = ["datafusion/simd"]
 
 [dependencies]
 ahash = { version = "0.8", default-features = false }
+arrow = { workspace = true }
 arrow-flight = { workspace = true }
 async-stream = { workspace = true }
 async-trait = "0.1.73"
