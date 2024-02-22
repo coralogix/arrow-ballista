@@ -19,6 +19,7 @@
 
 use std::convert::TryFrom;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use arrow::ipc::writer::IpcWriteOptions;
 use arrow::ipc::CompressionType;
@@ -37,6 +38,7 @@ use datafusion::arrow::error::ArrowError;
 use futures::{Stream, TryStreamExt};
 
 use tokio::fs::File;
+use tokio::sync::Semaphore;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 use tonic::metadata::MetadataValue;
 use tonic::{Request, Response, Status, Streaming};
@@ -45,11 +47,15 @@ use tracing::info;
 #[derive(Clone)]
 pub struct BallistaFlightServiceOptions {
     max_message_size: usize,
+    max_open_files: usize,
 }
 
 impl BallistaFlightServiceOptions {
-    pub fn new(max_message_size: usize) -> Self {
-        Self { max_message_size }
+    pub fn new(max_message_size: usize, max_open_files: usize) -> Self {
+        Self {
+            max_message_size,
+            max_open_files,
+        }
     }
 }
 
@@ -57,6 +63,7 @@ impl Default for BallistaFlightServiceOptions {
     fn default() -> Self {
         Self {
             max_message_size: 4 * 1024 * 1024,
+            max_open_files: 1024,
         }
     }
 }
@@ -66,6 +73,7 @@ impl Default for BallistaFlightServiceOptions {
 pub struct BallistaFlightService {
     executor_id: String,
     options: BallistaFlightServiceOptions,
+    semaphore: Arc<Semaphore>,
 }
 
 impl BallistaFlightService {
@@ -73,9 +81,11 @@ impl BallistaFlightService {
         executor_id: impl Into<String>,
         options: BallistaFlightServiceOptions,
     ) -> Self {
+        let semaphore = Arc::new(Semaphore::const_new(options.max_open_files));
         Self {
             executor_id: executor_id.into(),
             options,
+            semaphore,
         }
     }
 }
@@ -115,11 +125,11 @@ impl FlightService for BallistaFlightService {
     ) -> Result<Response<Self::DoGetStream>, Status> {
         let ticket = request.into_inner();
         let (path, job_id, stage_id, partition) = decode_partition_location(&ticket)?;
-
         info!(
             executor_id = self.executor_id,
             job_id, stage_id, partition, path, "fetching shuffle partition"
         );
+        let _ = self.semaphore.acquire().await.unwrap();
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
