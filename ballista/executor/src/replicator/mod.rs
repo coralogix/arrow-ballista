@@ -26,13 +26,13 @@ lazy_static! {
     static ref REPLICATION_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_replicator_latency",
         "Replication latency in seconds",
-        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0]
     )
     .unwrap();
     static ref REPLICATION_LAG_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_replicator_lag_latency",
         "Replication latency in seconds",
-        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0]
     )
     .unwrap();
     static ref PROCESSED_FILES: IntCounterVec = register_int_counter_vec!(
