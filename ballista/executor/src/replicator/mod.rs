@@ -16,6 +16,7 @@ use prometheus::{
     register_histogram, register_int_counter_vec, Histogram, IntCounterVec,
 };
 use tokio::io::AsyncWriteExt;
+use tokio::sync::Semaphore;
 use tokio::{fs::File, sync::mpsc};
 use tracing::{info, warn};
 
@@ -25,13 +26,13 @@ lazy_static! {
     static ref REPLICATION_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_replicator_latency",
         "Replication latency in seconds",
-        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0]
     )
     .unwrap();
     static ref REPLICATION_LAG_LATENCY_SECONDS: Histogram = register_histogram!(
         "ballista_replicator_lag_latency",
         "Replication latency in seconds",
-        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0]
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0]
     )
     .unwrap();
     static ref PROCESSED_FILES: IntCounterVec = register_int_counter_vec!(
@@ -60,55 +61,88 @@ lazy_static! {
     .unwrap();
 }
 
-pub async fn start_replication(
+pub struct ReplicatorOptions {
+    pub max_open_files: usize,
+}
+
+impl Default for ReplicatorOptions {
+    fn default() -> Self {
+        Self {
+            max_open_files: 1024,
+        }
+    }
+}
+
+pub struct Replicator {
     executor_id: String,
     object_store: Arc<dyn ObjectStore>,
-    mut receiver: mpsc::Receiver<Command>,
-) -> Result<(), BallistaError> {
-    while let Some(Command::Replicate {
-        job_id,
-        path,
-        created,
-    }) = receiver.recv().await
-    {
-        PROCESSED_FILES.with_label_values(&["total"]).inc();
-        let destination = format!("{}{}", executor_id, path);
-        let received = Instant::now();
-        info!(executor_id, job_id, destination, path, "Start replication");
+    receiver: mpsc::Receiver<Command>,
+    semaphore: Arc<Semaphore>,
+}
 
-        match Path::parse(destination) {
-            Ok(dest) => match load_file(path.as_str()).await {
-                Ok(reader) => {
-                    replicate_to_object_store(
-                        created,
-                        received,
-                        &executor_id,
-                        &job_id,
-                        &dest,
-                        reader,
-                        object_store.clone(),
-                    )
-                    .await;
-                }
-                Err(error) => {
-                    REPLICATION_FAILURE.with_label_values(&["open_file"]).inc();
-                    warn!(executor_id, job_id, path, ?error, "Failed to open file");
-                }
-            },
-            Err(error) => {
-                REPLICATION_FAILURE.with_label_values(&["parse_path"]).inc();
-                warn!(
-                    executor_id,
-                    job_id,
-                    path,
-                    ?error,
-                    "Failed to parse replication path"
-                );
-            }
+impl Replicator {
+    pub fn new(
+        executor_id: String,
+        object_store: Arc<dyn ObjectStore>,
+        receiver: mpsc::Receiver<Command>,
+        options: ReplicatorOptions,
+    ) -> Self {
+        Self {
+            executor_id,
+            object_store,
+            receiver,
+            semaphore: Arc::new(Semaphore::const_new(options.max_open_files)),
         }
     }
 
-    Ok(())
+    pub async fn start(&mut self) -> Result<(), BallistaError> {
+        while let Some(Command::Replicate {
+            job_id,
+            path,
+            created,
+        }) = self.receiver.recv().await
+        {
+            let _ = self.semaphore.acquire().await.unwrap();
+            let executor_id = self.executor_id.as_str();
+            PROCESSED_FILES.with_label_values(&["total"]).inc();
+            let destination = format!("{}{}", executor_id, path);
+            let received = Instant::now();
+            info!(executor_id, job_id, destination, path, "Start replication");
+
+            match Path::parse(destination) {
+                Ok(dest) => match load_file(path.as_str()).await {
+                    Ok(reader) => {
+                        replicate_to_object_store(
+                            created,
+                            received,
+                            executor_id,
+                            &job_id,
+                            &dest,
+                            reader,
+                            self.object_store.clone(),
+                        )
+                        .await;
+                    }
+                    Err(error) => {
+                        REPLICATION_FAILURE.with_label_values(&["open_file"]).inc();
+                        warn!(executor_id, job_id, path, ?error, "Failed to open file");
+                    }
+                },
+                Err(error) => {
+                    REPLICATION_FAILURE.with_label_values(&["parse_path"]).inc();
+                    warn!(
+                        executor_id,
+                        job_id,
+                        path,
+                        ?error,
+                        "Failed to parse replication path"
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 async fn load_file(
