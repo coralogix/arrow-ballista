@@ -64,7 +64,7 @@ use crate::executor::Executor;
 use crate::executor_server::TERMINATING;
 use crate::flight_service::{BallistaFlightService, BallistaFlightServiceOptions};
 use crate::metrics::LoggingMetricsCollector;
-use crate::replicator::start_replication;
+use crate::replicator::{Replicator, ReplicatorOptions};
 use crate::shutdown::Shutdown;
 use crate::shutdown::ShutdownNotifier;
 use crate::terminate;
@@ -247,12 +247,16 @@ pub async fn start_executor_process(opt: ExecutorProcessConfig) -> Result<()> {
 
                 replicator_send = Some(send.clone());
                 replicator_object_store = Some(object_store.clone());
-
-                service_handlers.push(tokio::spawn(start_replication(
-                    executor_id.clone(),
-                    object_store,
-                    recv,
-                )));
+                let executor_id = executor_id.clone();
+                service_handlers.push(tokio::spawn(async move {
+                    let mut replicator = Replicator::new(
+                        executor_id,
+                        object_store,
+                        recv,
+                        ReplicatorOptions::default(),
+                    );
+                    replicator.start().await
+                }));
             }
             Err(error) => {
                 warn!(?error, replication_url, "Invalid replication url");
