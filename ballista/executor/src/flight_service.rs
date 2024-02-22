@@ -72,7 +72,7 @@ impl Default for BallistaFlightServiceOptions {
 #[derive(Clone)]
 pub struct BallistaFlightService {
     executor_id: String,
-    options: BallistaFlightServiceOptions,
+    max_message_size: usize,
     semaphore: Arc<Semaphore>,
 }
 
@@ -84,7 +84,7 @@ impl BallistaFlightService {
         let semaphore = Arc::new(Semaphore::const_new(options.max_open_files));
         Self {
             executor_id: executor_id.into(),
-            options,
+            max_message_size: options.max_message_size,
             semaphore,
         }
     }
@@ -146,7 +146,7 @@ impl FlightService for BallistaFlightService {
             .try_with_compression(Some(CompressionType::LZ4_FRAME))
             .map_err(from_arrow_err)?;
         let flight_data_stream = FlightDataEncoderBuilder::new()
-            .with_max_flight_data_size(self.options.max_message_size)
+            .with_max_flight_data_size(self.max_message_size)
             .with_schema(schema)
             .with_options(write_options)
             .build(stream)
