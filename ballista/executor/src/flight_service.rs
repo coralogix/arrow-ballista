@@ -238,3 +238,45 @@ impl FlightService for BallistaFlightService {
 fn from_arrow_err(e: ArrowError) -> Status {
     Status::internal(format!("ArrowError: {e:?}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::{path::PathBuf, sync::Arc};
+
+    use ballista_core::{
+        async_reader::AsyncStreamReader,
+        serde::protobuf::execution_error::DatafusionError, utils,
+    };
+    use tokio::{fs::File, sync::Semaphore, task::JoinError};
+    use tokio_util::compat::TokioAsyncReadCompatExt;
+
+    #[tokio::test]
+    async fn load_shuffle_file_a_lot() -> Result<(), DatafusionError> {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("tests/data.arrow");
+        let mut handles = Vec::with_capacity(1000);
+        let semaphore = Arc::new(Semaphore::new(1000));
+        for _ in 0..1000 {
+            let path = path.clone();
+            let sem = semaphore.clone();
+            handles.push(tokio::spawn(async move {
+                let permit = sem.acquire().await.unwrap();
+                let file = File::open(path).await.unwrap();
+                let reader = AsyncStreamReader::try_new(file.compat(), None)
+                    .await
+                    .unwrap();
+                let mut stream = reader.to_stream();
+                drop(permit);
+                let result = utils::collect_stream(&mut stream).await.unwrap();
+                !result.is_empty()
+            }))
+        }
+
+        let result: Result<Vec<bool>, JoinError> = futures::future::join_all(handles)
+            .await
+            .into_iter()
+            .collect();
+        assert!(result.unwrap().iter().all(|v| *v));
+        Ok(())
+    }
+}
