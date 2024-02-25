@@ -23,7 +23,7 @@ use std::{
 };
 
 use crate::error::{BallistaError, Result};
-use crate::serde::scheduler::{Action, ExecutorMetadata};
+use crate::serde::scheduler::Action;
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -70,35 +70,6 @@ impl BallistaClient {
             .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
 
         debug!("BallistaClient connected OK");
-
-        Ok(Self { flight_client })
-    }
-
-    /// Create a new BallistaClient to connect to the executor listening on the specified
-    /// host and port
-    pub async fn try_new_from_metadata(metadata: &ExecutorMetadata) -> Result<Self> {
-        let endpoint = metadata.endpoint();
-        let executor_id = metadata.id.as_str();
-        info!(executor_id, endpoint, "Creating executor ballista client");
-
-        let now = Instant::now();
-        let connection = create_grpc_client_connection(endpoint.clone())
-            .await
-            .map_err(|e| {
-                BallistaError::GrpcConnectionError(format!(
-                "Error connecting to Ballista scheduler or executor at {endpoint}: {e:?}"
-            ))
-            })?;
-        let flight_client = FlightServiceClient::new(connection)
-            .max_decoding_message_size(MAX_GRPC_MESSAGE_SIZE)
-            .max_encoding_message_size(MAX_GRPC_MESSAGE_SIZE);
-
-        info!(
-            executor_id,
-            endpoint,
-            elapsed = now.elapsed().as_millis(),
-            "Created executor ballista client"
-        );
 
         Ok(Self { flight_client })
     }

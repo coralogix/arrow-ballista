@@ -66,7 +66,7 @@ pub struct ExecutorMetadata {
 
 impl ExecutorMetadata {
     pub fn endpoint(&self) -> String {
-        format!("http://{}:{}", self.host, self.port)
+        format!("http://{}:{}", self.host, self.grpc_port)
     }
     pub fn version(&self) -> String {
         self.specification.version.clone()
