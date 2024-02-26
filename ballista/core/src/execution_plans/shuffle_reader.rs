@@ -22,8 +22,8 @@ use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
 use prometheus::{
-    register_gauge_vec, register_histogram_vec, register_int_counter_vec, GaugeVec,
-    HistogramVec, IntCounterVec,
+    register_histogram_vec, register_int_counter, register_int_counter_vec, HistogramVec,
+    IntCounter, IntCounterVec,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -84,10 +84,14 @@ lazy_static! {
             &["type"]
         )
         .unwrap();
-    static ref SHUFFLE_READER_FETCH_PARALLELISM: GaugeVec = register_gauge_vec!(
-        "ballista_shuffle_reader_fetch_parallelism",
-        "Number of parallel fetch partition calls",
-        &["type"]
+    static ref SHUFFLE_READER_FAILED_REMOTE_FETCH: IntCounter = register_int_counter!(
+        "ballista_shuffle_reader_failed_remote_fetch",
+        "Number of failed remote fetch calls"
+    )
+    .unwrap();
+    static ref SHUFFLE_READER_SAVED_REMOTE_FETCH: IntCounter = register_int_counter!(
+        "ballista_shuffle_reader_saved_remote_fetch",
+        "Number of saved remote fetch calls"
     )
     .unwrap();
 }
@@ -393,10 +397,10 @@ fn send_fetch_partitions_with_fallback(
     let sender_for_local = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
         for p in local_locations.iter() {
+            let now = Instant::now();
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
-            let now = Instant::now();
             let r = PartitionReaderEnum::Local.fetch_partition(p).await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
@@ -417,15 +421,12 @@ fn send_fetch_partitions_with_fallback(
     let sender_to_remote = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
+            let now = Instant::now();
+            let permit = sender_to_remote.reserve().await.unwrap();
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
             let failed_partition_sender = failed_partition_sender.clone();
-            let permit = sender_to_remote.reserve().await.unwrap();
-            SHUFFLE_READER_FETCH_PARALLELISM
-                .with_label_values(&["remote"])
-                .inc();
-            let now = Instant::now();
             let result = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
             }
@@ -434,9 +435,9 @@ fn send_fetch_partitions_with_fallback(
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["remote"])
                 .observe(now.elapsed().as_secs_f64());
-
             match result {
                 Ok(batch_stream) => permit.send(Ok(batch_stream)),
+
                 Err(error) => {
                     drop(permit);
                     warn!(
@@ -446,6 +447,7 @@ fn send_fetch_partitions_with_fallback(
                         ?error,
                         "Fail to fetch remote partition",
                     );
+                    SHUFFLE_READER_FAILED_REMOTE_FETCH.inc();
                     if let Err(error) = failed_partition_sender.send(p.clone()).await {
                         warn!(
                             job_id = p.job_id,
@@ -457,22 +459,16 @@ fn send_fetch_partitions_with_fallback(
                     }
                 }
             }
-            SHUFFLE_READER_FETCH_PARALLELISM
-                .with_label_values(&["remote"])
-                .dec();
         }
     }));
 
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
+            let now = Instant::now();
+            let permit = response_sender.reserve().await.unwrap();
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["object_store"])
                 .inc();
-            let permit = response_sender.reserve().await.unwrap();
-            SHUFFLE_READER_FETCH_PARALLELISM
-                .with_label_values(&["object_store"])
-                .inc();
-            let now = Instant::now();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
             }
@@ -482,11 +478,11 @@ fn send_fetch_partitions_with_fallback(
                 .with_label_values(&["object_store"])
                 .observe(now.elapsed().as_secs_f64());
 
-            permit.send(r);
+            if r.is_ok() {
+                SHUFFLE_READER_SAVED_REMOTE_FETCH.inc();
+            }
 
-            SHUFFLE_READER_FETCH_PARALLELISM
-                .with_label_values(&["object_store"])
-                .dec();
+            permit.send(r);
         }
     }));
 
@@ -517,8 +513,15 @@ fn send_fetch_partitions(
     // keep local shuffle files reading in serial order for memory control.
     let sender_for_local = response_sender.clone();
     join_handles.push(tokio::spawn(async move {
-        for p in local_locations {
-            let r = PartitionReaderEnum::Local.fetch_partition(&p).await;
+        for p in local_locations.iter() {
+            let now = Instant::now();
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["local"])
+                .inc();
+            let r = PartitionReaderEnum::Local.fetch_partition(p).await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["local"])
+                .observe(now.elapsed().as_secs_f64());
             if let Err(e) = sender_for_local.send(r).await {
                 warn!(
                     job_id = p.job_id,
@@ -532,14 +535,24 @@ fn send_fetch_partitions(
     }));
 
     join_handles.push(tokio::spawn(async move {
-        for p in remote_locations.into_iter() {
-            // Block if exceeds max request number
+        for p in remote_locations.iter() {
+            let now = Instant::now();
             let permit = response_sender.reserve().await.unwrap();
+            SHUFFLE_READER_FETCH_PARTITION_TOTAL
+                .with_label_values(&["remote"])
+                .inc();
             let r = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
             }
-            .fetch_partition(&p)
+            .fetch_partition(p)
             .await;
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["remote"])
+                .observe(now.elapsed().as_secs_f64());
+
+            if r.is_err() {
+                SHUFFLE_READER_FAILED_REMOTE_FETCH.inc();
+            }
 
             permit.send(r)
         }
