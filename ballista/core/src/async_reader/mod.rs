@@ -18,18 +18,20 @@ use datafusion::{
 };
 use futures::{future::BoxFuture, io::BufReader, AsyncBufRead, AsyncRead, AsyncReadExt};
 use lazy_static::lazy_static;
-use prometheus::{register_histogram, Histogram};
+use prometheus::{register_histogram_vec, HistogramVec};
 use tokio::time::Instant;
 
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
 
 lazy_static! {
-    static ref BALLISTA_ASYNC_STREAM_READER_LATENCY: Histogram = register_histogram!(
-        "ballista_async_stream_reader_latency",
-        "Ballista async stream reader latency",
-        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 5.0, 9.0, 20.0]
-    )
-    .unwrap();
+    static ref BALLISTA_ASYNC_STREAM_READER_LATENCY: HistogramVec =
+        register_histogram_vec!(
+            "ballista_async_stream_reader_latency",
+            "Ballista async stream reader latency",
+            &["type"],
+            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 5.0, 9.0, 20.0]
+        )
+        .unwrap();
 }
 
 /// Arrow Stream reader
@@ -53,6 +55,7 @@ pub struct AsyncStreamReader<R: AsyncRead + Unpin + Send> {
     /// Optional projection
     projection: Option<(Vec<usize>, Schema)>,
     started_at: Instant,
+    label: String,
 }
 
 impl<R: AsyncRead + Unpin + Send> fmt::Debug for AsyncStreamReader<R> {
@@ -74,6 +77,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
     pub async fn try_new_unbuffered(
         mut reader: R,
         projection: Option<Vec<usize>>,
+        label: String,
     ) -> Result<AsyncStreamReader<R>, ArrowError> {
         // determine metadata length
         let mut meta_size: [u8; 4] = [0; 4];
@@ -116,6 +120,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
             dictionaries_by_id,
             projection,
             started_at: Instant::now(),
+            label,
         })
     }
 
@@ -133,8 +138,6 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
         &mut self,
     ) -> BoxFuture<'_, Result<Option<RecordBatch>, ArrowError>> {
         if self.finished {
-            BALLISTA_ASYNC_STREAM_READER_LATENCY
-                .observe(self.started_at.elapsed().as_secs_f64());
             return Box::pin(futures::future::ok(None));
         }
 
@@ -258,8 +261,17 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<BufReader<R>> {
     pub async fn try_new(
         reader: R,
         projection: Option<Vec<usize>>,
+        label: String,
     ) -> Result<Self, ArrowError> {
-        Self::try_new_unbuffered(BufReader::new(reader), projection).await
+        Self::try_new_unbuffered(BufReader::new(reader), projection, label).await
+    }
+}
+
+impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
+    fn drop(&mut self) {
+        BALLISTA_ASYNC_STREAM_READER_LATENCY
+            .with_label_values(&[self.label.as_str()])
+            .observe(self.started_at.elapsed().as_secs_f64());
     }
 }
 
@@ -287,9 +299,10 @@ mod tests {
             handles.push(tokio::spawn(async move {
                 let permit = sem.acquire().await.unwrap();
                 let file = File::open(path).await.unwrap();
-                let reader = AsyncStreamReader::try_new(file.compat(), None)
-                    .await
-                    .unwrap();
+                let reader =
+                    AsyncStreamReader::try_new(file.compat(), None, "test".to_string())
+                        .await
+                        .unwrap();
                 let mut stream = reader.to_stream();
                 drop(permit);
                 let result = utils::collect_stream(&mut stream).await.unwrap();
