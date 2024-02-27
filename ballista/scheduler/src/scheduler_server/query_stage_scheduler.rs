@@ -249,31 +249,11 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                     // TODO error handling
                 }
             }
-            QueryStageSchedulerEvent::SchedulerLost(
-                scheduler_id,
-                executor_id,
-                task_status,
-            ) => {
+            QueryStageSchedulerEvent::SchedulerLost(..) => {
                 if self.state.config.is_push_staged_scheduling() {
-                    let num_slots = task_status
-                        .into_iter()
-                        .map(|status| status.partitions.len())
-                        .sum::<usize>();
-
-                    let reservations = (0..num_slots)
-                        .map(|_| ExecutorReservation::new_free(executor_id.clone()))
-                        .collect();
-                    info!(
-                        num_slots,
-                        executor_id,
-                        scheduler_id,
-                        "returning task slots for lost scheduler"
-                    );
-
-                    // for now, just return the slots to the pool
-                    tx_event.post_event(QueryStageSchedulerEvent::ReservationOffering(
-                        reservations,
-                    ));
+                    // Slots should already have been freed during grpc handling
+                    // so here we just tick the scheduler
+                    tx_event.post_event(QueryStageSchedulerEvent::Tick);
                 }
             }
             QueryStageSchedulerEvent::ReservationOffering(mut reservations) => {

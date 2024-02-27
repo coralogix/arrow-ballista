@@ -661,7 +661,28 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerGrpc
             executor_id,
             task_status,
         } = request.into_inner();
-        info!(scheduler_id, executor_id, "received scheduler lost request");
+        let num_slots = task_status
+            .iter()
+            .map(|status| status.partitions.len())
+            .sum::<usize>();
+
+        info!(
+            scheduler_id,
+            executor_id, num_slots, "received scheduler lost request"
+        );
+
+        // Immediately free slots before returning successful response
+        self.state
+            .executor_manager
+            .cancel_reservations(
+                (0..num_slots)
+                    .map(|_| ExecutorReservation::new_free(executor_id.clone()))
+                    .collect(),
+            )
+            .await
+            .map_err(|err| {
+                Status::internal(format!("error cancelling reservations: {err}"))
+            })?;
 
         self.query_stage_event_loop
             .get_sender()
