@@ -442,7 +442,6 @@ fn send_fetch_partitions_with_fallback(
                 .observe(now.elapsed().as_secs_f64());
             match result {
                 Ok(batch_stream) => permit.send(Ok(batch_stream)),
-
                 Err(error) => {
                     drop(permit);
                     warn!(
