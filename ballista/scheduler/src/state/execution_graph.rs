@@ -21,7 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use datafusion::physical_plan::display::DisplayableExecutionPlan;
 use datafusion::physical_plan::metrics::{MetricValue, MetricsSet};
 use datafusion::physical_plan::{
@@ -165,7 +165,7 @@ impl ExecutionGraph {
         queued_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
         warnings: Vec<String>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Result<Self> {
         let mut planner = DistributedPlanner::new();
@@ -1332,7 +1332,7 @@ for (partition, status) in stage.task_infos
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Result<ExecutionGraph> {
         let status = proto.status.ok_or_else(|| {
             BallistaError::Internal("Invalid Execution Graph".to_owned())
@@ -1617,14 +1617,14 @@ struct ExecutionStageBuilder {
     /// Map from Stage ID -> output link
     output_links: HashMap<usize, Vec<usize>>,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
 impl ExecutionStageBuilder {
     pub fn new(
         object_store: Arc<dyn ObjectStore>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {

@@ -472,9 +472,7 @@ impl SchedulerTest {
                 Arc::new(launcher),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
 
@@ -895,9 +893,7 @@ pub async fn test_aggregation_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap()
 }
@@ -944,9 +940,7 @@ pub async fn test_two_aggregations_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap()
 }
@@ -985,9 +979,7 @@ pub async fn test_coalesce_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap()
 }
@@ -1047,9 +1039,7 @@ pub async fn test_join_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap();
 
@@ -1092,9 +1082,7 @@ pub async fn test_union_all_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap();
 
@@ -1137,9 +1125,7 @@ pub async fn test_union_plan(partition: usize) -> ExecutionGraph {
         None,
         vec![],
         Arc::new(Cache::new(100)),
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .unwrap();
 

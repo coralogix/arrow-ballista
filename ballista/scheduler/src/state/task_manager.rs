@@ -20,7 +20,7 @@ use crate::scheduler_server::event::QueryStageSchedulerEvent;
 use crate::state::execution_graph::{ExecutionGraph, RunningTaskInfo, TaskDescription};
 use crate::state::executor_manager::{ExecutorManager, ExecutorReservation};
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::error::BallistaError;
 use ballista_core::error::Result;
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
@@ -305,7 +305,7 @@ pub struct TaskManager<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
     drained: Arc<watch::Sender<()>>,
     check_drained: watch::Receiver<()>,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
@@ -382,7 +382,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         codec: BallistaCodec<T, U>,
         scheduler_id: String,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let launcher =
@@ -404,7 +404,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         scheduler_id: String,
         launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let (drained, check_drained) = watch::channel(());

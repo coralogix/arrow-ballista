@@ -19,6 +19,7 @@
 
 use std::{
     convert::TryInto,
+    sync::Arc,
     task::{Context, Poll},
 };
 
@@ -31,7 +32,7 @@ use arrow_flight::flight_service_client::FlightServiceClient;
 use arrow_flight::Ticket;
 use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use datafusion::error::DataFusionError;
-use tokio::time::Instant;
+use tokio::{sync::Semaphore, time::Instant};
 use tracing::info;
 
 use crate::serde::protobuf;
@@ -44,6 +45,48 @@ use prost::Message;
 // Set the max gRPC message size to 64 MiB. This is quite large
 // but we have to send execution plans over gRPC and they can be large.
 const MAX_GRPC_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct LimitedBallistaClient {
+    client: BallistaClient,
+    semaphore: Arc<Semaphore>,
+}
+
+impl LimitedBallistaClient {
+    pub async fn try_new(host: &str, port: u16, capacity: usize) -> Result<Self> {
+        let client = BallistaClient::try_new(host, port).await?;
+        let semaphore = Arc::new(Semaphore::const_new(capacity));
+        Ok(Self { client, semaphore })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fetch_partition(
+        &mut self,
+        executor_id: &str,
+        job_id: &str,
+        stage_id: usize,
+        output_partition: usize,
+        map_partitions: &[usize],
+        path: &str,
+        host: &str,
+        port: u16,
+    ) -> Result<SendableRecordBatchStream> {
+        let _ = self.semaphore.acquire().await.unwrap();
+
+        self.client
+            .fetch_partition(
+                executor_id,
+                job_id,
+                stage_id,
+                output_partition,
+                map_partitions,
+                path,
+                host,
+                port,
+            )
+            .await
+    }
+}
 
 /// Client for interacting with Ballista executors.
 #[derive(Clone, Debug)]

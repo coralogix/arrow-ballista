@@ -336,9 +336,7 @@ async fn setup_env(
         launcher,
         None,
         clients,
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     );
 
     server.init().await.unwrap();

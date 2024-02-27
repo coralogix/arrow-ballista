@@ -134,9 +134,7 @@ async fn main() -> Result<()> {
         config,
         None,
         clients,
-        Arc::new(ShuffleReaderExecOptions {
-            partition_fetch_parallelism: 50,
-        }),
+        Arc::new(ShuffleReaderExecOptions::default()),
     )
     .await?;
     Ok(())
