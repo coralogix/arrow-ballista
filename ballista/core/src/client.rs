@@ -23,11 +23,8 @@ use std::{
     task::{Context, Poll},
 };
 
+use crate::error::{BallistaError, Result};
 use crate::serde::scheduler::Action;
-use crate::{
-    error::{BallistaError, Result},
-    serde::scheduler::{ExecutorMetadata, PartitionLocation},
-};
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -62,23 +59,30 @@ impl LimitedBallistaClient {
         Ok(Self { client, semaphore })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn fetch_partition(
         &mut self,
-        metadata: &ExecutorMetadata,
-        location: &PartitionLocation,
+        executor_id: &str,
+        job_id: &str,
+        stage_id: usize,
+        output_partition: usize,
+        map_partitions: &[usize],
+        path: &str,
+        host: &str,
+        port: u16,
     ) -> Result<SendableRecordBatchStream> {
         let _ = self.semaphore.acquire().await.unwrap();
 
         self.client
             .fetch_partition(
-                &metadata.id,
-                &location.job_id,
-                location.stage_id,
-                location.output_partition,
-                &location.map_partitions,
-                &location.path,
-                &metadata.host,
-                metadata.port,
+                executor_id,
+                job_id,
+                stage_id,
+                output_partition,
+                map_partitions,
+                path,
+                host,
+                port,
             )
             .await
     }

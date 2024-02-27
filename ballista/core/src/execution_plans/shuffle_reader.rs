@@ -655,8 +655,18 @@ async fn fetch_partition_remote(
     let metadata = &location.executor_meta;
     let mut ballista_client =
         get_executor_client(clients, location, metadata, max_request_per_client).await?;
-
-    ballista_client.fetch_partition(metadata, location).await
+    ballista_client
+        .fetch_partition(
+            &metadata.id,
+            &location.job_id,
+            location.stage_id,
+            location.output_partition,
+            &location.map_partitions,
+            &location.path,
+            &metadata.host,
+            metadata.port,
+        )
+        .await
 }
 
 async fn fetch_partition_local(
