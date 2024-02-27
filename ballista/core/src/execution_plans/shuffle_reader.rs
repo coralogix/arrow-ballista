@@ -442,7 +442,6 @@ fn send_fetch_partitions_with_fallback(
                 .observe(now.elapsed().as_secs_f64());
             match result {
                 Ok(batch_stream) => permit.send(Ok(batch_stream)),
-
                 Err(error) => {
                     drop(permit);
                     warn!(
@@ -694,7 +693,7 @@ async fn fetch_partition_local_inner(
     let file = File::open(path).await.map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader = AsyncStreamReader::try_new(file.compat(), None)
+    let reader = AsyncStreamReader::try_new(file.compat(), None, "local".to_string())
         .await
         .map_err(|e| {
             BallistaError::General(format!(
@@ -748,14 +747,15 @@ pub async fn batch_stream_from_object_store(
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
-    let reader = AsyncStreamReader::try_new(async_reader, None)
-        .await
-        .map_err(|e| {
-            BallistaError::General(format!(
-                "Failed to build async partition reader - {:?}",
-                e
-            ))
-        })?;
+    let reader =
+        AsyncStreamReader::try_new(async_reader, None, "object_store".to_string())
+            .await
+            .map_err(|e| {
+                BallistaError::General(format!(
+                    "Failed to build async partition reader - {:?}",
+                    e
+                ))
+            })?;
     Ok(reader.to_stream())
 }
 

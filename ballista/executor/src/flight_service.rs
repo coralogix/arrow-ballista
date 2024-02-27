@@ -133,9 +133,10 @@ impl FlightService for BallistaFlightService {
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
-        let reader = AsyncStreamReader::try_new(file.compat(), None)
-            .await
-            .map_err(from_arrow_err)?;
+        let reader =
+            AsyncStreamReader::try_new(file.compat(), None, "flight".to_string())
+                .await
+                .map_err(from_arrow_err)?;
         let schema = reader.schema();
 
         let stream = reader.to_stream().map_err(|e| {

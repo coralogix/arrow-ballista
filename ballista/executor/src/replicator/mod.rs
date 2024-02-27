@@ -149,7 +149,9 @@ async fn load_file(
     path: &str,
 ) -> Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await?;
-    let reader = AsyncStreamReader::try_new(file.compat(), None).await?;
+    let reader =
+        AsyncStreamReader::try_new(file.compat(), None, "replication".to_string())
+            .await?;
 
     Ok(reader)
 }
