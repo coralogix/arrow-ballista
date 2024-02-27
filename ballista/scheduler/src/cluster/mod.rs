@@ -20,7 +20,7 @@ use std::fmt;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use clap::ArgEnum;
 use datafusion::config::Extensions;
 use datafusion::prelude::SessionContext;
@@ -118,7 +118,7 @@ impl BallistaCluster {
         codec: BallistaCodec<T, U>,
         default_extensions: Extensions,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Self {
         let kv_state = Arc::new(KeyValueState::new(
             scheduler,
@@ -138,7 +138,7 @@ impl BallistaCluster {
     pub async fn new_from_config(
         config: &SchedulerConfig,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Result<Self> {
         let scheduler = config.scheduler_name();
 

@@ -18,7 +18,7 @@
 use anyhow::{Context, Result};
 #[cfg(feature = "flight-sql")]
 use arrow_flight::flight_service_server::FlightServiceServer;
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use futures::future::{self, Either, TryFutureExt};
 use hyper::{server::conn::AddrStream, service::make_service_fn, Server};
@@ -51,7 +51,7 @@ pub async fn start_server(
     addr: SocketAddr,
     config: SchedulerConfig,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 ) -> Result<()> {
     info!(

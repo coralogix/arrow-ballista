@@ -18,7 +18,7 @@
 //! This crate contains code generated from the Ballista Protocol Buffer Definition as well
 //! as convenience code for interacting with the generated code.
 
-use crate::client::BallistaClient;
+use crate::client::LimitedBallistaClient;
 use crate::{error::BallistaError, serde::scheduler::Action as BallistaAction};
 
 use arrow_flight::sql::ProstMessageExt;
@@ -94,7 +94,7 @@ pub struct BallistaCodec<
 impl BallistaCodec {
     pub fn new_with_object_store_and_clients(
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Self {
         Self {
             logical_extension_codec: Arc::new(DefaultLogicalExtensionCodec {}),
@@ -133,13 +133,13 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> BallistaCodec<T, 
 #[derive(Debug, Clone)]
 pub struct BallistaPhysicalExtensionCodec {
     pub object_store: Option<Arc<dyn ObjectStore>>,
-    pub clients: Arc<Cache<String, BallistaClient>>,
+    pub clients: Arc<Cache<String, LimitedBallistaClient>>,
 }
 
 impl BallistaPhysicalExtensionCodec {
     pub fn new(
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Self {
         Self {
             object_store,

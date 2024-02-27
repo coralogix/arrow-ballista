@@ -20,7 +20,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::{
@@ -213,7 +213,7 @@ pub fn remove_unresolved_shuffles(
     stage: Arc<dyn ExecutionPlan>,
     partition_locations: &HashMap<usize, HashMap<usize, Vec<PartitionLocation>>>,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     options: Arc<ShuffleReaderExecOptions>,
 ) -> Result<Arc<dyn ExecutionPlan>> {
     let mut new_children: Vec<Arc<dyn ExecutionPlan>> = vec![];

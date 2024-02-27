@@ -654,9 +654,7 @@ filter_expr="]
             None,
             vec![],
             Arc::new(Cache::new(100)),
-            Arc::new(ShuffleReaderExecOptions {
-                partition_fetch_parallelism: 50,
-            }),
+            Arc::new(ShuffleReaderExecOptions::default()),
         )
     }
 
@@ -692,9 +690,7 @@ filter_expr="]
             None,
             vec![],
             Arc::new(Cache::new(100)),
-            Arc::new(ShuffleReaderExecOptions {
-                partition_fetch_parallelism: 50,
-            }),
+            Arc::new(ShuffleReaderExecOptions::default()),
         )
     }
 }

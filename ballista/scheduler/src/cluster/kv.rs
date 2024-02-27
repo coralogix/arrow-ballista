@@ -27,7 +27,7 @@ use crate::state::execution_graph::ExecutionGraph;
 use crate::state::executor_manager::ExecutorReservation;
 use crate::state::session_manager::create_datafusion_context;
 use async_trait::async_trait;
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::config::BallistaConfig;
 use ballista_core::error::{BallistaError, Result};
 use ballista_core::serde::protobuf::job_status::Status;
@@ -79,7 +79,7 @@ pub struct KeyValueState<
     /// Default datafusion config extensions
     default_extensions: Extensions,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
 }
 
 impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
@@ -92,7 +92,7 @@ impl<S: KeyValueStore, T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
         session_builder: SessionBuilder,
         default_extensions: Extensions,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Self {
         Self {
             store,

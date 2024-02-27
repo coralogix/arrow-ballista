@@ -21,7 +21,7 @@ use std::fmt::{Debug, Formatter};
 use std::iter::FromIterator;
 use std::sync::Arc;
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use datafusion::physical_optimizer::aggregate_statistics::AggregateStatistics;
 use datafusion::physical_optimizer::join_selection::JoinSelection;
@@ -140,7 +140,7 @@ pub(crate) struct UnresolvedStage {
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
 
-    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) clients: Arc<Cache<String, LimitedBallistaClient>>,
 
     pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
@@ -171,7 +171,7 @@ pub(crate) struct ResolvedStage {
     pub(crate) resolved_at: u64,
 
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
-    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) clients: Arc<Cache<String, LimitedBallistaClient>>,
     pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
@@ -208,7 +208,7 @@ pub(crate) struct RunningStage {
     /// Timestamp when then stage went into resolved state
     pub(crate) resolved_at: u64,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
-    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) clients: Arc<Cache<String, LimitedBallistaClient>>,
     pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
@@ -237,7 +237,7 @@ pub(crate) struct SuccessfulStage {
     /// Combined metrics of the already finished tasks in the stage.
     pub(crate) stage_metrics: Vec<MetricsSet>,
     pub(crate) object_store: Option<Arc<dyn ObjectStore>>,
-    pub(crate) clients: Arc<Cache<String, BallistaClient>>,
+    pub(crate) clients: Arc<Cache<String, LimitedBallistaClient>>,
     pub(crate) shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
 }
 
@@ -304,7 +304,7 @@ impl UnresolvedStage {
         output_links: Vec<usize>,
         child_stage_ids: Vec<usize>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let mut inputs: HashMap<usize, StageOutput> = HashMap::new();
@@ -336,7 +336,7 @@ impl UnresolvedStage {
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
@@ -453,7 +453,7 @@ impl UnresolvedStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Result<UnresolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -547,7 +547,7 @@ impl ResolvedStage {
         inputs: HashMap<usize, StageOutput>,
         last_attempt_failure_reasons: HashSet<String>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let partitions = plan.output_partitioning().partition_count();
@@ -609,7 +609,7 @@ impl ResolvedStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Result<ResolvedStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(
@@ -706,7 +706,7 @@ impl RunningStage {
         inputs: HashMap<usize, StageOutput>,
         resolved_at: u64,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
@@ -1073,7 +1073,7 @@ impl SuccessfulStage {
         codec: &BallistaCodec<T, U>,
         session_ctx: &SessionContext,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
     ) -> Result<SuccessfulStage> {
         let plan_proto = U::try_decode(&stage.plan)?;
         let plan = plan_proto.try_into_physical_plan(

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
 use ballista_core::warning_collector::WarningCollector;
 use datafusion::common::tree_node::{TreeNode, VisitRecursion};
@@ -120,9 +120,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
             SchedulerConfig::default(),
             object_store,
             Arc::new(Cache::new(100)),
-            Arc::new(ShuffleReaderExecOptions {
-                partition_fetch_parallelism: 50,
-            }),
+            Arc::new(ShuffleReaderExecOptions::default()),
         )
     }
 
@@ -134,7 +132,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         scheduler_version: String,
         config: SchedulerConfig,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
@@ -167,7 +165,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerState<T,
         config: SchedulerConfig,
         dispatcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
@@ -576,9 +574,7 @@ mod test {
                 Arc::new(BlackholeTaskLauncher::default()),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             ));
 
         let session_ctx = state

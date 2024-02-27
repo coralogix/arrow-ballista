@@ -56,9 +56,7 @@ pub async fn new_standalone_scheduler_with_codec(
             metrics_collector,
             None,
             Arc::new(Cache::new(100)),
-            Arc::new(ShuffleReaderExecOptions {
-                partition_fetch_parallelism: 50,
-            }),
+            Arc::new(ShuffleReaderExecOptions::default()),
         );
 
     scheduler_server.init().await?;

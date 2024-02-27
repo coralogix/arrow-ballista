@@ -19,11 +19,15 @@
 
 use std::{
     convert::TryInto,
+    sync::Arc,
     task::{Context, Poll},
 };
 
-use crate::error::{BallistaError, Result};
 use crate::serde::scheduler::Action;
+use crate::{
+    error::{BallistaError, Result},
+    serde::scheduler::{ExecutorMetadata, PartitionLocation},
+};
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -31,7 +35,7 @@ use arrow_flight::flight_service_client::FlightServiceClient;
 use arrow_flight::Ticket;
 use datafusion::arrow::{datatypes::SchemaRef, record_batch::RecordBatch};
 use datafusion::error::DataFusionError;
-use tokio::time::Instant;
+use tokio::{sync::Semaphore, time::Instant};
 use tracing::info;
 
 use crate::serde::protobuf;
@@ -44,6 +48,41 @@ use prost::Message;
 // Set the max gRPC message size to 64 MiB. This is quite large
 // but we have to send execution plans over gRPC and they can be large.
 const MAX_GRPC_MESSAGE_SIZE: usize = 64 * 1024 * 1024;
+
+#[derive(Clone, Debug)]
+pub struct LimitedBallistaClient {
+    client: BallistaClient,
+    semaphore: Arc<Semaphore>,
+}
+
+impl LimitedBallistaClient {
+    pub async fn try_new(host: &str, port: u16, capacity: usize) -> Result<Self> {
+        let client = BallistaClient::try_new(host, port).await?;
+        let semaphore = Arc::new(Semaphore::const_new(capacity));
+        Ok(Self { client, semaphore })
+    }
+
+    pub async fn fetch_partition(
+        &mut self,
+        metadata: &ExecutorMetadata,
+        location: &PartitionLocation,
+    ) -> Result<SendableRecordBatchStream> {
+        let _ = self.semaphore.acquire().await.unwrap();
+
+        self.client
+            .fetch_partition(
+                &metadata.id,
+                &location.job_id,
+                location.stage_id,
+                location.output_partition,
+                &location.map_partitions,
+                &location.path,
+                &metadata.host,
+                metadata.port,
+            )
+            .await
+    }
+}
 
 /// Client for interacting with Ballista executors.
 #[derive(Clone, Debug)]

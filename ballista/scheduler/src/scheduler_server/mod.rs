@@ -19,7 +19,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ballista_core::client::BallistaClient;
+use ballista_core::client::LimitedBallistaClient;
 use ballista_core::error::Result;
 use ballista_core::event_loop::{EventLoop, EventSender};
 use ballista_core::execution_plans::ShuffleReaderExecOptions;
@@ -85,7 +85,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         config: SchedulerConfig,
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new(
@@ -130,7 +130,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
         metrics_collector: Arc<dyn SchedulerMetricsCollector>,
         task_launcher: Arc<dyn TaskLauncher<T, U>>,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         shuffle_reader_options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         let state = Arc::new(SchedulerState::new_with_task_launcher(
@@ -800,9 +800,7 @@ mod test {
                 Arc::new(TestMetricsCollector::default()),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
 

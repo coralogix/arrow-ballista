@@ -38,7 +38,7 @@ use tokio::sync::mpsc::Receiver;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 use crate::async_reader::AsyncStreamReader;
-use crate::client::BallistaClient;
+use crate::client::LimitedBallistaClient;
 use crate::serde::protobuf::ShuffleReaderExecNodeOptions;
 use crate::serde::scheduler::{ExecutorMetadata, PartitionLocation, PartitionStats};
 
@@ -99,12 +99,14 @@ lazy_static! {
 #[derive(Debug, Clone)]
 pub struct ShuffleReaderExecOptions {
     pub partition_fetch_parallelism: usize,
+    pub max_request_per_client: usize,
 }
 
 impl From<&ShuffleReaderExecNodeOptions> for ShuffleReaderExecOptions {
     fn from(val: &ShuffleReaderExecNodeOptions) -> Self {
         ShuffleReaderExecOptions {
             partition_fetch_parallelism: val.partition_fetch_parallelism as usize,
+            max_request_per_client: val.max_request_per_client as usize,
         }
     }
 }
@@ -113,15 +115,16 @@ impl From<&ShuffleReaderExecOptions> for ShuffleReaderExecNodeOptions {
     fn from(val: &ShuffleReaderExecOptions) -> Self {
         Self {
             partition_fetch_parallelism: val.partition_fetch_parallelism as u32,
+            max_request_per_client: val.max_request_per_client as u32,
         }
     }
 }
 
-#[cfg(test)]
 impl Default for ShuffleReaderExecOptions {
     fn default() -> Self {
         Self {
             partition_fetch_parallelism: 50,
+            max_request_per_client: 8,
         }
     }
 }
@@ -136,7 +139,7 @@ pub struct ShuffleReaderExec {
     /// Execution metrics
     metrics: ExecutionPlanMetricsSet,
     object_store: Option<Arc<dyn ObjectStore>>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     pub options: Arc<ShuffleReaderExecOptions>,
 }
 
@@ -146,7 +149,7 @@ impl ShuffleReaderExec {
         partition: Vec<Vec<PartitionLocation>>,
         schema: SchemaRef,
         object_store: Option<Arc<dyn ObjectStore>>,
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
         options: Arc<ShuffleReaderExecOptions>,
     ) -> Self {
         Self {
@@ -376,7 +379,7 @@ fn send_fetch_partitions_with_fallback(
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
     object_store: Arc<dyn ObjectStore>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     options: &ShuffleReaderExecOptions,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) =
@@ -419,6 +422,7 @@ fn send_fetch_partitions_with_fallback(
 
     let (failed_partition_sender, mut failed_partition_receiver) = mpsc::channel(2);
     let sender_to_remote = response_sender.clone();
+    let max_request_per_client = options.max_request_per_client;
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
@@ -429,6 +433,7 @@ fn send_fetch_partitions_with_fallback(
             let failed_partition_sender = failed_partition_sender.clone();
             let result = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
+                max_request_per_client,
             }
             .fetch_partition(p)
             .await;
@@ -493,7 +498,7 @@ fn send_fetch_partitions(
     task_id: String,
     partition: usize,
     partition_locations: Vec<PartitionLocation>,
-    clients: Arc<Cache<String, BallistaClient>>,
+    clients: Arc<Cache<String, LimitedBallistaClient>>,
     options: &ShuffleReaderExecOptions,
 ) -> AbortableReceiverStream {
     let (response_sender, response_receiver) =
@@ -533,7 +538,7 @@ fn send_fetch_partitions(
             }
         }
     }));
-
+    let max_request_per_client = options.max_request_per_client;
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
@@ -543,6 +548,7 @@ fn send_fetch_partitions(
                 .inc();
             let r = PartitionReaderEnum::FlightRemote {
                 clients: clients.clone(),
+                max_request_per_client,
             }
             .fetch_partition(p)
             .await;
@@ -579,7 +585,8 @@ trait PartitionReader: Send + Sync + Clone {
 enum PartitionReaderEnum {
     Local,
     FlightRemote {
-        clients: Arc<Cache<String, BallistaClient>>,
+        clients: Arc<Cache<String, LimitedBallistaClient>>,
+        max_request_per_client: usize,
     },
     ObjectStoreRemote {
         object_store: Arc<dyn ObjectStore>,
@@ -595,8 +602,16 @@ impl PartitionReader for PartitionReaderEnum {
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
             PartitionReaderEnum::Local { .. } => fetch_partition_local(location).await,
-            PartitionReaderEnum::FlightRemote { clients } => {
-                fetch_partition_remote(location, clients.as_ref()).await
+            PartitionReaderEnum::FlightRemote {
+                clients,
+                max_request_per_client,
+            } => {
+                fetch_partition_remote(
+                    location,
+                    clients.as_ref(),
+                    *max_request_per_client,
+                )
+                .await
             }
             PartitionReaderEnum::ObjectStoreRemote { object_store } => {
                 fetch_partition_object_store(location, object_store.clone()).await
@@ -606,14 +621,19 @@ impl PartitionReader for PartitionReaderEnum {
 }
 
 async fn get_executor_client(
-    clients: &Cache<String, BallistaClient>,
+    clients: &Cache<String, LimitedBallistaClient>,
     location: &PartitionLocation,
     metadata: &ExecutorMetadata,
-) -> Result<BallistaClient, BallistaError> {
+    max_request_per_client: usize,
+) -> Result<LimitedBallistaClient, BallistaError> {
     clients
         .try_get_with_by_ref(
             &metadata.host,
-            BallistaClient::try_new(&metadata.host, metadata.port),
+            LimitedBallistaClient::try_new(
+                &metadata.host,
+                metadata.port,
+                max_request_per_client,
+            ),
         )
         .await
         .map_err(|error| match error.as_ref() {
@@ -629,23 +649,14 @@ async fn get_executor_client(
 
 async fn fetch_partition_remote(
     location: &PartitionLocation,
-    clients: &Cache<String, BallistaClient>,
+    clients: &Cache<String, LimitedBallistaClient>,
+    max_request_per_client: usize,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
-    let mut ballista_client = get_executor_client(clients, location, metadata).await?;
+    let mut ballista_client =
+        get_executor_client(clients, location, metadata, max_request_per_client).await?;
 
-    ballista_client
-        .fetch_partition(
-            &metadata.id,
-            &location.job_id,
-            location.stage_id,
-            location.output_partition,
-            &location.map_partitions,
-            &location.path,
-            &metadata.host,
-            metadata.port,
-        )
-        .await
+    ballista_client.fetch_partition(metadata, location).await
 }
 
 async fn fetch_partition_local(

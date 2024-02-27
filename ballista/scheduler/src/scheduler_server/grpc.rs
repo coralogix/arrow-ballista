@@ -764,9 +764,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
         let exec_meta = ExecutorRegistration {
@@ -873,9 +871,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
 
@@ -976,9 +972,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
 
@@ -1043,9 +1037,7 @@ mod test {
                 default_metrics_collector().unwrap(),
                 None,
                 Arc::new(Cache::new(100)),
-                Arc::new(ShuffleReaderExecOptions {
-                    partition_fetch_parallelism: 50,
-                }),
+                Arc::new(ShuffleReaderExecOptions::default()),
             );
         scheduler.init().await?;
 
