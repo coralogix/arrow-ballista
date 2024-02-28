@@ -22,8 +22,8 @@ use moka::future::Cache;
 use object_store::path::Path;
 use object_store::ObjectStore;
 use prometheus::{
-    register_histogram_vec, register_int_counter, register_int_counter_vec, HistogramVec,
-    IntCounter, IntCounterVec,
+    register_histogram, register_histogram_vec, register_int_counter,
+    register_int_counter_vec, Histogram, HistogramVec, IntCounter, IntCounterVec,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -77,6 +77,12 @@ lazy_static! {
             vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
         )
         .unwrap();
+    static ref SHUFFLE_READER_GET_CLIENT_LATENCY: Histogram = register_histogram!(
+        "ballista_shuffle_reader_get_client_latency",
+        "Get client latency in seconds",
+        vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
+    )
+    .unwrap();
     static ref SHUFFLE_READER_FETCH_PARTITION_TOTAL: IntCounterVec =
         register_int_counter_vec!(
             "ballista_shuffle_reader_fetch_partition_total",
@@ -652,8 +658,10 @@ async fn fetch_partition_remote(
     max_request_per_client: usize,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let metadata = &location.executor_meta;
+    let now = tokio::time::Instant::now();
     let mut ballista_client =
         get_executor_client(clients, location, metadata, max_request_per_client).await?;
+    SHUFFLE_READER_GET_CLIENT_LATENCY.observe(now.elapsed().as_secs_f64());
     ballista_client
         .fetch_partition(
             &metadata.id,
