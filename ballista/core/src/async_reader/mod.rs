@@ -306,10 +306,10 @@ impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
         BALLISTA_ASYNC_STREAM_READER_LATENCY
             .with_label_values(&[self.metrics.label.as_str()])
             .observe(self.metrics.started_at.elapsed().as_secs_f64());
-        BALLISTA_ASYNC_STREAM_READER_CAPACITY
+        BALLISTA_ASYNC_STREAM_NUM_ROWS
             .with_label_values(&[self.metrics.label.as_str()])
             .inc_by(self.metrics.num_rows as f64);
-        BALLISTA_ASYNC_STREAM_READER_SIZE
+        BALLISTA_ASYNC_STREAM_DATA_SIZE
             .with_label_values(&[self.metrics.label.as_str()])
             .inc_by(self.metrics.size as f64);
     }
