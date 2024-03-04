@@ -51,7 +51,7 @@ use lazy_static::lazy_static;
 use prometheus::{register_histogram, Histogram};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -72,6 +72,67 @@ lazy_static! {
         vec![0.1, 1., 2., 3., 4., 5., 10., 20., 30., 60., 120., 240.]
     )
     .unwrap();
+}
+
+#[derive(PartialEq, Eq)]
+struct ActiveJob {
+    id: String,
+    pass: usize,
+    tokens: usize,
+}
+
+impl ActiveJob {
+    pub fn update_pass(&mut self, scheduled_task_slots: usize) {
+        self.pass += scheduled_task_slots / self.tokens;
+    }
+}
+
+impl PartialOrd for ActiveJob {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.pass.cmp(&other.pass))
+    }
+}
+
+impl Ord for ActiveJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.pass.cmp(&other.pass)
+    }
+}
+
+struct TaskQueue {
+    queue: BinaryHeap<ActiveJob>,
+    jobs: ActiveJobCache,
+    global_pass: usize,
+    global_tokens: usize,
+}
+
+impl TaskQueue {
+    pub fn submit(&mut self, graph: ExecutionGraph, tokens: usize) {
+        let active_job = ActiveJob {
+            id: graph.job_id().to_owned(),
+            pass: self.global_pass,
+            tokens,
+        };
+
+        self.global_tokens += tokens;
+
+        self.queue.push(active_job);
+
+        self.jobs
+            .insert(graph.job_id().to_owned(), JobInfoCache::new(graph));
+    }
+
+    pub fn pop(&mut self) -> Option<(ActiveJob, JobInfoCache)> {
+        todo!()
+    }
+
+    pub fn push(&mut self, job: ActiveJob) {
+        self.queue.push(job);
+    }
+
+    pub fn update_global_pass(&mut self, scheduled_task_slots: usize) {
+        self.global_pass += scheduled_task_slots / self.global_tokens;
+    }
 }
 
 type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
