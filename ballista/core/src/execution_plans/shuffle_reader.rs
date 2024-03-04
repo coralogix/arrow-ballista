@@ -100,6 +100,13 @@ lazy_static! {
         "Number of saved remote fetch calls"
     )
     .unwrap();
+    static ref SHUFFLE_READER_FETCH_PARTTIONS_STREAM_LATENCY: Histogram =
+        register_histogram!(
+            "ballista_shuffle_reader_fetch_partitions_stream_latency",
+            "Fetch partitions stream latency in seconds",
+            vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 9.0, 20.0],
+        )
+        .unwrap();
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +341,7 @@ struct AbortableReceiverStream {
 
     task_id: String,
     partition: usize,
+    started_at: Instant,
 
     #[allow(dead_code)]
     drop_helper: AbortOnDropMany<()>,
@@ -353,6 +361,7 @@ impl AbortableReceiverStream {
             task_id,
             partition,
             drop_helper: AbortOnDropMany(join_handles),
+            started_at: Instant::now(),
         }
     }
 }
@@ -372,6 +381,8 @@ impl Stream for AbortableReceiverStream {
 
 impl Drop for AbortableReceiverStream {
     fn drop(&mut self) {
+        SHUFFLE_READER_FETCH_PARTTIONS_STREAM_LATENCY
+            .observe(self.started_at.elapsed().as_secs_f64());
         info!(
             task_id = self.task_id,
             partition = self.partition,
