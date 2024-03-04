@@ -34,15 +34,15 @@ lazy_static! {
             vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 5.0, 9.0, 20.0]
         )
         .unwrap();
-    static ref BALLISTA_ASYNC_STREAM_READER_CAPACITY: CounterVec = register_counter_vec!(
-        "ballista_async_stream_reader_capacity",
-        "Ballista async stream reader capacity",
+    static ref BALLISTA_ASYNC_STREAM_NUM_ROWS: CounterVec = register_counter_vec!(
+        "ballista_async_stream_num_rows",
+        "Number of rows emitted by ballista async stream reader",
         &["type"]
     )
     .unwrap();
-    static ref BALLISTA_ASYNC_STREAM_READER_SIZE: CounterVec = register_counter_vec!(
-        "ballista_async_stream_reader_size",
-        "Ballista async stream reader size",
+    static ref BALLISTA_ASYNC_STREAM_DATA_SIZE: CounterVec = register_counter_vec!(
+        "ballista_async_stream_reader_data_size",
+        "Total data size of batches emitted by ballista async stream reader",
         &["type"]
     )
     .unwrap();
