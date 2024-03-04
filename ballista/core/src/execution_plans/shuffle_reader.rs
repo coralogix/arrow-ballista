@@ -432,7 +432,10 @@ fn send_fetch_partitions_with_fallback(
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
-            let permit = sender_to_remote.reserve().await.unwrap();
+            let Ok(permit) = sender_to_remote.reserve().await else {
+                // receiver has been dropped so we can return here
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
@@ -475,7 +478,10 @@ fn send_fetch_partitions_with_fallback(
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
             let now = Instant::now();
-            let permit = response_sender.reserve().await.unwrap();
+            let Ok(permit) = response_sender.reserve().await else {
+                // receiver has been dropped so we can return here
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["object_store"])
                 .inc();
@@ -547,7 +553,11 @@ fn send_fetch_partitions(
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
-            let permit = response_sender.reserve().await.unwrap();
+            let Ok(permit) = response_sender.reserve().await else {
+                //receiver has been dropped so we can return
+                return;
+            };
+
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
