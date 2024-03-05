@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{collections::HashMap, fmt, mem::ManuallyDrop, sync::Arc};
 
 use async_stream::stream;
 use datafusion::{
@@ -21,7 +21,7 @@ use lazy_static::lazy_static;
 use prometheus::{
     register_counter_vec, register_histogram_vec, CounterVec, HistogramVec,
 };
-use tokio::time::Instant;
+use tokio::{sync::OwnedSemaphorePermit, time::Instant};
 
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
 
@@ -87,6 +87,7 @@ pub struct AsyncStreamReader<R: AsyncRead + Unpin + Send> {
     /// Optional projection
     projection: Option<(Vec<usize>, Schema)>,
     metrics: AsyncStreamReaderMetrics,
+    permit: ManuallyDrop<OwnedSemaphorePermit>,
 }
 
 impl<R: AsyncRead + Unpin + Send> fmt::Debug for AsyncStreamReader<R> {
@@ -109,6 +110,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
         mut reader: R,
         projection: Option<Vec<usize>>,
         label: String,
+        permit: OwnedSemaphorePermit,
     ) -> Result<AsyncStreamReader<R>, ArrowError> {
         // determine metadata length
         let mut meta_size: [u8; 4] = [0; 4];
@@ -152,6 +154,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
             dictionaries_by_id,
             projection,
             metrics,
+            permit: ManuallyDrop::new(permit),
         })
     }
 
@@ -296,8 +299,9 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<BufReader<R>> {
         reader: R,
         projection: Option<Vec<usize>>,
         label: String,
+        permit: OwnedSemaphorePermit,
     ) -> Result<Self, ArrowError> {
-        Self::try_new_unbuffered(BufReader::new(reader), projection, label).await
+        Self::try_new_unbuffered(BufReader::new(reader), projection, label, permit).await
     }
 }
 
@@ -312,6 +316,7 @@ impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
         BALLISTA_ASYNC_STREAM_DATA_SIZE
             .with_label_values(&[self.metrics.label.as_str()])
             .inc_by(self.metrics.size as f64);
+        unsafe { ManuallyDrop::drop(&mut self.permit) }
     }
 }
 
@@ -329,22 +334,24 @@ mod tests {
 
     #[tokio::test]
     async fn load_shuffle_file_a_lot() -> Result<(), DatafusionError> {
+        let semaphore = Arc::new(Semaphore::new(100));
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push("tests/data.arrow");
         let mut handles = Vec::with_capacity(1000);
-        let semaphore = Arc::new(Semaphore::new(1000));
         for _ in 0..1000 {
             let path = path.clone();
             let sem = semaphore.clone();
             handles.push(tokio::spawn(async move {
-                let permit = sem.acquire().await.unwrap();
                 let file = File::open(path).await.unwrap();
-                let reader =
-                    AsyncStreamReader::try_new(file.compat(), None, "test".to_string())
-                        .await
-                        .unwrap();
+                let reader = AsyncStreamReader::try_new(
+                    file.compat(),
+                    None,
+                    "test".to_string(),
+                    sem.clone().acquire_owned().await.unwrap(),
+                )
+                .await
+                .unwrap();
                 let mut stream = reader.to_stream();
-                drop(permit);
                 let result = utils::collect_stream(&mut stream).await.unwrap();
                 !result.is_empty()
             }))

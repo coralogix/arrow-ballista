@@ -129,12 +129,12 @@ impl FlightService for BallistaFlightService {
             executor_id = self.executor_id,
             job_id, stage_id, partition, path, "fetching shuffle partition"
         );
-        let _ = self.semaphore.acquire().await.unwrap();
+        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
         let reader =
-            AsyncStreamReader::try_new(file.compat(), None, "flight".to_string())
+            AsyncStreamReader::try_new(file.compat(), None, "flight".to_string(), permit)
                 .await
                 .map_err(from_arrow_err)?;
         let schema = reader.schema();
