@@ -739,8 +739,7 @@ async fn fetch_partition_local(
         )
     })?;
 
-    let stream = reader.to_stream();
-    Ok(PermitRecordBatchStream::wrap(stream, permit))
+    Ok(PermitRecordBatchStream::wrap(reader.to_stream(), permit))
 }
 
 async fn fetch_partition_local_inner(
@@ -815,8 +814,7 @@ pub async fn batch_stream_from_object_store(
                     e
                 ))
             })?;
-    let stream = reader.to_stream();
-    Ok(PermitRecordBatchStream::wrap(stream, permit))
+    Ok(PermitRecordBatchStream::wrap(reader.to_stream(), permit))
 }
 
 #[cfg(test)]
