@@ -16,7 +16,7 @@ use prometheus::{
     register_histogram, register_int_counter_vec, Histogram, IntCounterVec,
 };
 use tokio::io::AsyncWriteExt;
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Semaphore;
 use tokio::{fs::File, sync::mpsc};
 use tracing::{info, warn};
 
@@ -102,7 +102,7 @@ impl Replicator {
             created,
         }) = self.receiver.recv().await
         {
-            let permit = self.semaphore.clone().acquire_owned().await.unwrap();
+            let _ = self.semaphore.acquire().await.unwrap();
             let executor_id = self.executor_id.as_str();
             PROCESSED_FILES.with_label_values(&["total"]).inc();
             let destination = format!("{}{}", executor_id, path);
@@ -110,7 +110,7 @@ impl Replicator {
             info!(executor_id, job_id, destination, path, "Start replication");
 
             match Path::parse(destination) {
-                Ok(dest) => match load_file(path.as_str(), permit).await {
+                Ok(dest) => match load_file(path.as_str()).await {
                     Ok(reader) => {
                         replicate_to_object_store(
                             created,
@@ -147,16 +147,11 @@ impl Replicator {
 
 async fn load_file(
     path: &str,
-    permit: OwnedSemaphorePermit,
 ) -> Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await?;
-    let reader = AsyncStreamReader::try_new(
-        file.compat(),
-        None,
-        "replication".to_string(),
-        permit,
-    )
-    .await?;
+    let reader =
+        AsyncStreamReader::try_new(file.compat(), None, "replication".to_string())
+            .await?;
 
     Ok(reader)
 }
@@ -446,7 +441,6 @@ mod tests {
 
     #[tokio::test]
     async fn load_from_local() -> Result<()> {
-        let sem = Arc::new(tokio::sync::Semaphore::new(1));
         let tmp_dir = TempDir::new().unwrap();
         let file = tmp_dir.path().join("1.data");
         let file_path = file.to_str().unwrap();
@@ -473,9 +467,7 @@ mod tests {
             .unwrap();
 
         assert!(stats.num_batches().unwrap() == 1);
-        let mut reader = load_file(file_path, sem.clone().acquire_owned().await.unwrap())
-            .await
-            .unwrap();
+        let mut reader = load_file(file_path).await.unwrap();
 
         let actual_batch = reader.maybe_next().await.unwrap().unwrap();
         assert_eq!(actual_batch, batch);
@@ -487,7 +479,6 @@ mod tests {
 
     #[tokio::test]
     async fn upload_to_object_store() -> Result<()> {
-        let sem = Arc::new(tokio::sync::Semaphore::new(1));
         let tmp_dir = TempDir::new().unwrap();
         let file = tmp_dir.path().join("1.data");
         let file_path = file.to_str().unwrap();
@@ -515,9 +506,7 @@ mod tests {
             .unwrap();
 
         assert!(stats.num_batches().unwrap() == 1);
-        let reader = load_file(file_path, sem.clone().acquire_owned().await.unwrap())
-            .await
-            .unwrap();
+        let reader = load_file(file_path).await.unwrap();
         let destination: Path = Path::parse("2.data").unwrap();
         replicate_to_object_store(
             Instant::now(),

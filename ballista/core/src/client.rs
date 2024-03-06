@@ -26,7 +26,7 @@ use std::{
 use crate::serde::scheduler::Action;
 use crate::{
     error::{BallistaError, Result},
-    execution_plans::PermitRecordBatchStream,
+    permit_stream::PermitRecordBatchStream,
 };
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};

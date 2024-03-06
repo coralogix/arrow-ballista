@@ -15,10 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use arrow::array::RecordBatch;
 use async_trait::async_trait;
 use datafusion::common::stats::Precision;
-use datafusion::execution::RecordBatchStream;
 use futures::io::BufReader;
 use moka::future::Cache;
 use object_store::path::Path;
@@ -41,6 +39,7 @@ use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
 use crate::async_reader::AsyncStreamReader;
 use crate::client::LimitedBallistaClient;
+use crate::permit_stream::PermitRecordBatchStream;
 use crate::serde::protobuf::ShuffleReaderExecNodeOptions;
 use crate::serde::scheduler::{ExecutorMetadata, PartitionLocation, PartitionStats};
 
@@ -733,36 +732,33 @@ async fn fetch_partition_local(
     let path = &location.path;
     let metadata = &location.executor_meta;
 
-    let reader = fetch_partition_local_inner(path, permit)
-        .await
-        .map_err(|e| {
-            // return BallistaError::FetchFailed may let scheduler retry this task.
-            BallistaError::FetchFailed(
-                metadata.id.clone(),
-                location.stage_id,
-                location.map_partitions.clone(),
-                e.to_string(),
-            )
-        })?;
+    let reader = fetch_partition_local_inner(path).await.map_err(|e| {
+        // return BallistaError::FetchFailed may let scheduler retry this task.
+        BallistaError::FetchFailed(
+            metadata.id.clone(),
+            location.stage_id,
+            location.map_partitions.clone(),
+            e.to_string(),
+        )
+    })?;
 
-    Ok(reader.to_stream())
+    let stream = reader.to_stream();
+    Ok(PermitRecordBatchStream::wrap(stream, permit))
 }
 
 async fn fetch_partition_local_inner(
     path: &str,
-    permit: tokio::sync::OwnedSemaphorePermit,
 ) -> result::Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await.map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader =
-        AsyncStreamReader::try_new(file.compat(), None, "local".to_string(), permit)
-            .await
-            .map_err(|e| {
-                BallistaError::General(format!(
-                    "Failed to new arrow StreamReader at {path}: {e:?}"
-                ))
-            })?;
+    let reader = AsyncStreamReader::try_new(file.compat(), None, "local".to_string())
+        .await
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to new arrow StreamReader at {path}: {e:?}"
+            ))
+        })?;
     Ok(reader)
 }
 
@@ -813,57 +809,17 @@ pub async fn batch_stream_from_object_store(
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
-    let reader = AsyncStreamReader::try_new(
-        async_reader,
-        None,
-        "object_store".to_string(),
-        permit,
-    )
-    .await
-    .map_err(|e| {
-        BallistaError::General(format!(
-            "Failed to build async partition reader - {:?}",
-            e
-        ))
-    })?;
-    Ok(reader.to_stream())
-}
-
-pub struct PermitRecordBatchStream {
-    inner: SendableRecordBatchStream,
-
-    #[allow(dead_code)]
-    permit: tokio::sync::OwnedSemaphorePermit,
-}
-
-impl PermitRecordBatchStream {
-    pub fn new(
-        inner: SendableRecordBatchStream,
-        permit: tokio::sync::OwnedSemaphorePermit,
-    ) -> Self {
-        Self { permit, inner }
-    }
-}
-
-impl Stream for PermitRecordBatchStream {
-    type Item = Result<RecordBatch, DataFusionError>;
-
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        match self.inner.poll_next_unpin(cx) {
-            Poll::Ready(Some(batch)) => Poll::Ready(Some(batch)),
-            Poll::Ready(None) => Poll::Ready(None),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-impl RecordBatchStream for PermitRecordBatchStream {
-    fn schema(&self) -> SchemaRef {
-        self.inner.schema()
-    }
+    let reader =
+        AsyncStreamReader::try_new(async_reader, None, "object_store".to_string())
+            .await
+            .map_err(|e| {
+                BallistaError::General(format!(
+                    "Failed to build async partition reader - {:?}",
+                    e
+                ))
+            })?;
+    let stream = reader.to_stream();
+    Ok(PermitRecordBatchStream::wrap(stream, permit))
 }
 
 #[cfg(test)]
@@ -1013,7 +969,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_read_local_shuffle() {
-        let semaphore = Arc::new(Semaphore::new(1));
         let session_ctx = SessionContext::new();
         let task_ctx = session_ctx.task_ctx();
         let work_dir = TempDir::new().unwrap();
@@ -1042,12 +997,7 @@ mod tests {
 
         // from to input partitions test the first one with two batches
         let file_path = path.value(0);
-        let reader = fetch_partition_local_inner(
-            file_path,
-            semaphore.clone().acquire_owned().await.unwrap(),
-        )
-        .await
-        .unwrap();
+        let reader = fetch_partition_local_inner(file_path).await.unwrap();
 
         let mut stream: SendableRecordBatchStream = reader.to_stream();
 
