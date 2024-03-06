@@ -622,7 +622,7 @@ fn check_is_local_location(location: &PartitionLocation) -> bool {
 trait PartitionReader: Send + Sync {
     // Read partition data from PartitionLocation
     async fn fetch_partition(
-        self,
+        &self,
         location: &PartitionLocation,
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> result::Result<SendableRecordBatchStream, BallistaError>;
@@ -643,7 +643,7 @@ enum PartitionReaderEnum {
 impl PartitionReader for PartitionReaderEnum {
     // Notice return `BallistaError::FetchFailed` will let scheduler re-schedule the task.
     async fn fetch_partition(
-        self,
+        &self,
         location: &PartitionLocation,
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
@@ -656,7 +656,7 @@ impl PartitionReader for PartitionReaderEnum {
                 fetch_partition_remote(
                     location,
                     clients.as_ref(),
-                    max_request_per_client,
+                    *max_request_per_client,
                     permit,
                 )
                 .await
