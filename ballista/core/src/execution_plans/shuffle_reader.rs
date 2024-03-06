@@ -421,7 +421,9 @@ fn send_fetch_partitions_with_fallback(
     join_handles.push(tokio::spawn(async move {
         for p in local_locations.iter() {
             let now = Instant::now();
-            let permit = local_semaphore.clone().acquire_owned().await.unwrap();
+            let Ok(permit) = local_semaphore.clone().acquire_owned().await else {
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
@@ -448,7 +450,9 @@ fn send_fetch_partitions_with_fallback(
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
-            let permit = remote_semaphore.clone().acquire_owned().await.unwrap();
+            let Ok(permit) = remote_semaphore.clone().acquire_owned().await else {
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();
@@ -499,7 +503,9 @@ fn send_fetch_partitions_with_fallback(
     join_handles.push(tokio::spawn(async move {
         while let Some(partition) = failed_partition_receiver.recv().await {
             let now = Instant::now();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["object_store"])
                 .inc();
@@ -558,7 +564,9 @@ fn send_fetch_partitions(
     join_handles.push(tokio::spawn(async move {
         for p in local_locations.iter() {
             let now = Instant::now();
-            let permit = local_semaphore.clone().acquire_owned().await.unwrap();
+            let Ok(permit) = local_semaphore.clone().acquire_owned().await else {
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
@@ -581,7 +589,9 @@ fn send_fetch_partitions(
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
-            let permit = semaphore.clone().acquire_owned().await.unwrap();
+            let Ok(permit) = semaphore.clone().acquire_owned().await else {
+                return;
+            };
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["remote"])
                 .inc();

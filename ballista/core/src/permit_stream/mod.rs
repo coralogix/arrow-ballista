@@ -17,8 +17,7 @@ pub struct PermitRecordBatchStream {
     on_close: Option<Box<dyn Fn(f64) + Send + 'static>>,
 
     // used to release a permit when the stream is dropped
-    #[allow(dead_code)]
-    permit: tokio::sync::OwnedSemaphorePermit,
+    _permit: tokio::sync::OwnedSemaphorePermit,
 }
 
 impl PermitRecordBatchStream {
@@ -28,7 +27,7 @@ impl PermitRecordBatchStream {
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> Self {
         Self {
-            permit,
+            _permit: permit,
             inner,
             on_close,
             started_at: Instant::now(),
