@@ -90,7 +90,7 @@ impl LimitedBallistaClient {
             )
             .await?;
 
-        Ok(Box::pin(PermitRecordBatchStream::new(stream, permit)))
+        Ok(PermitRecordBatchStream::wrap(stream, permit))
     }
 }
 

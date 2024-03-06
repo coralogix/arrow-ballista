@@ -719,7 +719,15 @@ async fn fetch_partition_remote(
         )
         .await?;
 
-    Ok(PermitRecordBatchStream::wrap(stream, permit))
+    Ok(PermitRecordBatchStream::wrap_with_on_close(
+        stream,
+        Some(Box::new(|elapsed: f64| {
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["remote"])
+                .observe(elapsed);
+        })),
+        permit,
+    ))
 }
 
 async fn fetch_partition_local(
@@ -739,7 +747,15 @@ async fn fetch_partition_local(
         )
     })?;
 
-    Ok(PermitRecordBatchStream::wrap(reader.to_stream(), permit))
+    Ok(PermitRecordBatchStream::wrap_with_on_close(
+        reader.to_stream(),
+        Some(Box::new(|elapsed: f64| {
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["local"])
+                .observe(elapsed);
+        })),
+        permit,
+    ))
 }
 
 async fn fetch_partition_local_inner(
@@ -814,7 +830,15 @@ pub async fn batch_stream_from_object_store(
                     e
                 ))
             })?;
-    Ok(PermitRecordBatchStream::wrap(reader.to_stream(), permit))
+    Ok(PermitRecordBatchStream::wrap_with_on_close(
+        reader.to_stream(),
+        Some(Box::new(|elapsed: f64| {
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["object_store"])
+                .observe(elapsed);
+        })),
+        permit,
+    ))
 }
 
 #[cfg(test)]
