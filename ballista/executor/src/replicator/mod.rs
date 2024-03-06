@@ -526,7 +526,6 @@ mod tests {
 
     #[tokio::test]
     async fn load_from_object_store() -> Result<()> {
-        let sem = Arc::new(tokio::sync::Semaphore::new(1));
         let schema = Arc::new(Schema::new(vec![
             Field::new("a", DataType::UInt32, true),
             Field::new("b", DataType::Utf8, true),
@@ -553,7 +552,6 @@ mod tests {
             0,
             &[],
             object_store,
-            sem.clone().acquire_owned().await.unwrap(),
         )
         .await?;
 

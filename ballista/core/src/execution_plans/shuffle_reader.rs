@@ -779,6 +779,22 @@ pub async fn fetch_partition_object_store(
     object_store: Arc<dyn ObjectStore>,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
+    let stream = fetch_partition_object_store_inner(location, object_store).await?;
+    Ok(PermitRecordBatchStream::wrap_with_on_close(
+        stream,
+        Some(Box::new(|elapsed: f64| {
+            SHUFFLE_READER_FETCH_PARTITION_LATENCY
+                .with_label_values(&["object_store"])
+                .observe(elapsed);
+        })),
+        permit,
+    ))
+}
+
+pub async fn fetch_partition_object_store_inner(
+    location: &PartitionLocation,
+    object_store: Arc<dyn ObjectStore>,
+) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let executor_id = location.executor_meta.id.clone();
     let path = Path::parse(format!("{}{}", executor_id, location.path)).map_err(|e| {
         BallistaError::General(format!("Failed to parse partition location - {:?}", e))
@@ -790,7 +806,6 @@ pub async fn fetch_partition_object_store(
         location.stage_id,
         &location.map_partitions,
         object_store,
-        permit,
     )
     .await
 }
@@ -801,7 +816,6 @@ pub async fn batch_stream_from_object_store(
     stage_id: usize,
     map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
-    permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let stream = object_store
         .as_ref()
@@ -830,15 +844,7 @@ pub async fn batch_stream_from_object_store(
                     e
                 ))
             })?;
-    Ok(PermitRecordBatchStream::wrap_with_on_close(
-        reader.to_stream(),
-        Some(Box::new(|elapsed: f64| {
-            SHUFFLE_READER_FETCH_PARTITION_LATENCY
-                .with_label_values(&["object_store"])
-                .observe(elapsed);
-        })),
-        permit,
-    ))
+    Ok(reader.to_stream())
 }
 
 #[cfg(test)]
