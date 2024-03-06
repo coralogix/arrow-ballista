@@ -719,10 +719,7 @@ async fn fetch_partition_remote(
         )
         .await?;
 
-    Ok(Box::pin(RecordBatchStreamAdapter::new(
-        stream.schema(),
-        PermitRecordBatchStream::new(stream, permit),
-    )))
+    Ok(PermitRecordBatchStream::wrap(stream, permit))
 }
 
 async fn fetch_partition_local(

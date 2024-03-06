@@ -139,8 +139,7 @@ impl FlightService for BallistaFlightService {
                 .await
                 .map_err(from_arrow_err)?;
         let schema = reader.schema();
-        let stream = reader.to_stream();
-        let permit_stream = PermitRecordBatchStream::wrap(stream, permit);
+        let permit_stream = PermitRecordBatchStream::wrap(reader.to_stream(), permit);
         let stream = permit_stream.map_err(|e| {
             FlightError::Tonic(Status::internal(format!("Cannot process batch: {:?}", e)))
         });
