@@ -54,6 +54,16 @@ pub enum Type {
     ObjectStore(String),
 }
 
+impl Type {
+    pub fn labels(&self) -> Vec<&str> {
+        match self {
+            Type::Local(ref s) => vec![s, "local"],
+            Type::Remote(ref s) => vec![s, "remote"],
+            Type::ObjectStore(ref s) => vec![s, "object_store"],
+        }
+    }
+}
+
 pub struct AsyncStreamReaderOptions {
     pub tpe: Type,
     pub memory_limit_mb: usize,
@@ -64,22 +74,6 @@ impl AsyncStreamReaderOptions {
         Self {
             tpe,
             memory_limit_mb,
-        }
-    }
-}
-
-pub struct AsyncStreamReaderMetrics {
-    pub started_at: Instant,
-    pub num_rows: usize,
-    pub size: usize,
-}
-
-impl Default for AsyncStreamReaderMetrics {
-    fn default() -> Self {
-        Self {
-            started_at: Instant::now(),
-            num_rows: 0,
-            size: 0,
         }
     }
 }
@@ -104,7 +98,7 @@ pub struct AsyncStreamReader<R: AsyncRead + Unpin + Send> {
 
     /// Optional projection
     projection: Option<(Vec<usize>, Schema)>,
-    metrics: AsyncStreamReaderMetrics,
+    started_at: Instant,
     tpe: Type,
     memory_limit_mb: Arc<Semaphore>,
 }
@@ -170,7 +164,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
             finished: false,
             dictionaries_by_id,
             projection,
-            metrics: AsyncStreamReaderMetrics::default(),
+            started_at: Instant::now(),
             tpe: options.tpe,
             memory_limit_mb: Arc::new(Semaphore::new(options.memory_limit_mb)),
         })
@@ -253,8 +247,13 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
                 self.reader.read_exact(&mut buf).await?;
 
                 let batch = read_record_batch(&buf.into(), batch, self.schema(), &self.dictionaries_by_id, self.projection.as_ref().map(|x| x.0.as_ref()), &message.version())?;
-                self.metrics.num_rows += batch.num_rows();
-                self.metrics.size += batch.get_array_memory_size();
+                let labels = self.tpe.labels();
+                BALLISTA_ASYNC_STREAM_NUM_ROWS
+                    .with_label_values(&labels)
+                    .inc_by(batch.num_rows() as f64);
+                BALLISTA_ASYNC_STREAM_DATA_SIZE
+                    .with_label_values(&labels)
+                    .inc_by(batch.get_array_memory_size() as f64);
                 Ok(Some(batch))
             }
             MessageHeader::DictionaryBatch => {
@@ -330,20 +329,9 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<BufReader<R>> {
 
 impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
     fn drop(&mut self) {
-        let label: Vec<&str> = match self.tpe {
-            Type::Local(ref s) => vec![s, "local"],
-            Type::Remote(ref s) => vec![s, "remote"],
-            Type::ObjectStore(ref s) => vec![s, "object_store"],
-        };
         BALLISTA_ASYNC_STREAM_READER_LATENCY
-            .with_label_values(&label)
-            .observe(self.metrics.started_at.elapsed().as_secs_f64());
-        BALLISTA_ASYNC_STREAM_NUM_ROWS
-            .with_label_values(&label)
-            .inc_by(self.metrics.num_rows as f64);
-        BALLISTA_ASYNC_STREAM_DATA_SIZE
-            .with_label_values(&label)
-            .inc_by(self.metrics.size as f64);
+            .with_label_values(&self.tpe.labels())
+            .observe(self.started_at.elapsed().as_secs_f64());
     }
 }
 
