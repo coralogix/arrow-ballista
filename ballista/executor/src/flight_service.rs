@@ -28,7 +28,7 @@ use ballista_core::permit_stream::PermitRecordBatchStream;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
 
-use arrow_flight::encode::FlightDataEncoderBuilder;
+use arrow_flight::encode::{DictionaryHandling, FlightDataEncoderBuilder};
 use arrow_flight::error::FlightError;
 use arrow_flight::{
     flight_service_server::FlightService, Action, ActionType, Criteria, Empty,
@@ -150,6 +150,8 @@ impl FlightService for BallistaFlightService {
         let flight_data_stream = FlightDataEncoderBuilder::new()
             .with_max_flight_data_size(self.max_message_size)
             .with_schema(schema)
+            // this must use `Resend` to handle dictionaries correctly
+            .with_dictionary_handling(DictionaryHandling::Resend)
             .with_options(write_options)
             .build(stream)
             .map_err(|err| Status::from_error(Box::new(err)));
