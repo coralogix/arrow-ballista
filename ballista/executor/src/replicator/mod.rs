@@ -63,12 +63,14 @@ lazy_static! {
 
 pub struct ReplicatorOptions {
     pub max_open_files: usize,
+    pub memory_limit: usize,
 }
 
 impl Default for ReplicatorOptions {
     fn default() -> Self {
         Self {
-            max_open_files: 1024,
+            max_open_files: 64,
+            memory_limit: 1024,
         }
     }
 }
@@ -77,6 +79,7 @@ pub struct Replicator {
     executor_id: String,
     object_store: Arc<dyn ObjectStore>,
     receiver: mpsc::Receiver<Command>,
+    memory_limit: usize,
     semaphore: Arc<Semaphore>,
 }
 
@@ -91,6 +94,7 @@ impl Replicator {
             executor_id,
             object_store,
             receiver,
+            memory_limit: options.memory_limit,
             semaphore: Arc::new(Semaphore::const_new(options.max_open_files)),
         }
     }
@@ -110,7 +114,7 @@ impl Replicator {
             info!(executor_id, job_id, destination, path, "Start replication");
 
             match Path::parse(destination) {
-                Ok(dest) => match load_file(path.as_str()).await {
+                Ok(dest) => match load_file(path.as_str(), self.memory_limit).await {
                     Ok(reader) => {
                         replicate_to_object_store(
                             created,
@@ -147,10 +151,13 @@ impl Replicator {
 
 async fn load_file(
     path: &str,
+    memory_limit: usize,
 ) -> Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await?;
-    let options =
-        AsyncStreamReaderOptions::new(Type::Local("replicator".to_string()), 1024); // 1gb
+    let options = AsyncStreamReaderOptions::new(
+        Type::Local("replicator".to_string()),
+        memory_limit,
+    ); // 1gb
     let reader = AsyncStreamReader::try_new(file.compat(), None, options).await?;
 
     Ok(reader)
@@ -467,7 +474,7 @@ mod tests {
             .unwrap();
 
         assert!(stats.num_batches().unwrap() == 1);
-        let mut reader = load_file(file_path).await.unwrap();
+        let mut reader = load_file(file_path, 1024).await.unwrap();
 
         let actual_batch = reader.maybe_next().await.unwrap().unwrap();
         assert_eq!(actual_batch, batch);
@@ -506,7 +513,7 @@ mod tests {
             .unwrap();
 
         assert!(stats.num_batches().unwrap() == 1);
-        let reader = load_file(file_path).await.unwrap();
+        let reader = load_file(file_path, 1024).await.unwrap();
         let destination: Path = Path::parse("2.data").unwrap();
         replicate_to_object_store(
             Instant::now(),
