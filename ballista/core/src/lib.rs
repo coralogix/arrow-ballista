@@ -29,6 +29,7 @@ pub mod config;
 pub mod error;
 pub mod event_loop;
 pub mod execution_plans;
+pub mod permit_stream;
 pub mod physical_optimizer;
 /// some plugins
 

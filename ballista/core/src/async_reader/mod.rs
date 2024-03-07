@@ -18,7 +18,9 @@ use datafusion::{
 };
 use futures::{future::BoxFuture, io::BufReader, AsyncBufRead, AsyncRead, AsyncReadExt};
 use lazy_static::lazy_static;
-use prometheus::{register_histogram_vec, HistogramVec};
+use prometheus::{
+    register_counter_vec, register_histogram_vec, CounterVec, HistogramVec,
+};
 use tokio::time::Instant;
 
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
@@ -32,6 +34,36 @@ lazy_static! {
             vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 5.0, 9.0, 20.0]
         )
         .unwrap();
+    static ref BALLISTA_ASYNC_STREAM_NUM_ROWS: CounterVec = register_counter_vec!(
+        "ballista_async_stream_num_rows",
+        "Number of rows emitted by ballista async stream reader",
+        &["type"]
+    )
+    .unwrap();
+    static ref BALLISTA_ASYNC_STREAM_DATA_SIZE: CounterVec = register_counter_vec!(
+        "ballista_async_stream_reader_data_size",
+        "Total data size of batches emitted by ballista async stream reader",
+        &["type"]
+    )
+    .unwrap();
+}
+
+pub struct AsyncStreamReaderMetrics {
+    pub label: String,
+    pub started_at: Instant,
+    pub num_rows: usize,
+    pub size: usize,
+}
+
+impl AsyncStreamReaderMetrics {
+    pub fn new(label: String) -> Self {
+        Self {
+            label,
+            started_at: Instant::now(),
+            num_rows: 0,
+            size: 0,
+        }
+    }
 }
 
 /// Arrow Stream reader
@@ -54,8 +86,7 @@ pub struct AsyncStreamReader<R: AsyncRead + Unpin + Send> {
 
     /// Optional projection
     projection: Option<(Vec<usize>, Schema)>,
-    started_at: Instant,
-    label: String,
+    metrics: AsyncStreamReaderMetrics,
 }
 
 impl<R: AsyncRead + Unpin + Send> fmt::Debug for AsyncStreamReader<R> {
@@ -113,14 +144,14 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
             }
             _ => None,
         };
+        let metrics = AsyncStreamReaderMetrics::new(label.clone());
         Ok(Self {
             reader,
             schema: Arc::new(schema),
             finished: false,
             dictionaries_by_id,
             projection,
-            started_at: Instant::now(),
-            label,
+            metrics,
         })
     }
 
@@ -194,7 +225,10 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
                 let mut buf = MutableBuffer::from_len_zeroed(message.bodyLength() as usize);
                 self.reader.read_exact(&mut buf).await?;
 
-                read_record_batch(&buf.into(), batch, self.schema(), &self.dictionaries_by_id, self.projection.as_ref().map(|x| x.0.as_ref()), &message.version()).map(Some)
+                let batch = read_record_batch(&buf.into(), batch, self.schema(), &self.dictionaries_by_id, self.projection.as_ref().map(|x| x.0.as_ref()), &message.version())?;
+                self.metrics.num_rows += batch.num_rows();
+                self.metrics.size += batch.get_array_memory_size();
+                Ok(Some(batch))
             }
             MessageHeader::DictionaryBatch => {
                 let batch = message.header_as_dictionary_batch().ok_or_else(|| {
@@ -270,8 +304,14 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<BufReader<R>> {
 impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
     fn drop(&mut self) {
         BALLISTA_ASYNC_STREAM_READER_LATENCY
-            .with_label_values(&[self.label.as_str()])
-            .observe(self.started_at.elapsed().as_secs_f64());
+            .with_label_values(&[self.metrics.label.as_str()])
+            .observe(self.metrics.started_at.elapsed().as_secs_f64());
+        BALLISTA_ASYNC_STREAM_NUM_ROWS
+            .with_label_values(&[self.metrics.label.as_str()])
+            .inc_by(self.metrics.num_rows as f64);
+        BALLISTA_ASYNC_STREAM_DATA_SIZE
+            .with_label_values(&[self.metrics.label.as_str()])
+            .inc_by(self.metrics.size as f64);
     }
 }
 
@@ -289,22 +329,20 @@ mod tests {
 
     #[tokio::test]
     async fn load_shuffle_file_a_lot() -> Result<(), DatafusionError> {
+        let semaphore = Arc::new(Semaphore::new(100));
         let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         path.push("tests/data.arrow");
         let mut handles = Vec::with_capacity(1000);
-        let semaphore = Arc::new(Semaphore::new(1000));
         for _ in 0..1000 {
             let path = path.clone();
-            let sem = semaphore.clone();
+            let _ = semaphore.clone().acquire().await.unwrap();
             handles.push(tokio::spawn(async move {
-                let permit = sem.acquire().await.unwrap();
                 let file = File::open(path).await.unwrap();
                 let reader =
                     AsyncStreamReader::try_new(file.compat(), None, "test".to_string())
                         .await
                         .unwrap();
                 let mut stream = reader.to_stream();
-                drop(permit);
                 let result = utils::collect_stream(&mut stream).await.unwrap();
                 !result.is_empty()
             }))

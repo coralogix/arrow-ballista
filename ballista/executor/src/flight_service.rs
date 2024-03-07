@@ -24,6 +24,7 @@ use std::sync::Arc;
 use arrow::ipc::writer::IpcWriteOptions;
 use arrow::ipc::CompressionType;
 use ballista_core::async_reader::AsyncStreamReader;
+use ballista_core::permit_stream::PermitRecordBatchStream;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
 
@@ -129,7 +130,7 @@ impl FlightService for BallistaFlightService {
             executor_id = self.executor_id,
             job_id, stage_id, partition, path, "fetching shuffle partition"
         );
-        let _ = self.semaphore.acquire().await.unwrap();
+        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
@@ -138,8 +139,8 @@ impl FlightService for BallistaFlightService {
                 .await
                 .map_err(from_arrow_err)?;
         let schema = reader.schema();
-
-        let stream = reader.to_stream().map_err(|e| {
+        let permit_stream = PermitRecordBatchStream::wrap(reader.to_stream(), permit);
+        let stream = permit_stream.map_err(|e| {
             FlightError::Tonic(Status::internal(format!("Cannot process batch: {:?}", e)))
         });
 
