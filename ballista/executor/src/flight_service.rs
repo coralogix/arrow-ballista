@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 use arrow::ipc::writer::IpcWriteOptions;
 use arrow::ipc::CompressionType;
-use ballista_core::async_reader::AsyncStreamReader;
+use ballista_core::async_reader::{AsyncStreamReader, AsyncStreamReaderOptions, Type};
 use ballista_core::permit_stream::PermitRecordBatchStream;
 use ballista_core::serde::decode_protobuf;
 use ballista_core::serde::scheduler::Action as BallistaAction;
@@ -134,10 +134,11 @@ impl FlightService for BallistaFlightService {
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
-        let reader =
-            AsyncStreamReader::try_new(file.compat(), None, "flight".to_string())
-                .await
-                .map_err(from_arrow_err)?;
+        let options =
+            AsyncStreamReaderOptions::new(Type::Local("flight".to_string()), 1024 * 10); // 10gb
+        let reader = AsyncStreamReader::try_new(file.compat(), None, options)
+            .await
+            .map_err(from_arrow_err)?;
         let schema = reader.schema();
         let permit_stream = PermitRecordBatchStream::wrap(reader.to_stream(), permit);
         let stream = permit_stream.map_err(|e| {

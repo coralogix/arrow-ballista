@@ -37,7 +37,7 @@ use tokio::fs::File;
 use tokio::sync::mpsc::Receiver;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
-use crate::async_reader::AsyncStreamReader;
+use crate::async_reader::{AsyncStreamReader, AsyncStreamReaderOptions, Type};
 use crate::client::LimitedBallistaClient;
 use crate::permit_stream::PermitRecordBatchStream;
 use crate::serde::protobuf::ShuffleReaderExecNodeOptions;
@@ -774,7 +774,11 @@ async fn fetch_partition_local_inner(
     let file = File::open(path).await.map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader = AsyncStreamReader::try_new(file.compat(), None, "local".to_string())
+    let options = AsyncStreamReaderOptions::new(
+        Type::Local("shuffle_reader".to_string()),
+        1024 * 10, // 10gb
+    );
+    let reader = AsyncStreamReader::try_new(file.compat(), None, options)
         .await
         .map_err(|e| {
             BallistaError::General(format!(
@@ -845,15 +849,18 @@ pub async fn batch_stream_from_object_store(
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
-    let reader =
-        AsyncStreamReader::try_new(async_reader, None, "object_store".to_string())
-            .await
-            .map_err(|e| {
-                BallistaError::General(format!(
-                    "Failed to build async partition reader - {:?}",
-                    e
-                ))
-            })?;
+    let options = AsyncStreamReaderOptions::new(
+        Type::ObjectStore("shuffle_reader".to_string()),
+        1024 * 10, // 10gb
+    );
+    let reader = AsyncStreamReader::try_new(async_reader, None, options)
+        .await
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to build async partition reader - {:?}",
+                e
+            ))
+        })?;
     Ok(reader.to_stream())
 }
 

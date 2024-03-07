@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use ballista_core::async_reader::AsyncStreamReader;
+use ballista_core::async_reader::{AsyncStreamReader, AsyncStreamReaderOptions, Type};
 use ballista_core::error::BallistaError;
 use ballista_core::replicator::Command;
 use bytes::Bytes;
@@ -149,9 +149,9 @@ async fn load_file(
     path: &str,
 ) -> Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await?;
-    let reader =
-        AsyncStreamReader::try_new(file.compat(), None, "replication".to_string())
-            .await?;
+    let options =
+        AsyncStreamReaderOptions::new(Type::Local("replicator".to_string()), 1024); // 1gb
+    let reader = AsyncStreamReader::try_new(file.compat(), None, options).await?;
 
     Ok(reader)
 }
