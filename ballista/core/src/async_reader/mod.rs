@@ -231,10 +231,9 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
                 "Not expecting a schema when messages are read".to_string(),
             )),
             MessageHeader::RecordBatch => {
-                // at least one mb of memory per read
-                let at_least_one_mb = std::cmp::max(message.bodyLength() / 1_000_000, 1);
-                // at max whole capacity at once
-                let memory_to_consume = std::cmp::min(at_least_one_mb, self.memory_limit_mb.available_permits() as i64) as u32;
+                // at least 1MB per read
+                // at most whole capacity at once
+                let memory_to_consume = (message.bodyLength() / 1_000_000).clamp(1, self.memory_limit_mb.available_permits() as i64) as u32;
                 let _ = self.memory_limit_mb.acquire_many(memory_to_consume).await.unwrap();
 
                 let batch = message.header_as_record_batch().ok_or_else(|| {
