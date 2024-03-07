@@ -63,14 +63,14 @@ lazy_static! {
 
 pub struct ReplicatorOptions {
     pub max_open_files: usize,
-    pub memory_limit: usize,
+    pub memory_limit_per_stream: usize,
 }
 
 impl Default for ReplicatorOptions {
     fn default() -> Self {
         Self {
             max_open_files: 64,
-            memory_limit: 1024,
+            memory_limit_per_stream: 1024,
         }
     }
 }
@@ -79,7 +79,7 @@ pub struct Replicator {
     executor_id: String,
     object_store: Arc<dyn ObjectStore>,
     receiver: mpsc::Receiver<Command>,
-    memory_limit: usize,
+    memory_limit_per_stream: usize,
     semaphore: Arc<Semaphore>,
 }
 
@@ -94,7 +94,7 @@ impl Replicator {
             executor_id,
             object_store,
             receiver,
-            memory_limit: options.memory_limit,
+            memory_limit_per_stream: options.memory_limit_per_stream,
             semaphore: Arc::new(Semaphore::const_new(options.max_open_files)),
         }
     }
@@ -114,7 +114,9 @@ impl Replicator {
             info!(executor_id, job_id, destination, path, "Start replication");
 
             match Path::parse(destination) {
-                Ok(dest) => match load_file(path.as_str(), self.memory_limit).await {
+                Ok(dest) => match load_file(path.as_str(), self.memory_limit_per_stream)
+                    .await
+                {
                     Ok(reader) => {
                         replicate_to_object_store(
                             created,
