@@ -76,6 +76,8 @@ pub struct ShuffleReaderExecNodeOptions {
     pub partition_fetch_parallelism: u32,
     #[prost(uint32, tag = "2")]
     pub max_request_per_client: u32,
+    #[prost(uint32, tag = "3")]
+    pub memory_limit_per_stream: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

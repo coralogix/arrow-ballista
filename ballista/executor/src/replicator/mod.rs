@@ -559,6 +559,7 @@ mod tests {
             0,
             &[],
             object_store,
+            1024,
         )
         .await?;
 

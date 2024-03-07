@@ -63,6 +63,7 @@ message UnresolvedShuffleExecNode {
 message ShuffleReaderExecNodeOptions {
   uint32 partition_fetch_parallelism = 1;
   uint32 max_request_per_client = 2;
+  uint32 memory_limit_per_stream = 3;
 }
 message ShuffleReaderExecNode {
   repeated ShuffleReaderPartition partition = 1;

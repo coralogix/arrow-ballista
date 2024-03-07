@@ -49,13 +49,19 @@ use tracing::info;
 pub struct BallistaFlightServiceOptions {
     max_message_size: usize,
     max_open_files: usize,
+    memory_limit_per_stream: usize,
 }
 
 impl BallistaFlightServiceOptions {
-    pub fn new(max_message_size: usize, max_open_files: usize) -> Self {
+    pub fn new(
+        max_message_size: usize,
+        max_open_files: usize,
+        memory_limit_per_stream: usize,
+    ) -> Self {
         Self {
             max_message_size,
             max_open_files,
+            memory_limit_per_stream,
         }
     }
 }
@@ -65,6 +71,7 @@ impl Default for BallistaFlightServiceOptions {
         Self {
             max_message_size: 4 * 1024 * 1024,
             max_open_files: 1024,
+            memory_limit_per_stream: 1024 * 10,
         }
     }
 }
@@ -74,6 +81,7 @@ impl Default for BallistaFlightServiceOptions {
 pub struct BallistaFlightService {
     executor_id: String,
     max_message_size: usize,
+    memory_limit_per_stream: usize,
     semaphore: Arc<Semaphore>,
 }
 
@@ -86,6 +94,7 @@ impl BallistaFlightService {
         Self {
             executor_id: executor_id.into(),
             max_message_size: options.max_message_size,
+            memory_limit_per_stream: options.memory_limit_per_stream,
             semaphore,
         }
     }
@@ -134,8 +143,10 @@ impl FlightService for BallistaFlightService {
         let file = File::open(path.as_str()).await.map_err(|e| {
             Status::internal(format!("Failed to open partition file at {path}: {e:?}"))
         })?;
-        let options =
-            AsyncStreamReaderOptions::new(Type::Local("flight".to_string()), 1024 * 10); // 10gb
+        let options = AsyncStreamReaderOptions::new(
+            Type::Local("flight".to_string()),
+            self.memory_limit_per_stream,
+        );
         let reader = AsyncStreamReader::try_new(file.compat(), None, options)
             .await
             .map_err(from_arrow_err)?;
