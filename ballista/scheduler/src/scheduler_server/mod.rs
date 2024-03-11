@@ -343,7 +343,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> SchedulerServer<T
                 tokio::time::sleep(Duration::from_secs(
                     EXPIRE_DEAD_EXECUTOR_INTERVAL_SECS,
                 ))
-                    .await;
+                .await;
             }
         });
         Ok(())
@@ -582,7 +582,8 @@ mod test {
         let final_graph = scheduler
             .state
             .task_manager
-            .get_active_execution_graph(job_id).await
+            .get_active_execution_graph(job_id)
+            .await
             .expect("Fail to find graph in the cache");
 
         let final_graph = final_graph.read().await;
@@ -612,15 +613,15 @@ mod test {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         let status = test.run("job", "", &plan).await.expect("running plan");
 
         match status.status {
             Some(job_status::Status::Successful(SuccessfulJob {
-                                                    partition_location,
-                                                    ..
-                                                })) => {
+                partition_location,
+                ..
+            })) => {
                 assert_eq!(partition_location.len(), 4);
             }
             other => {
@@ -679,7 +680,7 @@ mod test {
             Some(runner),
             false,
         )
-            .await?;
+        .await?;
 
         let status = test.run("job", "", &plan).await?;
 
@@ -715,7 +716,7 @@ mod test {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         let ctx = test.ctx().await?;
 
@@ -759,7 +760,7 @@ mod test {
             None,
             true,
         )
-            .await?;
+        .await?;
 
         let plan = test_plan();
 

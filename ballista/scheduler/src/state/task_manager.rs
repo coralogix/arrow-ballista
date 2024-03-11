@@ -96,8 +96,10 @@ impl PartialOrd for ActiveJob {
 
 impl Ord for ActiveJob {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let self_pass = ((self.scheduled_tasks as f64) / (self.available_tasks as f64)).floor();
-        let other_pass = ((other.scheduled_tasks as f64) / (other.available_tasks as f64)).floor();
+        let self_pass =
+            ((self.scheduled_tasks as f64) / (self.available_tasks as f64)).floor();
+        let other_pass =
+            ((other.scheduled_tasks as f64) / (other.available_tasks as f64)).floor();
 
         if self_pass >= 1.0 && other_pass >= 1.0 {
             std::cmp::Ordering::Equal
@@ -106,7 +108,9 @@ impl Ord for ActiveJob {
         } else if other_pass >= 1.0 {
             std::cmp::Ordering::Greater
         } else {
-            self.pass.partial_cmp(&other.pass).unwrap_or(std::cmp::Ordering::Equal)
+            self.pass
+                .partial_cmp(&other.pass)
+                .unwrap_or(std::cmp::Ordering::Equal)
                 .then(other.available_tasks.cmp(&self.available_tasks))
         }
     }
@@ -156,13 +160,15 @@ impl TaskQueue {
 
         self.inner.push(active_job);
 
-        self.jobs
-            .insert(job_id, JobInfoCache::new(graph));
+        self.jobs.insert(job_id, JobInfoCache::new(graph));
     }
 
     pub fn pop(&mut self) -> Option<(ActiveJob, JobInfoCache)> {
-        self.inner.pop().and_then(|job| self.jobs.get(&job.id)
-            .map(|info_ref| (job, info_ref.value().clone())))
+        self.inner.pop().and_then(|job| {
+            self.jobs
+                .get(&job.id)
+                .map(|info_ref| (job, info_ref.value().clone()))
+        })
     }
 
     pub fn push_job(&mut self, job: ActiveJob) {
@@ -182,7 +188,8 @@ impl TaskQueue {
 
     pub fn update_global_pass(&mut self, scheduled_task_slots: usize) {
         self.global_scheduled_tasks += scheduled_task_slots;
-        self.global_pass = self.global_scheduled_tasks as f64 / self.global_available_tasks as f64;
+        self.global_pass =
+            self.global_scheduled_tasks as f64 / self.global_available_tasks as f64;
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -301,7 +308,7 @@ pub const STAGE_MAX_FAILURES: usize = 4;
 
 #[async_trait::async_trait]
 pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>:
-Send + Sync + 'static
+    Send + Sync + 'static
 {
     fn prepare_task_definition(
         &self,
@@ -339,7 +346,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> DefaultTaskLaunch
 
 #[async_trait::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U>
-for DefaultTaskLauncher<T, U>
+    for DefaultTaskLauncher<T, U>
 {
     fn prepare_task_definition(
         &self,
@@ -694,7 +701,6 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
             let num_tasks = statuses.len();
             debug!(job_id, num_tasks, "updating task statuses");
 
-
             let job_events = if let Some(job) = guard.get_job(&job_id) {
                 let mut graph = job.graph_mut().await;
 
@@ -771,7 +777,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     match graph.pop_next_task(exec_id, slots.len()) {
                         Ok(Some(task)) => {
                             TASK_IDELE_TIME.observe(
-                                timestamp_millis().saturating_sub(task.resolved_at) as f64
+                                timestamp_millis().saturating_sub(task.resolved_at)
+                                    as f64
                                     / 1_000.,
                             );
 
@@ -787,7 +794,10 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                         res @ Err(_) => {
                             // push job back into queue with updated remaining tasks
                             task_queue.push_job(active_job.clone());
-                            error!(job_id = &graph.job_id(), "failed to pop next task: {:?}", res);
+                            error!(
+                                job_id = &graph.job_id(),
+                                "failed to pop next task: {:?}", res
+                            );
                             res?;
                         }
                     }
@@ -848,7 +858,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 execution_error::Cancelled {},
             )),
         )
-            .await
+        .await
     }
 
     /// Abort the job and return a Vec of running tasks need to cancel
@@ -979,7 +989,9 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
         &self,
         job_id: &str,
     ) -> Option<Arc<RwLock<ExecutionGraph>>> {
-        self.active_job_queue.read().await
+        self.active_job_queue
+            .read()
+            .await
             .get_job(job_id)
             .map(|cached| cached.execution_graph)
     }
@@ -991,7 +1003,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
     ) -> Option<Arc<RwLock<ExecutionGraph>>> {
         let removed = self
             .active_job_queue
-            .read().await
+            .read()
+            .await
             .remove(job_id)
             .map(|value| value.execution_graph);
 

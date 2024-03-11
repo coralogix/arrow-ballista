@@ -269,7 +269,7 @@ impl ExecutionGraph {
                         stage.plan(),
                         metric_set.as_slice(),
                     )
-                        .build()
+                    .build()
                 } else {
                     Ok(StageMetrics {
                         stage_id: *stage_id as i64,
@@ -451,8 +451,8 @@ impl ExecutionGraph {
                             {
                                 match failed_task.failed_reason.as_ref() {
                                     Some(FailedReason::FetchPartitionError(
-                                             fetch_partiton_error,
-                                         )) => {
+                                        fetch_partiton_error,
+                                    )) => {
                                         let failed_attempts = failed_stage_attempts_tmp
                                             .entry(stage_id)
                                             .or_default();
@@ -518,8 +518,8 @@ impl ExecutionGraph {
                                         }
                                     }
                                     Some(FailedReason::ExecutionError(
-                                             ExecutionError { error },
-                                         )) => {
+                                        ExecutionError { error },
+                                    )) => {
                                         if let Some(err) = error {
                                             failed_stages
                                                 .insert(stage_id, Arc::new(err.clone()));
@@ -530,8 +530,8 @@ impl ExecutionGraph {
                                                     execution_error::Error::Internal(
                                                         execution_error::Internal {
                                                             message:
-                                                            "Unknown execution error"
-                                                                .to_string(),
+                                                                "Unknown execution error"
+                                                                    .to_string(),
                                                         },
                                                     ),
                                                 ),
@@ -592,8 +592,8 @@ impl ExecutionGraph {
                                     }
                                 }
                             } else if let Some(task_status::Status::Successful(
-                                                   successful_task,
-                                               )) = task_status.status
+                                successful_task,
+                            )) = task_status.status
                             {
                                 // update task metrics for successful task
                                 if let Err(err) =
@@ -646,7 +646,7 @@ impl ExecutionGraph {
                             &mut self.stages,
                             &mut self.output_locations,
                         )?
-                            .into_iter(),
+                        .into_iter(),
                     );
                 } else if let ExecutionStage::UnResolved(unsolved_stage) = stage {
                     for task_status in stage_task_statuses.into_iter() {
@@ -672,8 +672,8 @@ impl ExecutionGraph {
                                 let failed_reason = failed_task.failed_reason;
                                 match failed_reason {
                                     Some(FailedReason::ExecutionError(
-                                             ExecutionError { error },
-                                         )) => {
+                                        ExecutionError { error },
+                                    )) => {
                                         should_ignore = false;
 
                                         if let Some(err) = error {
@@ -685,8 +685,8 @@ impl ExecutionGraph {
                                                     execution_error::Error::Internal(
                                                         execution_error::Internal {
                                                             message:
-                                                            "Unknown execution error"
-                                                                .to_string(),
+                                                                "Unknown execution error"
+                                                                    .to_string(),
                                                         },
                                                     ),
                                                 ),
@@ -694,47 +694,47 @@ impl ExecutionGraph {
                                         }
                                     }
                                     Some(FailedReason::FetchPartitionError(
-                                             fetch_partiton_error,
-                                         )) if failed_stages.is_empty()
+                                        fetch_partiton_error,
+                                    )) if failed_stages.is_empty()
                                         && current_running_stages.contains(
-                                        &(fetch_partiton_error.map_stage_id as usize),
-                                    )
+                                            &(fetch_partiton_error.map_stage_id as usize),
+                                        )
                                         && !unsolved_stage
-                                        .last_attempt_failure_reasons
-                                        .contains(
-                                            &fetch_partiton_error.executor_id,
-                                        ) =>
-                                        {
-                                            should_ignore = false;
-                                            unsolved_stage
-                                                .last_attempt_failure_reasons
-                                                .insert(
-                                                    fetch_partiton_error.executor_id.clone(),
-                                                );
-                                            let map_stage_id =
-                                                fetch_partiton_error.map_stage_id as usize;
-                                            let executor_id =
-                                                fetch_partiton_error.executor_id;
-                                            let removed_map_partitions = unsolved_stage
-                                                .remove_input_partitions(
-                                                    map_stage_id,
-                                                    &executor_id,
-                                                )?;
+                                            .last_attempt_failure_reasons
+                                            .contains(
+                                                &fetch_partiton_error.executor_id,
+                                            ) =>
+                                    {
+                                        should_ignore = false;
+                                        unsolved_stage
+                                            .last_attempt_failure_reasons
+                                            .insert(
+                                                fetch_partiton_error.executor_id.clone(),
+                                            );
+                                        let map_stage_id =
+                                            fetch_partiton_error.map_stage_id as usize;
+                                        let executor_id =
+                                            fetch_partiton_error.executor_id;
+                                        let removed_map_partitions = unsolved_stage
+                                            .remove_input_partitions(
+                                                map_stage_id,
+                                                &executor_id,
+                                            )?;
 
-                                            let missing_inputs = reset_running_stages
-                                                .entry(map_stage_id)
-                                                .or_default();
-                                            missing_inputs.extend(removed_map_partitions);
-                                            warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
+                                        let missing_inputs = reset_running_stages
+                                            .entry(map_stage_id)
+                                            .or_default();
+                                        missing_inputs.extend(removed_map_partitions);
+                                        warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
 
-                                            // If the previous other task updates had already mark the map stage success, need to remove it.
-                                            if successful_stages.contains(&map_stage_id) {
-                                                successful_stages.remove(&map_stage_id);
-                                            }
-                                            if resolved_stages.contains(&stage_id) {
-                                                resolved_stages.remove(&stage_id);
-                                            }
+                                        // If the previous other task updates had already mark the map stage success, need to remove it.
+                                        if successful_stages.contains(&map_stage_id) {
+                                            successful_stages.remove(&map_stage_id);
                                         }
+                                        if resolved_stages.contains(&stage_id) {
+                                            resolved_stages.remove(&stage_id);
+                                        }
+                                    }
                                     _ => {}
                                 }
                             }
@@ -1020,15 +1020,14 @@ impl ExecutionGraph {
     pub fn pending_tasks(&self) -> usize {
         self.stages
             .values()
-            .map(|s| {
-                match s {
-                    ExecutionStage::Running(stage) => stage.available_tasks(),
-                    ExecutionStage::Resolved(stage) => stage.partitions,
-                    ExecutionStage::UnResolved(stage) => {
-                        (stage.output_partitioning).clone().map(|p| p.partition_count()).unwrap_or(0)
-                    }
-                    _ => 0,
-                }
+            .map(|s| match s {
+                ExecutionStage::Running(stage) => stage.available_tasks(),
+                ExecutionStage::Resolved(stage) => stage.partitions,
+                ExecutionStage::UnResolved(stage) => (stage.output_partitioning)
+                    .clone()
+                    .map(|p| p.partition_count())
+                    .unwrap_or(0),
+                _ => 0,
             })
             .sum()
     }

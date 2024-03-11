@@ -305,7 +305,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
                 self.state.executor_manager.clean_up_job_data(job_id);
             }
             QueryStageSchedulerEvent::Tick => {
-                let pending_tasks = self.state.task_manager.get_pending_task_count().await;
+                let pending_tasks =
+                    self.state.task_manager.get_pending_task_count().await;
 
                 self.set_pending_tasks(pending_tasks);
 
@@ -348,7 +349,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> QueryStageSchedul
 
 #[async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>
-EventAction<QueryStageSchedulerEvent> for QueryStageScheduler<T, U>
+    EventAction<QueryStageSchedulerEvent> for QueryStageScheduler<T, U>
 {
     fn on_start(&self) {
         info!("Starting QueryStageScheduler");
@@ -423,7 +424,7 @@ mod tests {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         test.submit("job-id", "job-name", &plan).await?;
 
@@ -470,7 +471,7 @@ mod tests {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         test.submit("job-1", "", &plan).await?;
 
@@ -534,7 +535,7 @@ mod tests {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         test.submit("job-1", "", &plan).await?;
 
@@ -592,7 +593,7 @@ mod tests {
             None,
             false,
         )
-            .await?;
+        .await?;
 
         test.submit("job-1", "", &plan).await?;
 
@@ -618,8 +619,8 @@ mod tests {
 
             futures::future::ready(Ok(pending_tasks == expected))
         })
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         assert!(
             success,
