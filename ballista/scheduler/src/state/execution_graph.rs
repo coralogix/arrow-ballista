@@ -1047,7 +1047,7 @@ impl ExecutionGraph {
         if matches!(
             self.status,
             JobStatus {
-                status: Some(job_status::Status::Failed(_)),
+                status: Some(Status::Failed(_)),
                 ..
             }
         ) {

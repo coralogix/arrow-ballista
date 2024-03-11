@@ -90,10 +90,16 @@ impl ActiveJob {
 
 impl PartialOrd for ActiveJob {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ActiveJob {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         let self_pass = ((self.scheduled_tasks as f64) / (self.available_tasks as f64)).floor();
         let other_pass = ((other.scheduled_tasks as f64) / (other.available_tasks as f64)).floor();
 
-        let ord = if self_pass >= 1.0 && other_pass >= 1.0 {
+        if self_pass >= 1.0 && other_pass >= 1.0 {
             std::cmp::Ordering::Equal
         } else if self_pass >= 1.0 {
             std::cmp::Ordering::Less
@@ -102,14 +108,7 @@ impl PartialOrd for ActiveJob {
         } else {
             self.pass.partial_cmp(&other.pass).unwrap_or(std::cmp::Ordering::Equal)
                 .then(other.available_tasks.cmp(&self.available_tasks))
-        };
-        Some(ord)
-    }
-}
-
-impl Ord for ActiveJob {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.pass.partial_cmp(&other.pass).unwrap_or(std::cmp::Ordering::Equal)
+        }
     }
 }
 
@@ -162,10 +161,8 @@ impl TaskQueue {
     }
 
     pub fn pop(&mut self) -> Option<(ActiveJob, JobInfoCache)> {
-        self.inner.pop().map(|job| self.jobs.get(&job.id)
-            .map(|info_ref| (job, info_ref.value().clone()))
-        )
-            .flatten()
+        self.inner.pop().and_then(|job| self.jobs.get(&job.id)
+            .map(|info_ref| (job, info_ref.value().clone())))
     }
 
     pub fn push_job(&mut self, job: ActiveJob) {
