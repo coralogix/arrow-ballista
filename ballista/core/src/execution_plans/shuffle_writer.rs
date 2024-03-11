@@ -23,6 +23,7 @@
 use datafusion::arrow::ipc::writer::IpcWriteOptions;
 use datafusion::arrow::ipc::CompressionType;
 use datafusion::physical_plan::expressions::PhysicalSortExpr;
+use prometheus::{register_histogram, Histogram};
 use tokio::sync::mpsc;
 use tracing::{info, warn};
 
@@ -61,7 +62,48 @@ use datafusion::arrow::ipc::writer::StreamWriter;
 use datafusion::execution::context::TaskContext;
 use datafusion::physical_plan::repartition::BatchPartitioner;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
+use lazy_static::lazy_static;
 use log::debug;
+
+lazy_static! {
+    static ref SHUFFLE_WRITER_PARTITION_DATA_SIZE: Histogram = register_histogram!(
+        "ballista_shuffle_writer_partition_data_size_mb",
+        "Shuffle reader single partition data size",
+        vec![1.0, 10.0, 100.0, 1000.0, 10_000.0, 100_000.0],
+    )
+    .unwrap();
+    static ref SHUFFLE_WRITER_PARTITION_BATCH_AMOUNT: Histogram = register_histogram!(
+        "ballista_shuffle_writer_partition_batch_amount",
+        "Shuffle reader single partition batches amount",
+        vec![
+            1.0,
+            10.0,
+            100.0,
+            1000.0,
+            10_000.0,
+            100_000.0,
+            1_000_000.0,
+            10_000_000.0,
+            100_000_000.0
+        ],
+    )
+    .unwrap();
+    static ref SHUFFLE_WRITER_PARTITION_ROWS_AMOUNT: Histogram = register_histogram!(
+        "ballista_shuffle_writer_partition_rows_amount",
+        "Shuffle reader single partition rows amount",
+        vec![
+            1.0,
+            100.0,
+            1000.0,
+            10_000.0,
+            100_000.0,
+            1_000_000.0,
+            10_000_000.0,
+            100_000_000.0
+        ],
+    )
+    .unwrap();
+}
 
 /// ShuffleWriterExec represents a section of a query plan that has consistent partitioning and
 /// can be executed as one unit with each partition being executed in parallel. The output of each
@@ -233,12 +275,11 @@ impl ShuffleWriterExec {
                     .map_err(DataFusionError::from)?;
                     let created = Instant::now();
 
-                    write_metrics
-                        .input_rows
-                        .add(stats.num_rows.unwrap_or(0) as usize);
-                    write_metrics
-                        .output_rows
-                        .add(stats.num_rows.unwrap_or(0) as usize);
+                    let num_rows = stats.num_rows.unwrap_or(0);
+                    let num_batches = stats.num_batches.unwrap_or(0);
+                    let num_bytes = stats.num_bytes.unwrap_or(0);
+                    write_metrics.input_rows.add(num_rows as usize);
+                    write_metrics.output_rows.add(num_rows as usize);
 
                     let elapsed = now.elapsed().as_secs();
                     info!(
@@ -250,7 +291,7 @@ impl ShuffleWriterExec {
                         stats
                     );
 
-                    if stats.num_rows.is_some_and(|v| v > 0) {
+                    if num_rows > 0 {
                         if let Some(sender) = sender.as_ref() {
                             let cmd = replicator::Command::Replicate {
                                 job_id: job_id.clone(),
@@ -269,13 +310,18 @@ impl ShuffleWriterExec {
                         }
                     }
 
+                    SHUFFLE_WRITER_PARTITION_BATCH_AMOUNT.observe(num_batches as f64);
+                    SHUFFLE_WRITER_PARTITION_DATA_SIZE
+                        .observe((num_bytes / 1_000_000) as f64);
+                    SHUFFLE_WRITER_PARTITION_ROWS_AMOUNT.observe(num_rows as f64);
+
                     Ok(vec![ShuffleWritePartition {
                         partitions: partitions.iter().map(|p| *p as u32).collect(),
                         output_partition: 0,
                         path: path.to_owned(),
-                        num_batches: stats.num_batches.unwrap_or(0),
-                        num_rows: stats.num_rows.unwrap_or(0),
-                        num_bytes: stats.num_bytes.unwrap_or(0),
+                        num_batches,
+                        num_rows,
+                        num_bytes,
                     }])
                 }
 
