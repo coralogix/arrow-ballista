@@ -23,8 +23,11 @@ use std::{
     task::{Context, Poll},
 };
 
-use crate::error::{BallistaError, Result};
 use crate::serde::scheduler::Action;
+use crate::{
+    error::{BallistaError, Result},
+    permit_stream::PermitRecordBatchStream,
+};
 
 use arrow_flight::decode::{DecodedPayload, FlightDataDecoder};
 use arrow_flight::error::FlightError;
@@ -71,9 +74,10 @@ impl LimitedBallistaClient {
         host: &str,
         port: u16,
     ) -> Result<SendableRecordBatchStream> {
-        let _ = self.semaphore.acquire().await.unwrap();
+        let permit = self.semaphore.clone().acquire_owned().await.unwrap();
 
-        self.client
+        let stream = self
+            .client
             .fetch_partition(
                 executor_id,
                 job_id,
@@ -84,7 +88,9 @@ impl LimitedBallistaClient {
                 host,
                 port,
             )
-            .await
+            .await?;
+
+        Ok(PermitRecordBatchStream::wrap(stream, permit))
     }
 }
 
