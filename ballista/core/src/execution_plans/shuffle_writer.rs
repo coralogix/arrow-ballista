@@ -72,8 +72,8 @@ lazy_static! {
         vec![1.0, 10.0, 100.0, 1000.0, 10_000.0, 100_000.0],
     )
     .unwrap();
-    static ref SHUFFLE_WRITER_PARTITION_BATCH_AMOUNT: Histogram = register_histogram!(
-        "ballista_shuffle_writer_partition_batch_amount",
+    static ref SHUFFLE_WRITER_PARTITION_BATCHES_AMOUNT: Histogram = register_histogram!(
+        "ballista_shuffle_writer_partition_batches_amount",
         "Shuffle reader single partition batches amount",
         vec![
             1.0,
@@ -310,7 +310,7 @@ impl ShuffleWriterExec {
                         }
                     }
 
-                    SHUFFLE_WRITER_PARTITION_BATCH_AMOUNT.observe(num_batches as f64);
+                    SHUFFLE_WRITER_PARTITION_BATCHES_AMOUNT.observe(num_batches as f64);
                     SHUFFLE_WRITER_PARTITION_DATA_SIZE
                         .observe((num_bytes / 1_000_000) as f64);
                     SHUFFLE_WRITER_PARTITION_ROWS_AMOUNT.observe(num_rows as f64);
@@ -397,7 +397,7 @@ impl ShuffleWriterExec {
                         if let Some(w) = w {
                             let num_bytes = fs::metadata(&w.path)?.len();
                             w.writer.finish()?;
-                            debug!(
+                            info!(
                                 "Finished shuffle partition {} at {:?}. Batches: {}. Rows: {}. Bytes: {}.",
                                 i,
                                 w.path,
@@ -419,19 +419,28 @@ impl ShuffleWriterExec {
                                 num_bytes,
                             });
 
-                            if let Some(sender) = sender.as_ref() {
-                                let cmd = replicator::Command::Replicate {
-                                    job_id: job_id.clone(),
-                                    path: path.clone(),
-                                    created,
-                                };
+                            SHUFFLE_WRITER_PARTITION_BATCHES_AMOUNT
+                                .observe(w.num_batches as f64);
+                            SHUFFLE_WRITER_PARTITION_DATA_SIZE
+                                .observe((num_bytes / 1_000_000) as f64);
+                            SHUFFLE_WRITER_PARTITION_ROWS_AMOUNT
+                                .observe(w.num_rows as f64);
 
-                                if let Err(error) = sender.send(cmd).await {
-                                    warn!(
-                                        ?path,
-                                        ?error,
-                                        "Failed to send path for replication"
-                                    );
+                            if w.num_rows > 0_usize {
+                                if let Some(sender) = sender.as_ref() {
+                                    let cmd = replicator::Command::Replicate {
+                                        job_id: job_id.clone(),
+                                        path: path.clone(),
+                                        created,
+                                    };
+
+                                    if let Err(error) = sender.send(cmd).await {
+                                        warn!(
+                                            ?path,
+                                            ?error,
+                                            "Failed to send path for replication"
+                                        );
+                                    }
                                 }
                             }
                         }
