@@ -110,7 +110,6 @@ mod execution_stage;
 ///
 /// If a stage has `output_links` is empty then it is the final stage in this query, and it should
 /// publish its outputs to the `ExecutionGraph`s `output_locations` representing the final query results.
-
 #[derive(Clone)]
 pub struct ExecutionGraph {
     /// Curator scheduler name. Can be `None` is `ExecutionGraph` is not currently curated by any scheduler
@@ -270,7 +269,7 @@ impl ExecutionGraph {
                         stage.plan(),
                         metric_set.as_slice(),
                     )
-                    .build()
+                        .build()
                 } else {
                     Ok(StageMetrics {
                         stage_id: *stage_id as i64,
@@ -452,8 +451,8 @@ impl ExecutionGraph {
                             {
                                 match failed_task.failed_reason.as_ref() {
                                     Some(FailedReason::FetchPartitionError(
-                                        fetch_partiton_error,
-                                    )) => {
+                                             fetch_partiton_error,
+                                         )) => {
                                         let failed_attempts = failed_stage_attempts_tmp
                                             .entry(stage_id)
                                             .or_default();
@@ -519,8 +518,8 @@ impl ExecutionGraph {
                                         }
                                     }
                                     Some(FailedReason::ExecutionError(
-                                        ExecutionError { error },
-                                    )) => {
+                                             ExecutionError { error },
+                                         )) => {
                                         if let Some(err) = error {
                                             failed_stages
                                                 .insert(stage_id, Arc::new(err.clone()));
@@ -531,8 +530,8 @@ impl ExecutionGraph {
                                                     execution_error::Error::Internal(
                                                         execution_error::Internal {
                                                             message:
-                                                                "Unknown execution error"
-                                                                    .to_string(),
+                                                            "Unknown execution error"
+                                                                .to_string(),
                                                         },
                                                     ),
                                                 ),
@@ -555,9 +554,9 @@ impl ExecutionGraph {
                                                 running_stage.task_failures += 1;
                                             } else {
                                                 let error_msg = format!(
-                                                            "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
-                                                            stage_id, max_task_failures, failed_task.failed_reason
-                                                        );
+                                                    "Stage {} had {} task failures, fail the stage, most recent failure reason: {:?}",
+                                                    stage_id, max_task_failures, failed_task.failed_reason
+                                                );
                                                 error!(job_id, stage_id, max_task_failures, reason = ?failed_task.failed_reason, "stage failed, max task failures exceeded");
                                                 failed_stages.insert(
                                                     stage_id,
@@ -580,7 +579,7 @@ impl ExecutionGraph {
                                     }
                                     None => {
                                         let error_msg = format!(
-                                                    "Task {partitions:?} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
+                                            "Task {partitions:?} in Stage {stage_id} failed with unknown failure reasons, fail the stage");
                                         error!(?partitions, stage_id, job_id, "task failed for unknown reason, failing stage");
                                         failed_stages.insert(
                                             stage_id,
@@ -593,8 +592,8 @@ impl ExecutionGraph {
                                     }
                                 }
                             } else if let Some(task_status::Status::Successful(
-                                successful_task,
-                            )) = task_status.status
+                                                   successful_task,
+                                               )) = task_status.status
                             {
                                 // update task metrics for successful task
                                 if let Err(err) =
@@ -647,7 +646,7 @@ impl ExecutionGraph {
                             &mut self.stages,
                             &mut self.output_locations,
                         )?
-                        .into_iter(),
+                            .into_iter(),
                     );
                 } else if let ExecutionStage::UnResolved(unsolved_stage) = stage {
                     for task_status in stage_task_statuses.into_iter() {
@@ -673,8 +672,8 @@ impl ExecutionGraph {
                                 let failed_reason = failed_task.failed_reason;
                                 match failed_reason {
                                     Some(FailedReason::ExecutionError(
-                                        ExecutionError { error },
-                                    )) => {
+                                             ExecutionError { error },
+                                         )) => {
                                         should_ignore = false;
 
                                         if let Some(err) = error {
@@ -686,8 +685,8 @@ impl ExecutionGraph {
                                                     execution_error::Error::Internal(
                                                         execution_error::Internal {
                                                             message:
-                                                                "Unknown execution error"
-                                                                    .to_string(),
+                                                            "Unknown execution error"
+                                                                .to_string(),
                                                         },
                                                     ),
                                                 ),
@@ -695,47 +694,47 @@ impl ExecutionGraph {
                                         }
                                     }
                                     Some(FailedReason::FetchPartitionError(
-                                        fetch_partiton_error,
-                                    )) if failed_stages.is_empty()
+                                             fetch_partiton_error,
+                                         )) if failed_stages.is_empty()
                                         && current_running_stages.contains(
-                                            &(fetch_partiton_error.map_stage_id as usize),
-                                        )
+                                        &(fetch_partiton_error.map_stage_id as usize),
+                                    )
                                         && !unsolved_stage
-                                            .last_attempt_failure_reasons
-                                            .contains(
-                                                &fetch_partiton_error.executor_id,
-                                            ) =>
-                                    {
-                                        should_ignore = false;
-                                        unsolved_stage
-                                            .last_attempt_failure_reasons
-                                            .insert(
-                                                fetch_partiton_error.executor_id.clone(),
-                                            );
-                                        let map_stage_id =
-                                            fetch_partiton_error.map_stage_id as usize;
-                                        let executor_id =
-                                            fetch_partiton_error.executor_id;
-                                        let removed_map_partitions = unsolved_stage
-                                            .remove_input_partitions(
-                                                map_stage_id,
-                                                &executor_id,
-                                            )?;
+                                        .last_attempt_failure_reasons
+                                        .contains(
+                                            &fetch_partiton_error.executor_id,
+                                        ) =>
+                                        {
+                                            should_ignore = false;
+                                            unsolved_stage
+                                                .last_attempt_failure_reasons
+                                                .insert(
+                                                    fetch_partiton_error.executor_id.clone(),
+                                                );
+                                            let map_stage_id =
+                                                fetch_partiton_error.map_stage_id as usize;
+                                            let executor_id =
+                                                fetch_partiton_error.executor_id;
+                                            let removed_map_partitions = unsolved_stage
+                                                .remove_input_partitions(
+                                                    map_stage_id,
+                                                    &executor_id,
+                                                )?;
 
-                                        let missing_inputs = reset_running_stages
-                                            .entry(map_stage_id)
-                                            .or_default();
-                                        missing_inputs.extend(removed_map_partitions);
-                                        warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
+                                            let missing_inputs = reset_running_stages
+                                                .entry(map_stage_id)
+                                                .or_default();
+                                            missing_inputs.extend(removed_map_partitions);
+                                            warn!(job_id, map_stage_id, stage_id, task_identity, "resetting running stage, error fetching partition from parent stage");
 
-                                        // If the previous other task updates had already mark the map stage success, need to remove it.
-                                        if successful_stages.contains(&map_stage_id) {
-                                            successful_stages.remove(&map_stage_id);
+                                            // If the previous other task updates had already mark the map stage success, need to remove it.
+                                            if successful_stages.contains(&map_stage_id) {
+                                                successful_stages.remove(&map_stage_id);
+                                            }
+                                            if resolved_stages.contains(&stage_id) {
+                                                resolved_stages.remove(&stage_id);
+                                            }
                                         }
-                                        if resolved_stages.contains(&stage_id) {
-                                            resolved_stages.remove(&stage_id);
-                                        }
-                                    }
                                     _ => {}
                                 }
                             }
@@ -952,13 +951,13 @@ impl ExecutionGraph {
                         }
                     } else {
                         return Err(BallistaError::Internal(format!(
-                        "Error updating job {job_id}: The stage {link} as the output link of stage {stage_id}  should be unresolved"
-                    )));
+                            "Error updating job {job_id}: The stage {link} as the output link of stage {stage_id}  should be unresolved"
+                        )));
                     }
                 } else {
                     return Err(BallistaError::Internal(format!(
-                    "Error updating job {job_id}: Invalid output link {stage_id} for stage {link}"
-                )));
+                        "Error updating job {job_id}: Invalid output link {stage_id} for stage {link}"
+                    )));
                 }
             }
         }
@@ -1002,7 +1001,7 @@ impl ExecutionGraph {
         tasks
     }
 
-    // Total number of tasks in this plan that are ready for scheduling
+    /// Total number of tasks in this plan that are ready for scheduling
     pub fn available_tasks(&self) -> usize {
         self.stages
             .values()
@@ -1011,6 +1010,24 @@ impl ExecutionGraph {
                     stage.available_tasks()
                 } else {
                     0
+                }
+            })
+            .sum()
+    }
+
+    /// Total number of tasks pending to be scheduled including tasks
+    /// whose partitions have not been loaded yet.
+    pub fn pending_tasks(&self) -> usize {
+        self.stages
+            .values()
+            .map(|s| {
+                match s {
+                    ExecutionStage::Running(stage) => stage.available_tasks(),
+                    ExecutionStage::Resolved(stage) => stage.partitions,
+                    ExecutionStage::UnResolved(stage) => {
+                        (stage.output_partitioning).clone().map(|p| p.partition_count()).unwrap_or(0)
+                    }
+                    _ => 0,
                 }
             })
             .sum()
@@ -1052,54 +1069,54 @@ impl ExecutionGraph {
         if find_candidate {
             let task_id = self.next_task_id();
             let next_task = self.stages.iter_mut().find(|(_stage_id, stage)| {
-                    if let ExecutionStage::Running(stage) = stage {
-                        stage.available_tasks() > 0
-                    } else {
-                        false
+                if let ExecutionStage::Running(stage) = stage {
+                    stage.available_tasks() > 0
+                } else {
+                    false
+                }
+            }).map(|(stage_id, stage)| {
+                if let ExecutionStage::Running(stage) = stage {
+                    let mut partitions = vec![];
+                    let task_info = TaskInfo {
+                        task_id,
+                        scheduled_time: timestamp_millis() as u128,
+                        // Those times will be updated when the task finish
+                        launch_time: 0,
+                        start_exec_time: 0,
+                        end_exec_time: 0,
+                        finish_time: 0,
+                        task_status: task_status::Status::Running(RunningTask {
+                            executor_id: executor_id.to_owned()
+                        }),
+                    };
+                    for (partition, status) in stage.task_infos
+                        .iter_mut()
+                        .enumerate()
+                        .filter(|(_, status)| status.is_none())
+                        .take(num_tasks) {
+                        *status = Some(task_info.clone());
+                        partitions.push(partition);
                     }
-                }).map(|(stage_id, stage)| {
-                    if let ExecutionStage::Running(stage) = stage {
-let mut partitions = vec![];
-                        let task_info = TaskInfo {
-                            task_id,
-                            scheduled_time: timestamp_millis() as u128,
-                            // Those times will be updated when the task finish
-                            launch_time: 0,
-                            start_exec_time: 0,
-                            end_exec_time: 0,
-                            finish_time: 0,
-                            task_status: task_status::Status::Running(RunningTask {
-                                executor_id: executor_id.to_owned()
-                            }),
-                        };
-for (partition, status) in stage.task_infos
-                            .iter_mut()
-                            .enumerate()
-                            .filter(|(_,status)| status.is_none())
-                            .take(num_tasks) {
-                            *status = Some(task_info.clone());
-                            partitions.push(partition);
-                        }
-                        if partitions.is_empty() {
-                            return Err(BallistaError::Internal(format!("Error getting next task for job {}: Stage {stage_id} is ready but has no pending tasks", self.job_id)));
-                        }
-                        Ok(TaskDescription {
-                            session_id: self.session_id.clone(),
-                            partitions: TaskPartitions {
-                                job_id: self.job_id.clone(),
-                                stage_id: *stage_id,
-                                partitions
-                            },
-                            stage_attempt_num: stage.stage_attempt_num,
-                            task_id,
-                            plan: stage.plan.clone(),
-                            output_partitioning: stage.output_partitioning.clone(),
-                            resolved_at: stage.resolved_at,
-                        })
-                    } else {
-                        Err(BallistaError::General(format!("Stage {stage_id} is not a running stage")))
+                    if partitions.is_empty() {
+                        return Err(BallistaError::Internal(format!("Error getting next task for job {}: Stage {stage_id} is ready but has no pending tasks", self.job_id)));
                     }
-                }).transpose()?;
+                    Ok(TaskDescription {
+                        session_id: self.session_id.clone(),
+                        partitions: TaskPartitions {
+                            job_id: self.job_id.clone(),
+                            stage_id: *stage_id,
+                            partitions,
+                        },
+                        stage_attempt_num: stage.stage_attempt_num,
+                        task_id,
+                        plan: stage.plan.clone(),
+                        output_partitioning: stage.output_partitioning.clone(),
+                        resolved_at: stage.resolved_at,
+                    })
+                } else {
+                    Err(BallistaError::General(format!("Stage {stage_id} is not a running stage")))
+                }
+            }).transpose()?;
 
             // If no available tasks found in the running stage,
             // try to find a resolved stage and convert it to the running stage
@@ -1600,7 +1617,7 @@ impl Debug for ExecutionGraph {
             .collect::<Vec<String>>()
             .join("");
         write!(f, "ExecutionGraph[job_id={}, session_id={}, available_tasks={}, is_successful={}, circuit_breaker_tripped={}]\n{}",
-        self.job_id, self.session_id, self.available_tasks(), self.is_successful(), self.circuit_breaker_tripped, stages)
+               self.job_id, self.session_id, self.available_tasks(), self.is_successful(), self.circuit_breaker_tripped, stages)
     }
 }
 
