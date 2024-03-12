@@ -97,7 +97,8 @@ impl Ord for ActiveJob {
         let self_remainder = self.available_tasks - self.assigned_tasks;
         let other_remainder = other.available_tasks - other.assigned_tasks;
 
-        self_remainder.overflowing_sub(1).0.cmp(&other_remainder.overflowing_sub(1).0)
+        let cmp = other_remainder.overflowing_sub(1).0.cmp(&self_remainder.overflowing_sub(1).0);
+        cmp
     }
 }
 
@@ -147,17 +148,6 @@ impl TaskQueue {
         self.inner.push(job);
     }
 
-    /*
-    pub fn push(&mut self, job_id: String, tokens: usize) {
-        let active_job = ActiveJob {
-            id: job_id.clone(),
-            pass: self.global_pass,
-            tokens,
-        };
-        self.inner.push(active_job);
-    }
-    */
-
     pub fn update_global_pass(&mut self, scheduled_task_slots: usize) {
         self.global_assigned_tasks += scheduled_task_slots;
         self.global_pass =
@@ -191,86 +181,6 @@ impl TaskQueue {
 }
 
 type ActiveJobCache = Arc<DashMap<String, JobInfoCache>>;
-/*
-#[derive(Default)]
-struct ActiveJobQueue {
-    queue: SegQueue<String>,
-    task_queue: TaskQueue,
-    jobs: ActiveJobCache,
-}
-
-impl ActiveJobQueue {
-    pub fn pop(&self) -> Option<ActiveJobRef> {
-        loop {
-            if let Some(job_id) = self.queue.pop() {
-                if let Some(job_info) = self.jobs.get(&job_id) {
-                    return Some(ActiveJobRef {
-                        queue: &self.queue,
-                        job: job_info.clone(),
-                        job_id,
-                    });
-                } else {
-                    continue;
-                }
-            } else {
-                return None;
-            }
-        }
-    }
-
-    pub fn pending_tasks(&self) -> usize {
-        let mut count = 0;
-        for job in self.jobs.iter() {
-            count += job.pending_tasks.load(Ordering::Acquire);
-        }
-
-        count
-    }
-
-    pub fn push(&self, job_id: String, graph: ExecutionGraph) {
-        self.jobs.insert(job_id.clone(), JobInfoCache::new(graph));
-        self.queue.push(job_id);
-    }
-
-    pub fn jobs(&self) -> &ActiveJobCache {
-        &self.jobs
-    }
-
-    pub fn get_job(&self, job_id: &str) -> Option<JobInfoCache> {
-        self.jobs.get(job_id).map(|info| info.clone())
-    }
-
-    pub fn remove(&self, job_id: &str) -> Option<JobInfoCache> {
-        self.jobs.remove(job_id).map(|(_, job)| job)
-    }
-
-    pub fn size(&self) -> usize {
-        self.jobs.len()
-    }
-}
-*/
-
-/*
-struct ActiveJobRef<'a> {
-    queue: &'a SegQueue<String>,
-    job: JobInfoCache,
-    job_id: String,
-}
-
-impl<'a> Deref for ActiveJobRef<'a> {
-    type Target = JobInfoCache;
-
-    fn deref(&self) -> &Self::Target {
-        &self.job
-    }
-}
-
-impl<'a> Drop for ActiveJobRef<'a> {
-    fn drop(&mut self) {
-        self.queue.push(std::mem::take(&mut self.job_id));
-    }
-}
-*/
 
 // TODO move to configuration file
 /// Default max failure attempts for task level retry
