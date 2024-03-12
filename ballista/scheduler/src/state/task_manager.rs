@@ -97,7 +97,10 @@ impl Ord for ActiveJob {
         let self_remainder = self.available_tasks - self.assigned_tasks;
         let other_remainder = other.available_tasks - other.assigned_tasks;
 
-        let cmp = other_remainder.overflowing_sub(1).0.cmp(&self_remainder.overflowing_sub(1).0);
+        let cmp = other_remainder
+            .overflowing_sub(1)
+            .0
+            .cmp(&self_remainder.overflowing_sub(1).0);
         cmp
     }
 }
@@ -190,7 +193,7 @@ pub const STAGE_MAX_FAILURES: usize = 4;
 
 #[async_trait::async_trait]
 pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>:
-Send + Sync + 'static
+    Send + Sync + 'static
 {
     fn prepare_task_definition(
         &self,
@@ -228,7 +231,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> DefaultTaskLaunch
 
 #[async_trait::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U>
-for DefaultTaskLauncher<T, U>
+    for DefaultTaskLauncher<T, U>
 {
     fn prepare_task_definition(
         &self,
@@ -740,7 +743,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 execution_error::Cancelled {},
             )),
         )
-            .await
+        .await
     }
 
     /// Abort the job and return a Vec of running tasks need to cancel
