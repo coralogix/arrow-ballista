@@ -73,18 +73,16 @@ lazy_static! {
     .unwrap();
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveJob {
     id: String,
-    pass: f64,
-    scheduled_tasks: usize,
+    assigned_tasks: usize,
     available_tasks: usize,
 }
 
 impl ActiveJob {
     pub fn update_pass(&mut self, scheduled_task_slots: usize) {
-        self.scheduled_tasks = scheduled_task_slots;
-        self.pass += scheduled_task_slots as f64 / self.available_tasks as f64;
+        self.assigned_tasks = scheduled_task_slots;
     }
 }
 
@@ -96,42 +94,18 @@ impl PartialOrd for ActiveJob {
 
 impl Ord for ActiveJob {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let self_pass =
-            ((self.scheduled_tasks as f64) / (self.available_tasks as f64)).floor();
-        let other_pass =
-            ((other.scheduled_tasks as f64) / (other.available_tasks as f64)).floor();
+        let self_remainder = self.available_tasks - self.assigned_tasks;
+        let other_remainder = other.available_tasks - other.assigned_tasks;
 
-        if self_pass >= 1.0 && other_pass >= 1.0 {
-            std::cmp::Ordering::Equal
-        } else if self_pass >= 1.0 {
-            std::cmp::Ordering::Less
-        } else if other_pass >= 1.0 {
-            std::cmp::Ordering::Greater
-        } else {
-            self.pass
-                .partial_cmp(&other.pass)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then(other.available_tasks.cmp(&self.available_tasks))
-        }
+        self_remainder.overflowing_sub(1).0.cmp(&other_remainder.overflowing_sub(1).0)
     }
 }
-
-impl PartialEq<Self> for ActiveJob {
-    fn eq(&self, other: &Self) -> bool {
-        self.id == other.id
-            && self.pass == other.pass
-            && self.scheduled_tasks == other.scheduled_tasks
-            && self.available_tasks == other.available_tasks
-    }
-}
-
-impl Eq for ActiveJob {}
 
 struct TaskQueue {
     inner: BinaryHeap<ActiveJob>,
     jobs: ActiveJobCache,
     global_pass: f64,
-    global_scheduled_tasks: usize,
+    global_assigned_tasks: usize,
     global_available_tasks: usize,
 }
 
@@ -141,7 +115,7 @@ impl TaskQueue {
             inner: BinaryHeap::new(),
             jobs: Arc::new(DashMap::new()),
             global_pass: 0.0,
-            global_scheduled_tasks: 0,
+            global_assigned_tasks: 0,
             global_available_tasks: 0,
         }
     }
@@ -150,9 +124,7 @@ impl TaskQueue {
         let job_id = graph.job_id().to_owned();
         let active_job = ActiveJob {
             id: job_id.clone(),
-            // progress: self.global_progress,
-            pass: 0.0,
-            scheduled_tasks: 0,
+            assigned_tasks: 0,
             available_tasks: tokens,
         };
 
@@ -187,9 +159,9 @@ impl TaskQueue {
     */
 
     pub fn update_global_pass(&mut self, scheduled_task_slots: usize) {
-        self.global_scheduled_tasks += scheduled_task_slots;
+        self.global_assigned_tasks += scheduled_task_slots;
         self.global_pass =
-            self.global_scheduled_tasks as f64 / self.global_available_tasks as f64;
+            self.global_assigned_tasks as f64 / self.global_available_tasks as f64;
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -308,7 +280,7 @@ pub const STAGE_MAX_FAILURES: usize = 4;
 
 #[async_trait::async_trait]
 pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>:
-    Send + Sync + 'static
+Send + Sync + 'static
 {
     fn prepare_task_definition(
         &self,
@@ -346,7 +318,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> DefaultTaskLaunch
 
 #[async_trait::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U>
-    for DefaultTaskLauncher<T, U>
+for DefaultTaskLauncher<T, U>
 {
     fn prepare_task_definition(
         &self,
@@ -858,7 +830,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 execution_error::Cancelled {},
             )),
         )
-        .await
+            .await
     }
 
     /// Abort the job and return a Vec of running tasks need to cancel
