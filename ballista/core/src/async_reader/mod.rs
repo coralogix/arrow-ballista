@@ -21,7 +21,7 @@ use lazy_static::lazy_static;
 use prometheus::{
     register_counter_vec, register_histogram_vec, CounterVec, HistogramVec,
 };
-use tokio::time::Instant;
+use tokio::{sync::Semaphore, time::Instant};
 
 const CONTINUATION_MARKER: [u8; 4] = [0xff; 4];
 
@@ -30,38 +30,50 @@ lazy_static! {
         register_histogram_vec!(
             "ballista_async_stream_reader_latency",
             "Ballista async stream reader latency",
-            &["type"],
+            &["source", "type"],
             vec![0.01, 0.03, 0.05, 0.1, 0.3, 0.5, 1.0, 3.0, 5.0, 9.0, 20.0]
         )
         .unwrap();
     static ref BALLISTA_ASYNC_STREAM_NUM_ROWS: CounterVec = register_counter_vec!(
         "ballista_async_stream_num_rows",
         "Number of rows emitted by ballista async stream reader",
-        &["type"]
+        &["source", "type"],
     )
     .unwrap();
     static ref BALLISTA_ASYNC_STREAM_DATA_SIZE: CounterVec = register_counter_vec!(
         "ballista_async_stream_reader_data_size",
         "Total data size of batches emitted by ballista async stream reader",
-        &["type"]
+        &["source", "type"],
     )
     .unwrap();
 }
 
-pub struct AsyncStreamReaderMetrics {
-    pub label: String,
-    pub started_at: Instant,
-    pub num_rows: usize,
-    pub size: usize,
+pub enum Type {
+    Local(String),
+    Remote(String),
+    ObjectStore(String),
 }
 
-impl AsyncStreamReaderMetrics {
-    pub fn new(label: String) -> Self {
+impl Type {
+    pub fn labels(&self) -> Vec<&str> {
+        match self {
+            Type::Local(ref s) => vec![s, "local"],
+            Type::Remote(ref s) => vec![s, "remote"],
+            Type::ObjectStore(ref s) => vec![s, "object_store"],
+        }
+    }
+}
+
+pub struct AsyncStreamReaderOptions {
+    pub tpe: Type,
+    pub memory_limit_mb: usize,
+}
+
+impl AsyncStreamReaderOptions {
+    pub fn new(tpe: Type, memory_limit_mb: usize) -> Self {
         Self {
-            label,
-            started_at: Instant::now(),
-            num_rows: 0,
-            size: 0,
+            tpe,
+            memory_limit_mb,
         }
     }
 }
@@ -86,7 +98,9 @@ pub struct AsyncStreamReader<R: AsyncRead + Unpin + Send> {
 
     /// Optional projection
     projection: Option<(Vec<usize>, Schema)>,
-    metrics: AsyncStreamReaderMetrics,
+    started_at: Instant,
+    tpe: Type,
+    memory_limit_mb: Arc<Semaphore>,
 }
 
 impl<R: AsyncRead + Unpin + Send> fmt::Debug for AsyncStreamReader<R> {
@@ -108,7 +122,7 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
     pub async fn try_new_unbuffered(
         mut reader: R,
         projection: Option<Vec<usize>>,
-        label: String,
+        options: AsyncStreamReaderOptions,
     ) -> Result<AsyncStreamReader<R>, ArrowError> {
         // determine metadata length
         let mut meta_size: [u8; 4] = [0; 4];
@@ -144,14 +158,15 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
             }
             _ => None,
         };
-        let metrics = AsyncStreamReaderMetrics::new(label.clone());
         Ok(Self {
             reader,
             schema: Arc::new(schema),
             finished: false,
             dictionaries_by_id,
             projection,
-            metrics,
+            started_at: Instant::now(),
+            tpe: options.tpe,
+            memory_limit_mb: Arc::new(Semaphore::new(options.memory_limit_mb)),
         })
     }
 
@@ -216,6 +231,11 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
                 "Not expecting a schema when messages are read".to_string(),
             )),
             MessageHeader::RecordBatch => {
+                // at least 1MB per read
+                // at most whole capacity at once
+                let memory_to_consume = (message.bodyLength() / 1_000_000).clamp(1, self.memory_limit_mb.available_permits() as i64) as u32;
+                let _ = self.memory_limit_mb.acquire_many(memory_to_consume).await.unwrap();
+
                 let batch = message.header_as_record_batch().ok_or_else(|| {
                     ArrowError::IpcError(
                         "Unable to read IPC message as record batch".to_string(),
@@ -226,8 +246,13 @@ impl<R: AsyncBufRead + Unpin + Send> AsyncStreamReader<R> {
                 self.reader.read_exact(&mut buf).await?;
 
                 let batch = read_record_batch(&buf.into(), batch, self.schema(), &self.dictionaries_by_id, self.projection.as_ref().map(|x| x.0.as_ref()), &message.version())?;
-                self.metrics.num_rows += batch.num_rows();
-                self.metrics.size += batch.get_array_memory_size();
+                let labels = self.tpe.labels();
+                BALLISTA_ASYNC_STREAM_NUM_ROWS
+                    .with_label_values(&labels)
+                    .inc_by(batch.num_rows() as f64);
+                BALLISTA_ASYNC_STREAM_DATA_SIZE
+                    .with_label_values(&labels)
+                    .inc_by(batch.get_array_memory_size() as f64);
                 Ok(Some(batch))
             }
             MessageHeader::DictionaryBatch => {
@@ -295,23 +320,17 @@ impl<R: AsyncRead + Unpin + Send> AsyncStreamReader<BufReader<R>> {
     pub async fn try_new(
         reader: R,
         projection: Option<Vec<usize>>,
-        label: String,
+        options: AsyncStreamReaderOptions,
     ) -> Result<Self, ArrowError> {
-        Self::try_new_unbuffered(BufReader::new(reader), projection, label).await
+        Self::try_new_unbuffered(BufReader::new(reader), projection, options).await
     }
 }
 
 impl<R: AsyncRead + Unpin + Send> Drop for AsyncStreamReader<R> {
     fn drop(&mut self) {
         BALLISTA_ASYNC_STREAM_READER_LATENCY
-            .with_label_values(&[self.metrics.label.as_str()])
-            .observe(self.metrics.started_at.elapsed().as_secs_f64());
-        BALLISTA_ASYNC_STREAM_NUM_ROWS
-            .with_label_values(&[self.metrics.label.as_str()])
-            .inc_by(self.metrics.num_rows as f64);
-        BALLISTA_ASYNC_STREAM_DATA_SIZE
-            .with_label_values(&[self.metrics.label.as_str()])
-            .inc_by(self.metrics.size as f64);
+            .with_label_values(&self.tpe.labels())
+            .observe(self.started_at.elapsed().as_secs_f64());
     }
 }
 
@@ -323,8 +342,9 @@ mod tests {
     use tokio_util::compat::TokioAsyncReadCompatExt;
 
     use crate::{
-        async_reader::AsyncStreamReader,
-        serde::protobuf::execution_error::DatafusionError, utils,
+        async_reader::{AsyncStreamReader, AsyncStreamReaderOptions, Type},
+        serde::protobuf::execution_error::DatafusionError,
+        utils,
     };
 
     #[tokio::test]
@@ -338,10 +358,11 @@ mod tests {
             let _ = semaphore.clone().acquire().await.unwrap();
             handles.push(tokio::spawn(async move {
                 let file = File::open(path).await.unwrap();
-                let reader =
-                    AsyncStreamReader::try_new(file.compat(), None, "test".to_string())
-                        .await
-                        .unwrap();
+                let options =
+                    AsyncStreamReaderOptions::new(Type::Local("test".to_string()), 1024);
+                let reader = AsyncStreamReader::try_new(file.compat(), None, options)
+                    .await
+                    .unwrap();
                 let mut stream = reader.to_stream();
                 let result = utils::collect_stream(&mut stream).await.unwrap();
                 !result.is_empty()

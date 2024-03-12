@@ -37,7 +37,7 @@ use tokio::fs::File;
 use tokio::sync::mpsc::Receiver;
 use tokio_util::compat::{Compat, TokioAsyncReadCompatExt};
 
-use crate::async_reader::AsyncStreamReader;
+use crate::async_reader::{AsyncStreamReader, AsyncStreamReaderOptions, Type};
 use crate::client::LimitedBallistaClient;
 use crate::permit_stream::PermitRecordBatchStream;
 use crate::serde::protobuf::ShuffleReaderExecNodeOptions;
@@ -114,6 +114,7 @@ lazy_static! {
 pub struct ShuffleReaderExecOptions {
     pub partition_fetch_parallelism: usize,
     pub max_request_per_client: usize,
+    pub memory_limit_per_stream: usize,
 }
 
 impl From<&ShuffleReaderExecNodeOptions> for ShuffleReaderExecOptions {
@@ -121,6 +122,7 @@ impl From<&ShuffleReaderExecNodeOptions> for ShuffleReaderExecOptions {
         ShuffleReaderExecOptions {
             partition_fetch_parallelism: val.partition_fetch_parallelism as usize,
             max_request_per_client: val.max_request_per_client as usize,
+            memory_limit_per_stream: val.memory_limit_per_stream as usize,
         }
     }
 }
@@ -130,6 +132,7 @@ impl From<&ShuffleReaderExecOptions> for ShuffleReaderExecNodeOptions {
         Self {
             partition_fetch_parallelism: val.partition_fetch_parallelism as u32,
             max_request_per_client: val.max_request_per_client as u32,
+            memory_limit_per_stream: val.memory_limit_per_stream as u32,
         }
     }
 }
@@ -139,6 +142,7 @@ impl Default for ShuffleReaderExecOptions {
         Self {
             partition_fetch_parallelism: 50,
             max_request_per_client: 8,
+            memory_limit_per_stream: 1024 * 10,
         }
     }
 }
@@ -400,6 +404,8 @@ fn send_fetch_partitions_with_fallback(
     clients: Arc<Cache<String, LimitedBallistaClient>>,
     options: &ShuffleReaderExecOptions,
 ) -> AbortableReceiverStream {
+    let max_request_per_client = options.max_request_per_client;
+    let memory_limit = options.memory_limit_per_stream;
     let (response_sender, response_receiver) =
         mpsc::channel(options.partition_fetch_parallelism);
     let semaphore = Arc::new(Semaphore::new(options.partition_fetch_parallelism));
@@ -427,7 +433,9 @@ fn send_fetch_partitions_with_fallback(
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
-            let r = PartitionReaderEnum::Local.fetch_partition(p, permit).await;
+            let r = PartitionReaderEnum::Local { memory_limit }
+                .fetch_partition(p, permit)
+                .await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
                 .observe(now.elapsed().as_secs_f64());
@@ -445,7 +453,6 @@ fn send_fetch_partitions_with_fallback(
 
     let (failed_partition_sender, mut failed_partition_receiver) = mpsc::channel(2);
     let sender_to_remote = response_sender.clone();
-    let max_request_per_client = options.max_request_per_client;
     let remote_semaphore = semaphore.clone();
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
@@ -511,6 +518,7 @@ fn send_fetch_partitions_with_fallback(
                 .inc();
             let r = PartitionReaderEnum::ObjectStoreRemote {
                 object_store: object_store.clone(),
+                memory_limit,
             }
             .fetch_partition(&partition, permit)
             .await;
@@ -543,6 +551,8 @@ fn send_fetch_partitions(
     clients: Arc<Cache<String, LimitedBallistaClient>>,
     options: &ShuffleReaderExecOptions,
 ) -> AbortableReceiverStream {
+    let max_request_per_client = options.max_request_per_client;
+    let memory_limit = options.memory_limit_per_stream;
     let (response_sender, response_receiver) =
         channel(options.partition_fetch_parallelism);
     let semaphore = Arc::new(Semaphore::new(options.partition_fetch_parallelism));
@@ -570,7 +580,9 @@ fn send_fetch_partitions(
             SHUFFLE_READER_FETCH_PARTITION_TOTAL
                 .with_label_values(&["local"])
                 .inc();
-            let r = PartitionReaderEnum::Local.fetch_partition(p, permit).await;
+            let r = PartitionReaderEnum::Local { memory_limit }
+                .fetch_partition(p, permit)
+                .await;
             SHUFFLE_READER_FETCH_PARTITION_LATENCY
                 .with_label_values(&["local"])
                 .observe(now.elapsed().as_secs_f64());
@@ -585,7 +597,7 @@ fn send_fetch_partitions(
             }
         }
     }));
-    let max_request_per_client = options.max_request_per_client;
+
     join_handles.push(tokio::spawn(async move {
         for p in remote_locations.iter() {
             let now = Instant::now();
@@ -639,13 +651,16 @@ trait PartitionReader: Send + Sync {
 }
 
 enum PartitionReaderEnum {
-    Local,
+    Local {
+        memory_limit: usize,
+    },
     FlightRemote {
         clients: Arc<Cache<String, LimitedBallistaClient>>,
         max_request_per_client: usize,
     },
     ObjectStoreRemote {
         object_store: Arc<dyn ObjectStore>,
+        memory_limit: usize,
     },
 }
 
@@ -658,7 +673,9 @@ impl PartitionReader for PartitionReaderEnum {
         permit: tokio::sync::OwnedSemaphorePermit,
     ) -> result::Result<SendableRecordBatchStream, BallistaError> {
         match self {
-            PartitionReaderEnum::Local => fetch_partition_local(location, permit).await,
+            PartitionReaderEnum::Local { memory_limit } => {
+                fetch_partition_local(location, permit, *memory_limit).await
+            }
             PartitionReaderEnum::FlightRemote {
                 clients,
                 max_request_per_client,
@@ -671,8 +688,17 @@ impl PartitionReader for PartitionReaderEnum {
                 )
                 .await
             }
-            PartitionReaderEnum::ObjectStoreRemote { object_store } => {
-                fetch_partition_object_store(location, object_store.clone(), permit).await
+            PartitionReaderEnum::ObjectStoreRemote {
+                object_store,
+                memory_limit,
+            } => {
+                fetch_partition_object_store(
+                    location,
+                    object_store.clone(),
+                    permit,
+                    *memory_limit,
+                )
+                .await
             }
         }
     }
@@ -743,19 +769,22 @@ async fn fetch_partition_remote(
 async fn fetch_partition_local(
     location: &PartitionLocation,
     permit: tokio::sync::OwnedSemaphorePermit,
+    memory_limit: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let path = &location.path;
     let metadata = &location.executor_meta;
 
-    let reader = fetch_partition_local_inner(path).await.map_err(|e| {
-        // return BallistaError::FetchFailed may let scheduler retry this task.
-        BallistaError::FetchFailed(
-            metadata.id.clone(),
-            location.stage_id,
-            location.map_partitions.clone(),
-            e.to_string(),
-        )
-    })?;
+    let reader = fetch_partition_local_inner(path, memory_limit)
+        .await
+        .map_err(|e| {
+            // return BallistaError::FetchFailed may let scheduler retry this task.
+            BallistaError::FetchFailed(
+                metadata.id.clone(),
+                location.stage_id,
+                location.map_partitions.clone(),
+                e.to_string(),
+            )
+        })?;
 
     Ok(PermitRecordBatchStream::wrap_with_on_close(
         reader.to_stream(),
@@ -770,11 +799,16 @@ async fn fetch_partition_local(
 
 async fn fetch_partition_local_inner(
     path: &str,
+    memory_limit: usize,
 ) -> result::Result<AsyncStreamReader<BufReader<Compat<File>>>, BallistaError> {
     let file = File::open(path).await.map_err(|e| {
         BallistaError::General(format!("Failed to open partition file at {path}: {e:?}"))
     })?;
-    let reader = AsyncStreamReader::try_new(file.compat(), None, "local".to_string())
+    let options = AsyncStreamReaderOptions::new(
+        Type::Local("shuffle_reader".to_string()),
+        memory_limit,
+    );
+    let reader = AsyncStreamReader::try_new(file.compat(), None, options)
         .await
         .map_err(|e| {
             BallistaError::General(format!(
@@ -788,8 +822,10 @@ pub async fn fetch_partition_object_store(
     location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
     permit: tokio::sync::OwnedSemaphorePermit,
+    memory_limit: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
-    let stream = fetch_partition_object_store_inner(location, object_store).await?;
+    let stream =
+        fetch_partition_object_store_inner(location, object_store, memory_limit).await?;
     Ok(PermitRecordBatchStream::wrap_with_on_close(
         stream,
         Some(Box::new(|elapsed: f64| {
@@ -804,6 +840,7 @@ pub async fn fetch_partition_object_store(
 pub async fn fetch_partition_object_store_inner(
     location: &PartitionLocation,
     object_store: Arc<dyn ObjectStore>,
+    memory_limit: usize,
 ) -> result::Result<SendableRecordBatchStream, BallistaError> {
     let executor_id = location.executor_meta.id.clone();
     let path = Path::parse(format!("{}{}", executor_id, location.path)).map_err(|e| {
@@ -816,6 +853,7 @@ pub async fn fetch_partition_object_store_inner(
         location.stage_id,
         &location.map_partitions,
         object_store,
+        memory_limit,
     )
     .await
 }
@@ -826,6 +864,7 @@ pub async fn batch_stream_from_object_store(
     stage_id: usize,
     map_partitions: &[usize],
     object_store: Arc<dyn ObjectStore>,
+    memory_limit: usize,
 ) -> Result<SendableRecordBatchStream, BallistaError> {
     let stream = object_store
         .as_ref()
@@ -845,15 +884,18 @@ pub async fn batch_stream_from_object_store(
         .into_stream();
 
     let async_reader = stream.map_err(|e| e.into()).into_async_read();
-    let reader =
-        AsyncStreamReader::try_new(async_reader, None, "object_store".to_string())
-            .await
-            .map_err(|e| {
-                BallistaError::General(format!(
-                    "Failed to build async partition reader - {:?}",
-                    e
-                ))
-            })?;
+    let options = AsyncStreamReaderOptions::new(
+        Type::ObjectStore("shuffle_reader".to_string()),
+        memory_limit,
+    );
+    let reader = AsyncStreamReader::try_new(async_reader, None, options)
+        .await
+        .map_err(|e| {
+            BallistaError::General(format!(
+                "Failed to build async partition reader - {:?}",
+                e
+            ))
+        })?;
     Ok(reader.to_stream())
 }
 
@@ -1032,7 +1074,7 @@ mod tests {
 
         // from to input partitions test the first one with two batches
         let file_path = path.value(0);
-        let reader = fetch_partition_local_inner(file_path).await.unwrap();
+        let reader = fetch_partition_local_inner(file_path, 1024).await.unwrap();
 
         let mut stream: SendableRecordBatchStream = reader.to_stream();
 
