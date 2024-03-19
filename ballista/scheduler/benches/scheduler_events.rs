@@ -393,7 +393,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group
         .sample_size(10)
         .sampling_mode(SamplingMode::Flat)
-        .measurement_time(Duration::from_secs(30));
+        .measurement_time(Duration::from_secs(65));
 
     group.bench_function("scheduler_event", move |b| {
         let rt = Builder::new_multi_thread().enable_all().build().unwrap();
@@ -415,6 +415,7 @@ fn criterion_benchmark(c: &mut Criterion) {
 
             for id in 0..50 {
                 let job_id = format!("job-{id}");
+
                 server
                     .submit_job(&job_id, "", ctx.clone(), &plan)
                     .await
@@ -426,9 +427,9 @@ fn criterion_benchmark(c: &mut Criterion) {
                         tokio::time::sleep(Duration::from_millis(500)).await;
 
                         if let Ok(Some(JobStatus {
-                            status: Some(Status::Successful(_)),
-                            ..
-                        })) = server.state.task_manager.get_job_status(&job_id).await
+                                           status: Some(Status::Successful(_)),
+                                           ..
+                                       })) = server.state.task_manager.get_job_status(&job_id).await
                         {
                             break;
                         }
