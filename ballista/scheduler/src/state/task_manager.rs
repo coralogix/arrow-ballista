@@ -47,6 +47,7 @@ use datafusion_proto::physical_plan::AsExecutionPlan;
 use datafusion::prelude::SessionContext;
 use itertools::Itertools;
 use lazy_static::lazy_static;
+use parking_lot::Mutex;
 use prometheus::{register_histogram, Histogram};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -55,7 +56,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use parking_lot::Mutex;
 use tracing::{debug, error, info, warn};
 
 use tokio::sync::{watch, RwLock, RwLockWriteGuard};
@@ -133,10 +133,7 @@ impl TaskQueue {
         Self {
             inner: Mutex::new(BinaryHeap::new()),
             jobs: Arc::new(DashMap::new()),
-            global_task_metrics: Mutex::new(TaskMetrics {
-                pass: 0,
-                tokens: 0,
-            }),
+            global_task_metrics: Mutex::new(TaskMetrics { pass: 0, tokens: 0 }),
         }
     }
 
@@ -146,10 +143,7 @@ impl TaskQueue {
         self.global_task_metrics.lock().tokens += tokens;
         self.inner.lock().push(ActiveJob {
             id: job_id.clone(),
-            metrics: TaskMetrics {
-                pass: 0,
-                tokens,
-            },
+            metrics: TaskMetrics { pass: 0, tokens },
         });
 
         self.jobs.insert(job_id, JobInfoCache::new(graph));
@@ -168,7 +162,9 @@ impl TaskQueue {
     }
 
     pub fn update_assigned_tasks(&self, assigned_task_slots: usize) {
-        self.global_task_metrics.lock().update_pass(assigned_task_slots);
+        self.global_task_metrics
+            .lock()
+            .update_pass(assigned_task_slots);
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -188,7 +184,10 @@ impl TaskQueue {
     }
 
     pub fn pending_tasks(&self) -> usize {
-        self.jobs.iter().map(|job| job.pending_tasks.load(Ordering::Acquire)).sum()
+        self.jobs
+            .iter()
+            .map(|job| job.pending_tasks.load(Ordering::Acquire))
+            .sum()
     }
 }
 
@@ -202,7 +201,7 @@ pub const STAGE_MAX_FAILURES: usize = 4;
 
 #[async_trait::async_trait]
 pub trait TaskLauncher<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan>:
-Send + Sync + 'static
+    Send + Sync + 'static
 {
     fn prepare_task_definition(
         &self,
@@ -240,7 +239,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> DefaultTaskLaunch
 
 #[async_trait::async_trait]
 impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskLauncher<T, U>
-for DefaultTaskLauncher<T, U>
+    for DefaultTaskLauncher<T, U>
 {
     fn prepare_task_definition(
         &self,
@@ -753,7 +752,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                 execution_error::Cancelled {},
             )),
         )
-            .await
+        .await
     }
 
     /// Abort the job and return a Vec of running tasks need to cancel

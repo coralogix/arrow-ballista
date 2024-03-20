@@ -426,9 +426,9 @@ fn criterion_benchmark(c: &mut Criterion) {
                         tokio::time::sleep(Duration::from_millis(500)).await;
 
                         if let Ok(Some(JobStatus {
-                                           status: Some(Status::Successful(_)),
-                                           ..
-                                       })) = server.state.task_manager.get_job_status(&job_id).await
+                            status: Some(Status::Successful(_)),
+                            ..
+                        })) = server.state.task_manager.get_job_status(&job_id).await
                         {
                             break;
                         }
