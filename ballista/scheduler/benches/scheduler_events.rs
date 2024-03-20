@@ -410,7 +410,6 @@ fn criterion_benchmark(c: &mut Criterion) {
                 .unwrap()
                 .logical_plan()
                 .clone();
-
             let mut completions = vec![];
 
             for id in 0..50 {

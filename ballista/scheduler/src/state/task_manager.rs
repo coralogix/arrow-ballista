@@ -77,13 +77,12 @@ lazy_static! {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveJob {
     id: String,
-    assigned_tasks: usize,
-    available_tasks: usize,
+    metrics: TaskMetrics,
 }
 
 impl ActiveJob {
     pub fn update_pass(&mut self, scheduled_task_slots: usize) {
-        self.assigned_tasks = scheduled_task_slots;
+        self.metrics.update_pass(scheduled_task_slots);
     }
 }
 
@@ -95,19 +94,32 @@ impl PartialOrd for ActiveJob {
 
 impl Ord for ActiveJob {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let self_remainder = self.available_tasks - self.assigned_tasks;
-        let other_remainder = other.available_tasks - other.assigned_tasks;
-
-        other_remainder
-            .overflowing_sub(1)
-            .0
-            .cmp(&self_remainder.overflowing_sub(1).0)
+        other.metrics.cmp(&self.metrics)
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct TaskMetrics {
-    assigned_tasks: usize,
-    available_tasks: usize,
+    pass: usize,
+    tokens: usize,
+}
+
+impl TaskMetrics {
+    pub fn update_pass(&mut self, scheduled_task_slots: usize) {
+        self.pass += scheduled_task_slots / self.tokens;
+    }
+}
+
+impl PartialOrd for TaskMetrics {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for TaskMetrics {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        other.pass.cmp(&self.pass)
+    }
 }
 
 struct TaskQueue {
@@ -122,8 +134,8 @@ impl TaskQueue {
             inner: Mutex::new(BinaryHeap::new()),
             jobs: Arc::new(DashMap::new()),
             global_task_metrics: Mutex::new(TaskMetrics {
-                assigned_tasks: 0,
-                available_tasks: 0,
+                pass: 0,
+                tokens: 0,
             }),
         }
     }
@@ -131,11 +143,13 @@ impl TaskQueue {
     pub fn submit(&self, graph: ExecutionGraph, tokens: usize) {
         let job_id = graph.job_id().to_owned();
 
-        self.global_task_metrics.lock().available_tasks += tokens;
+        self.global_task_metrics.lock().tokens += tokens;
         self.inner.lock().push(ActiveJob {
             id: job_id.clone(),
-            assigned_tasks: 0,
-            available_tasks: tokens,
+            metrics: TaskMetrics {
+                pass: 0,
+                tokens,
+            },
         });
 
         self.jobs.insert(job_id, JobInfoCache::new(graph));
@@ -153,10 +167,8 @@ impl TaskQueue {
         self.inner.lock().push(job);
     }
 
-    pub fn update_assigned_tasks(&self, scheduled_task_slots: usize) {
-        let mut guard = self.global_task_metrics.lock();
-
-        guard.assigned_tasks += scheduled_task_slots;
+    pub fn update_assigned_tasks(&self, assigned_task_slots: usize) {
+        self.global_task_metrics.lock().update_pass(assigned_task_slots);
     }
 
     pub fn jobs(&self) -> &ActiveJobCache {
@@ -176,12 +188,7 @@ impl TaskQueue {
     }
 
     pub fn pending_tasks(&self) -> usize {
-        let mut count = 0;
-        for job in self.jobs.iter() {
-            count += job.pending_tasks.load(Ordering::Acquire);
-        }
-
-        count
+        self.jobs.iter().map(|job| job.pending_tasks.load(Ordering::Acquire)).sum()
     }
 }
 
@@ -640,14 +647,15 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
 
         let mut assignments: Vec<(String, TaskDescription)> = vec![];
         let mut pending_tasks = 0usize;
-        let mut assign_tasks = 0usize;
+        let mut assigned_task_count = 0usize;
+        let mut assigned_jobs = vec![];
 
         for _ in 0..self.get_active_job_count().await {
             let task_queue = self.active_job_queue.as_ref();
 
             if let Some((mut active_job, job_info)) = task_queue.pop() {
                 let mut graph = job_info.graph_mut().await;
-                let mut scheduled_tasks_this_job = 0;
+                let mut job_assigned_tasks = 0;
 
                 for (exec_id, slots) in free_reservations.iter_mut() {
                     if slots.is_empty() {
@@ -666,8 +674,8 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                                     / 1_000.,
                             );
 
-                            assign_tasks += task.concurrency();
-                            scheduled_tasks_this_job += task.concurrency();
+                            assigned_task_count += task.concurrency();
+                            job_assigned_tasks += task.concurrency();
                             slots.truncate(slots.len() - task.concurrency());
                             assignments.push(((*exec_id).clone(), task));
                         }
@@ -676,8 +684,7 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                             break;
                         }
                         res @ Err(_) => {
-                            // push job back into queue with updated remaining tasks
-                            task_queue.push_job(active_job.clone());
+                            assigned_jobs.push(active_job.clone());
                             error!(
                                 job_id = &graph.job_id(),
                                 "failed to pop next task: {:?}", res
@@ -687,16 +694,21 @@ impl<T: 'static + AsLogicalPlan, U: 'static + AsExecutionPlan> TaskManager<T, U>
                     }
                 }
 
-                active_job.update_pass(scheduled_tasks_this_job);
-                task_queue.push_job(active_job.clone());
+                active_job.update_pass(job_assigned_tasks);
+                assigned_jobs.push(active_job.clone());
 
-                if assign_tasks >= num_reservations {
+                if assigned_task_count >= num_reservations {
                     pending_tasks += graph.available_tasks();
                     break;
                 }
             } else {
                 break;
             }
+        }
+
+        // push jobs with assigned tasks back into queue
+        for job in assigned_jobs {
+            self.active_job_queue.push_job(job);
         }
 
         let mut unassigned = vec![];
